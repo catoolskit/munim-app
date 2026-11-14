@@ -1,7 +1,7 @@
 """First-run desktop shortcut for the built MUNIM.exe.
 Asks once, remembers the answer, and re-points the shortcut if the .exe is moved."""
 import json, os, subprocess, sys, threading
-from db.setup import data_dir
+from utils import settings
 
 PS_SCRIPT = r"""
 $ErrorActionPreference = 'Stop'
@@ -20,20 +20,6 @@ $s.IconLocation = "$exe,0"
 $s.Description = 'MUNIM - Accounting for small business'
 $s.Save()
 """
-
-def settings_path():
-    return os.path.join(data_dir(), "settings.json")
-
-def load_settings():
-    try:
-        with open(settings_path(), encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return {}
-
-def save_settings(st):
-    with open(settings_path(), "w", encoding="utf-8") as f:
-        json.dump(st, f, indent=2)
 
 def create_shortcut(exe):
     """Creates or re-points %Desktop%\\MUNIM.lnk. Returns (ok, error_text)."""
@@ -58,17 +44,17 @@ def setup(ask, notify, runner=create_shortcut, frozen=None, exe=None, is_windows
     if not (frozen and is_windows):
         return
     exe = exe or sys.executable
-    st = load_settings()
+    st = settings.load_settings()
     choice = st.get("desktop_shortcut")
     if choice is None:
         choice = bool(ask())
         st["desktop_shortcut"] = choice
-        save_settings(st)
+        settings.save_settings(st)
         if choice:
             ok, err = runner(exe)
             if not ok:
                 st["desktop_shortcut"] = False
-                save_settings(st)
+                settings.save_settings(st)
                 notify("Could not create the desktop shortcut automatically.\n\n"
                        "You can make one yourself: right-click MUNIM.exe > Send to > Desktop "
                        f"(create shortcut).\n\nDetails: {err}")

@@ -229,3 +229,15 @@ def counts(con):
     return {"parties": one("SELECT COUNT(*) FROM parties"),
             "accounts": one("SELECT COUNT(*) FROM accounts"),
             "vouchers": one("SELECT COUNT(*) FROM vouchers")}
+
+
+def backup_db(con, folder):
+    """Consistent copy of the live database into folder. Returns the new file's path."""
+    from datetime import datetime
+    dest_path = os.path.join(folder, f"munim_backup_{datetime.now():%Y%m%d_%H%M%S}.db")
+    dest = sqlite3.connect(dest_path)
+    try:
+        con.backup(dest)
+    finally:
+        dest.close()
+    return dest_path

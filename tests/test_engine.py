@@ -89,5 +89,15 @@ class Step2aTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             s.add_party(self.con, "Z", "Supplier")
 
+class BackupTests(unittest.TestCase):
+    def test_backup_copies_data(self):
+        import sqlite3
+        con = s.init_db(os.path.join(tempfile.mkdtemp(), "t.db"))
+        s.add_party(con, "Ram Traders", "Customer", opening=100)
+        out = s.backup_db(con, tempfile.mkdtemp())
+        copy = sqlite3.connect(out)
+        self.assertEqual(copy.execute("SELECT COUNT(*) FROM parties").fetchone()[0], 1)
+        copy.close()
+
 if __name__ == "__main__":
     unittest.main()
