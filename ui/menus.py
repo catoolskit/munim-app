@@ -15,11 +15,14 @@ MENUS = {
         M("Stock Items", "S"),
     ]),
     "transactions": ("Transactions", [
-        M("Journal Entry", "J"), M("Sales", "S"), M("Purchase", "P"), M("GST Invoice", "G"),
+        M("Voucher Entry", "V", ("page", "journal")), M("Sales Invoice", "S", ("page", "sales")),
+        M("Purchase Bill", "P", ("page", "purchase")), M("GST Invoice (print)", "G"),
     ]),
     "reports": ("Reports", [
-        M("Ledger View", "L"), M("Trial Balance", "T"), M("Cash Book", "C"), M("Day Book", "D"),
-        M("Balance Sheet", "B"), M("Profit & Loss", "P"), M("Stock Summary", "S"),
+        M("Ledger View", "L", ("page", "ledger")), M("Trial Balance", "T", ("page", "trial")),
+        M("Cash Book", "C", ("page", "cashbook")), M("Day Book", "D", ("page", "daybook")),
+        M("Balance Sheet", "B", ("page", "bs")), M("Profit & Loss", "P", ("page", "pl")),
+        M("Stock Summary", "S"),
     ]),
     "utilities": ("Utilities", [
         M("Company Details", "C", ("page", "company")),

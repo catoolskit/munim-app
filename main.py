@@ -2,7 +2,7 @@ import customtkinter as ctk
 from db.setup import init_db, db_path, login, change_password
 from ui.shell import Shell
 from ui import theme as T
-from utils import shortcut
+from utils import shortcut, errlog
 from tkinter import messagebox
 
 
@@ -18,6 +18,10 @@ class MunimApp(ctk.CTk):
         self.frame = None
         self.show_login()
         self.after(700, self._desktop_shortcut)
+
+    def report_callback_exception(self, exc, val, tb):
+        errlog.log_exception(exc, val, tb)
+        messagebox.showerror("MUNIM", f"Something went wrong:\n{val}\n\nDetails were saved to {errlog.log_path()}")
 
     def _desktop_shortcut(self):
         shortcut.setup(

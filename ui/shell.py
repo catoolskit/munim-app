@@ -1,3 +1,4 @@
+import sys
 from datetime import date
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
@@ -5,9 +6,29 @@ from db import setup as s
 from ui import theme as T
 from ui.menus import MENUS
 from ui.party import PartyFrame
+from ui.entry_screens import JournalFrame, TradeFrame
+from ui.report_screens import (TrialBalanceFrame, LedgerFrame, DayBookFrame,
+                               ProfitLossFrame, BalanceSheetFrame)
+from ui.widgets import ErrorPanel
+from utils import errlog
 from ui.utilities import CompanyFrame, PasswordFrame
 from utils import settings
 
+PAGES = {
+    "party": ("Party Master", lambda sh: PartyFrame(sh.body, sh.con)),
+    "company": ("Company Details", lambda sh: CompanyFrame(sh.body, sh.refresh_company)),
+    "password": ("Change Password", lambda sh: PasswordFrame(sh.body, sh.con, sh.username)),
+    "journal": ("Voucher Entry", lambda sh: JournalFrame(sh.body, sh.con)),
+    "sales": ("Sales Invoice", lambda sh: TradeFrame(sh.body, sh.con, "Sales")),
+    "purchase": ("Purchase Bill", lambda sh: TradeFrame(sh.body, sh.con, "Purchase")),
+    "trial": ("Trial Balance", lambda sh: TrialBalanceFrame(sh.body, sh.con)),
+    "ledger": ("Ledger View", lambda sh: LedgerFrame(sh.body, sh.con)),
+    "cashbook": ("Cash Book", lambda sh: LedgerFrame(sh.body, sh.con, ["Cash", "Bank"], "Cash Book",
+                                                      "Cash and bank entries with a running balance.")),
+    "daybook": ("Day Book", lambda sh: DayBookFrame(sh.body, sh.con)),
+    "pl": ("Profit & Loss", lambda sh: ProfitLossFrame(sh.body, sh.con)),
+    "bs": ("Balance Sheet", lambda sh: BalanceSheetFrame(sh.body, sh.con)),
+}
 SEL_BG, HINT = "#E6EEFA", "↑ ↓ move     Enter open     Letter jump     Esc back"
 
 
@@ -27,7 +48,7 @@ class MenuView(ctk.CTkFrame):
         for i, it in enumerate(items):
             on = it["go"] is not None
             row = ctk.CTkFrame(card, fg_color="transparent", corner_radius=8, height=46, width=352)
-            row.pack(padx=16, pady=2)
+            row.pack(padx=16, pady=(2, 16) if i == len(items) - 1 else 2)
             row.pack_propagate(False)
             lbl = ctk.CTkLabel(row, text=it["label"], font=T.f(15), anchor="w",
                                text_color=T.TEXT if on else "#A3ACBF")
@@ -39,9 +60,8 @@ class MenuView(ctk.CTkFrame):
             chip.pack(side="right", padx=12)
             for w in (row, lbl, chip):
                 w.bind("<Button-1>", lambda _e, i=i: self.pick(i))
-                w.bind("<Enter>", lambda _e, i=i: self.select(i))
+                w.bind("<Motion>", lambda _e, i=i: self.select(i))
             self.rows.append(row)
-        ctk.CTkFrame(card, fg_color="transparent", height=14).pack()
         self.select(0)
 
     def select(self, i):
@@ -130,12 +150,12 @@ class Shell(ctk.CTkFrame):
             self.current = MenuView(self.body, title, items, self.pick, side)
             self.top.focus_set()
         else:
-            self.current = {"party": lambda: PartyFrame(self.body, self.con),
-                            "company": lambda: CompanyFrame(self.body, self.refresh_company),
-                            "password": lambda: PasswordFrame(self.body, self.con, self.username)}[name]()
+            try:
+                self.current = PAGES[name][1](self)
+            except Exception:
+                self.current = ErrorPanel(self.body, errlog.log_exception(*sys.exc_info()))
         self.current.pack(fill="both", expand=True)
-        pages = {"party": "Party Master", "company": "Company Details", "password": "Change Password"}
-        labels = ["Gateway"] + [MENUS[n][0] if k == "menu" else pages[n] for k, n in self.stack[1:]]
+        labels = ["Gateway"] + [MENUS[n][0] if k == "menu" else PAGES[n][0] for k, n in self.stack[1:]]
         self.crumb.configure(text="  ›  ".join(labels))
         if len(self.stack) > 1:
             self.back_btn.pack(side="left", before=self.crumb)
@@ -184,7 +204,7 @@ class Shell(ctk.CTkFrame):
             ctk.CTkLabel(card, text="Tip: add your company under Utilities > Company Details.",
                          font=T.f(12), text_color=T.ACCENT, wraplength=250, justify="left").pack(
                 anchor="w", padx=24, pady=(14, 0))
-        ctk.CTkFrame(card, fg_color="transparent", height=18).pack()
+        ctk.CTkFrame(card, fg_color=T.CARD, corner_radius=0, height=18).pack()
         return card
 
     def backup(self):

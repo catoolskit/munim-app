@@ -29,8 +29,10 @@ def entry(master, placeholder="", **kw):
 
 def button(master, text, command=None, **kw):
     kw.setdefault("height", 38)
-    return ctk.CTkButton(master, text=text, command=command, fg_color=ACCENT,
-                         hover_color=ACCENT_HOVER, corner_radius=8, font=f(13, "bold"), **kw)
+    kw.setdefault("fg_color", ACCENT)
+    kw.setdefault("hover_color", ACCENT_HOVER)
+    return ctk.CTkButton(master, text=text, command=command, corner_radius=8,
+                         font=f(13, "bold"), **kw)
 
 
 def option_menu(master, values, **kw):
@@ -59,3 +61,11 @@ def style_tree():
     st.map("Munim.Treeview", background=[("selected", ACCENT)],
            foreground=[("selected", "white")])
     st.map("Munim.Treeview.Heading", background=[("active", "#E3E9F4")])
+
+
+def combo(master, values, **kw):
+    kw.setdefault("height", 38)
+    return ctk.CTkComboBox(master, values=values, fg_color="white", border_color=BORDER,
+                           border_width=1, button_color=ACCENT, button_hover_color=ACCENT_HOVER,
+                           dropdown_fg_color="white", dropdown_text_color=TEXT, text_color=TEXT,
+                           corner_radius=8, font=f(13), **kw)

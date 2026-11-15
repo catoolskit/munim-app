@@ -127,12 +127,19 @@ def init_db(path=None):
 
 def post_voucher(con, vtype, vdate, narration, lines):
     """lines: list of (account_name, dr_rupees, cr_rupees). Rejects unbalanced vouchers."""
+    return post_voucher_paise(con, vtype, vdate, narration,
+                              [(n, to_paise(d), to_paise(c)) for n, d, c in lines])
+
+def post_voucher_paise(con, vtype, vdate, narration, lines):
+    """Same as post_voucher but amounts are integer paise (used by GST billing)."""
     rows = []
     for name, dr, cr in lines:
+        if dr == 0 and cr == 0:
+            continue
         a = con.execute("SELECT id FROM accounts WHERE name=?", (name,)).fetchone()
         if not a:
             raise ValueError(f"Unknown account: {name}")
-        rows.append((a["id"], to_paise(dr), to_paise(cr)))
+        rows.append((a["id"], dr, cr))
     if len(rows) < 2:
         raise ValueError("A voucher needs at least two lines")
     if sum(r[1] for r in rows) != sum(r[2] for r in rows):
@@ -151,24 +158,52 @@ def post_voucher(con, vtype, vdate, narration, lines):
         raise
     return vno
 
-def trial_balance(con, fy):
-    """Returns (rows, total_dr, total_cr) in rupees. Opening balances count as of FY start."""
+def ensure_account(con, name, grp, nature):
+    if not con.execute("SELECT 1 FROM accounts WHERE name=?", (name,)).fetchone():
+        con.execute("INSERT INTO accounts(name,grp,nature) VALUES(?,?,?)", (name, grp, nature))
+        con.commit()
+
+def account_states(con, fy):
+    """Per account: opening brought forward, FY movement, and the prior-year profit.
+    Balance-sheet accounts carry prior years forward; income/expense accounts start at zero
+    each FY and their prior result is rolled into 'prior_pl' (Cr-positive = profit), in paise."""
     start, end = fy_range(fy)
+    rows = con.execute(
+        """SELECT a.id, a.name, a.nature, a.opening, a.opening_side,
+             COALESCE(SUM(CASE WHEN v.vdate < ? THEN e.dr END),0) pdr,
+             COALESCE(SUM(CASE WHEN v.vdate < ? THEN e.cr END),0) pcr,
+             COALESCE(SUM(CASE WHEN v.vdate BETWEEN ? AND ? THEN e.dr END),0) dr,
+             COALESCE(SUM(CASE WHEN v.vdate BETWEEN ? AND ? THEN e.cr END),0) cr
+           FROM accounts a LEFT JOIN entries e ON e.account_id=a.id
+                           LEFT JOIN vouchers v ON v.id=e.voucher_id
+           GROUP BY a.id ORDER BY a.nature, a.name""",
+        (start, start, start, end, start, end)).fetchall()
+    out, prior_pl = [], 0
+    for r in rows:
+        signed_open = r["opening"] if r["opening_side"] == "Dr" else -r["opening"]
+        if r["nature"] in ("Asset", "Liability"):
+            bf = signed_open + r["pdr"] - r["pcr"]
+        else:
+            bf = 0
+            prior_pl += (r["pcr"] - r["pdr"]) - signed_open
+        out.append({"id": r["id"], "name": r["name"], "nature": r["nature"],
+                    "bf": bf, "dr": r["dr"], "cr": r["cr"]})
+    return out, prior_pl
+
+def trial_balance(con, fy):
+    """Returns (rows, total_dr, total_cr) in rupees, with prior years carried forward."""
+    states, prior_pl = account_states(con, fy)
     out, td, tc = [], 0, 0
-    for a in con.execute("SELECT * FROM accounts ORDER BY nature, name"):
-        t = con.execute(
-            """SELECT COALESCE(SUM(e.dr),0) d, COALESCE(SUM(e.cr),0) c FROM entries e
-               JOIN vouchers v ON v.id=e.voucher_id
-               WHERE e.account_id=? AND v.vdate BETWEEN ? AND ?""",
-            (a["id"], start, end)).fetchone()
-        dr = t["d"] + (a["opening"] if a["opening_side"] == "Dr" else 0)
-        cr = t["c"] + (a["opening"] if a["opening_side"] == "Cr" else 0)
-        net = dr - cr
+    def add(name, net):
+        nonlocal td, tc
         if net == 0:
-            continue
+            return
         d, c = (net, 0) if net > 0 else (0, -net)
-        out.append((a["name"], to_rupees(d), to_rupees(c)))
+        out.append((name, to_rupees(d), to_rupees(c)))
         td += d; tc += c
+    for st in states:
+        add(st["name"], st["bf"] + st["dr"] - st["cr"])
+    add("Profit & Loss A/c (b/f)", -prior_pl)
     if td != tc:  # opening balances entered one-sided, as Tally shows it
         diff = abs(td - tc)
         if td > tc:
@@ -241,3 +276,11 @@ def backup_db(con, folder):
     finally:
         dest.close()
     return dest_path
+
+
+def fy_choices(con):
+    """Financial years to offer in pickers: this year, last year, and any year with vouchers."""
+    y = date.today().year if date.today().month >= 4 else date.today().year - 1
+    fys = {f"{y}-{str(y + 1)[2:]}", f"{y - 1}-{str(y)[2:]}"}
+    fys |= {r[0] for r in con.execute("SELECT DISTINCT fy FROM vouchers")}
+    return sorted(fys, reverse=True)
