@@ -13,39 +13,41 @@ from ui.report_screens import (TrialBalanceFrame, LedgerFrame, DayBookFrame, Out
                                ProfitLossFrame, BalanceSheetFrame, InvoiceRegisterFrame)
 from ui.voucher_dialog import VoucherDialog
 from ui.widgets import ErrorPanel
+from ui.utilities import CompanyFrame, PasswordFrame, AuditFrame, ResetDataFrame
+from ui.user_mgmt import UserMgmtFrame
 from utils import errlog
-from ui.utilities import CompanyFrame, PasswordFrame, AuditFrame
 from utils import settings
 from utils.fmt import inr, disp_date
 
 PAGES = {
-    "party": ("Party Master", lambda sh: PartyFrame(sh.body, sh.con)),
-    "company": ("Company Details", lambda sh: CompanyFrame(sh.body, sh.refresh_company)),
-    "password": ("Change Password", lambda sh: PasswordFrame(sh.body, sh.con, sh.username)),
-    "journal": ("Voucher Entry", lambda sh: JournalFrame(sh.body, sh.con, sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
-    "sales": ("Sales Invoice", lambda sh: TradeFrame(sh.body, sh.con, "Sales", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
-    "purchase": ("Purchase Bill", lambda sh: TradeFrame(sh.body, sh.con, "Purchase", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
-    "summary": ("Daily Sales Summary", lambda sh: SummaryFrame(sh.body, sh.con, sh.username, sh.open_voucher)),
-    "payment": ("Receipt / Payment", lambda sh: PaymentFrame(sh.body, sh.con, sh.username, sh.open_voucher)),
-    "outstanding": ("Outstanding", lambda sh: OutstandingFrame(sh.body, sh.con, sh.open_voucher)),
-    "help": ("Help & Shortcuts", lambda sh: HelpFrame(sh.body)),
-    "accounts": ("Ledger Accounts", lambda sh: AccountMasterFrame(sh.body, sh.con)),
-    "salesreg": ("Sales Register", lambda sh: InvoiceRegisterFrame(sh.body, sh.con, "Sales", sh.open_voucher)),
-    "purchasereg": ("Purchase Register", lambda sh: InvoiceRegisterFrame(sh.body, sh.con, "Purchase", sh.open_voucher)),
-    "audit": ("Audit Log", lambda sh: AuditFrame(sh.body, sh.con)),
-    "trial": ("Trial Balance", lambda sh: TrialBalanceFrame(sh.body, sh.con)),
-    "ledger": ("Ledger View", lambda sh: LedgerFrame(sh.body, sh.con)),
-    "cashbook": ("Cash Book", lambda sh: LedgerFrame(sh.body, sh.con, ["Cash", "Bank"], "Cash Book",
-                                                      "Cash and bank entries with a running balance.")),
-    "daybook": ("Day Book", lambda sh: DayBookFrame(sh.body, sh.con, sh.open_voucher)),
-    "pl": ("Trading & P&L", lambda sh: ProfitLossFrame(sh.body, sh.con)),
-    "bs": ("Balance Sheet", lambda sh: BalanceSheetFrame(sh.body, sh.con)),
+    "party":      ("Party Master",         lambda sh: PartyFrame(sh.body, sh.con)),
+    "company":    ("Company Details",      lambda sh: CompanyFrame(sh.body, sh.refresh_company)),
+    "password":   ("Change Password",      lambda sh: PasswordFrame(sh.body, sh.con, sh.username)),
+    "users":      ("User Management",      lambda sh: UserMgmtFrame(sh.body, sh.con, sh.username)),
+    "reset":      ("Reset All Data",       lambda sh: ResetDataFrame(sh.body, sh.con)),
+    "journal":    ("Voucher Entry",        lambda sh: JournalFrame(sh.body, sh.con, sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
+    "sales":      ("Sales Invoice",        lambda sh: TradeFrame(sh.body, sh.con, "Sales", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
+    "purchase":   ("Purchase Bill",        lambda sh: TradeFrame(sh.body, sh.con, "Purchase", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
+    "summary":    ("Daily Sales Summary",  lambda sh: SummaryFrame(sh.body, sh.con, sh.username, sh.open_voucher)),
+    "payment":    ("Receipt / Payment",    lambda sh: PaymentFrame(sh.body, sh.con, sh.username, sh.open_voucher)),
+    "outstanding":("Outstanding",          lambda sh: OutstandingFrame(sh.body, sh.con, sh.open_voucher)),
+    "help":       ("Help & Shortcuts",     lambda sh: HelpFrame(sh.body)),
+    "accounts":   ("Ledger Accounts",      lambda sh: AccountMasterFrame(sh.body, sh.con)),
+    "salesreg":   ("Sales Register",       lambda sh: InvoiceRegisterFrame(sh.body, sh.con, "Sales", sh.open_voucher)),
+    "purchasereg":("Purchase Register",    lambda sh: InvoiceRegisterFrame(sh.body, sh.con, "Purchase", sh.open_voucher)),
+    "audit":      ("Audit Log",            lambda sh: AuditFrame(sh.body, sh.con)),
+    "trial":      ("Trial Balance",        lambda sh: TrialBalanceFrame(sh.body, sh.con)),
+    "ledger":     ("Ledger View",          lambda sh: LedgerFrame(sh.body, sh.con)),
+    "cashbook":   ("Cash Book",            lambda sh: LedgerFrame(sh.body, sh.con, ["Cash", "Bank"], "Cash Book",
+                                                                   "Cash and bank entries with a running balance.")),
+    "daybook":    ("Day Book",             lambda sh: DayBookFrame(sh.body, sh.con, sh.open_voucher)),
+    "pl":         ("Trading & P&L",        lambda sh: ProfitLossFrame(sh.body, sh.con)),
+    "bs":         ("Balance Sheet",        lambda sh: BalanceSheetFrame(sh.body, sh.con)),
 }
 SEL_BG, HINT = "#E6EEFA", "↑ ↓ move     Enter open     Letter jump     Esc back"
 
 
 class MenuView(ctk.CTkFrame):
-    """A Tally-style centred menu: arrows + Enter, or press the highlighted letter."""
     def __init__(self, master, title, items, on_pick, side=None):
         super().__init__(master, fg_color="transparent")
         self.items, self.on_pick, self.sel, self.rows = items, on_pick, 0, []
@@ -72,7 +74,7 @@ class MenuView(ctk.CTkFrame):
             chip.pack(side="right", padx=12)
             for w in (row, lbl, chip):
                 w.bind("<Button-1>", lambda _e, i=i: self.pick(i))
-                w.bind("<Motion>", lambda _e, i=i: self.select(i))
+                w.bind("<Motion>",   lambda _e, i=i: self.select(i))
             self.rows.append(row)
         self.select(0)
 
@@ -121,18 +123,18 @@ class Shell(ctk.CTkFrame):
         right.pack(side="right", padx=20)
         self.company_lbl = ctk.CTkLabel(right, text="", font=T.f(13, "bold"), text_color="white")
         self.company_lbl.pack(anchor="e")
-        ctk.CTkLabel(right, text=f"FY {s.fy_of(date.today())}  ·  {username}", font=T.f(11),
-                     text_color="#9FB3D9").pack(anchor="e")
+        ctk.CTkLabel(right, text=f"FY {s.fy_of(date.today())}  ·  {username}",
+                     font=T.f(11), text_color="#9FB3D9").pack(anchor="e")
 
-        self.status = ctk.CTkLabel(self, text=HINT, font=T.f(11), text_color=T.MUTED, anchor="w",
-                                   fg_color="#EAEEF5", height=28, corner_radius=0)
+        self.status = ctk.CTkLabel(self, text=HINT, font=T.f(11), text_color=T.MUTED,
+                                   anchor="w", fg_color="#EAEEF5", height=28, corner_radius=0)
         self.status.pack(side="bottom", fill="x")
         self.body = ctk.CTkFrame(self, fg_color="transparent")
         self.body.pack(fill="both", expand=True)
 
-        self.top.bind("<Key>", self._on_key)
-        self.top.bind("<Control-s>", self._on_save)
-        self.top.bind("<Control-S>", self._on_save)
+        self.top.bind("<Key>",        self._on_key)
+        self.top.bind("<Control-s>",  self._on_save)
+        self.top.bind("<Control-S>",  self._on_save)
         self.refresh_company()
         self.push(("menu", "gateway"))
 
@@ -145,7 +147,6 @@ class Shell(ctk.CTkFrame):
             pass
         super().destroy()
 
-    # ---- navigation stack ----
     def push(self, node):
         self.stack.append(node)
         self.render()
@@ -154,8 +155,8 @@ class Shell(ctk.CTkFrame):
         if len(self.stack) > 1:
             dirty = getattr(self.current, "is_dirty", None)
             if callable(dirty) and dirty():
-                if not messagebox.askyesno("Unsaved entry", "You have typed something that is not saved yet.\n\n"
-                                           "Leave this screen and lose it?"):
+                if not messagebox.askyesno("Unsaved entry",
+                        "You have typed something that is not saved yet.\n\nLeave this screen and lose it?"):
                     return
             self.stack.pop()
             self.render()
@@ -176,7 +177,8 @@ class Shell(ctk.CTkFrame):
             except Exception:
                 self.current = ErrorPanel(self.body, errlog.log_exception(*sys.exc_info()))
         self.current.pack(fill="both", expand=True)
-        labels = ["Gateway"] + [MENUS[n][0] if k == "menu" else PAGES[n][0] for k, n in self.stack[1:]]
+        labels = ["Gateway"] + [MENUS[n][0] if k == "menu" else PAGES[n][0]
+                                 for k, n in self.stack[1:]]
         self.crumb.configure(text="  ›  ".join(labels))
         if len(self.stack) > 1:
             self.back_btn.pack(side="left", before=self.crumb)
@@ -195,7 +197,8 @@ class Shell(ctk.CTkFrame):
             self.on_logout()
 
     def open_voucher(self, vid, refresh):
-        VoucherDialog(self.top, self.con, vid, self.username, on_edit=self.edit_voucher, on_changed=refresh)
+        VoucherDialog(self.top, self.con, vid, self.username,
+                      on_edit=self.edit_voucher, on_changed=refresh)
 
     def edit_voucher(self, vid):
         vt = self.con.execute("SELECT vtype FROM vouchers WHERE id=?", (vid,)).fetchone()["vtype"]
@@ -218,7 +221,6 @@ class Shell(ctk.CTkFrame):
         elif isinstance(self.current, MenuView):
             self.current.handle(event)
 
-    # ---- bits ----
     def refresh_company(self):
         name = settings.load_settings().get("company_name", "")
         self.company_lbl.configure(text=name or "Set up your company")
@@ -228,10 +230,11 @@ class Shell(ctk.CTkFrame):
         c = s.counts(self.con)
         receivable, payable = rep.receivable_payable(self.con)
         card = T.card(parent, width=300)
-        ctk.CTkLabel(card, text="CURRENT COMPANY", font=T.f(11, "bold"), text_color=T.MUTED).pack(
-            anchor="w", padx=24, pady=(20, 6))
-        ctk.CTkLabel(card, text=st.get("company_name") or "Not set up yet", font=T.f(18, "bold"),
-                     text_color=T.TEXT, wraplength=250, justify="left").pack(anchor="w", padx=24)
+        ctk.CTkLabel(card, text="CURRENT COMPANY", font=T.f(11, "bold"),
+                     text_color=T.MUTED).pack(anchor="w", padx=24, pady=(20, 6))
+        ctk.CTkLabel(card, text=st.get("company_name") or "Not set up yet",
+                     font=T.f(18, "bold"), text_color=T.TEXT, wraplength=250,
+                     justify="left").pack(anchor="w", padx=24)
         ctk.CTkLabel(card, text=f"Financial year {s.fy_of(date.today())}", font=T.f(12),
                      text_color=T.MUTED).pack(anchor="w", padx=24, pady=(2, 14))
         def row(label, value, color=T.TEXT):
@@ -248,19 +251,20 @@ class Shell(ctk.CTkFrame):
             row("Last backup", disp_date(last), T.DANGER if days > 7 else T.OK)
         else:
             row("Last backup", "never", T.DANGER)
-        steps = [("Set up your company", bool(st.get("company_name")), "Utilities > Company Details"),
-                 ("Add a customer or supplier", c["parties"] > 0, "Masters > Party Master"),
-                 ("Record a sale or purchase", c["vouchers"] > 0, "Transactions"),
-                 ("Take a backup", bool(last), "Utilities > Backup Data")]
+        steps = [("Set up your company",         bool(st.get("company_name")),  "Utilities > Company Details"),
+                 ("Add a customer or supplier",   c["parties"] > 0,              "Masters > Party Master"),
+                 ("Record a sale or purchase",    c["vouchers"] > 0,             "Transactions"),
+                 ("Take a backup",                bool(last),                    "Utilities > Backup Data")]
         if not all(done for _t, done, _h in steps):
-            ctk.CTkLabel(card, text="GETTING STARTED", font=T.f(11, "bold"), text_color=T.MUTED).pack(
-                anchor="w", padx=24, pady=(16, 4))
+            ctk.CTkLabel(card, text="GETTING STARTED", font=T.f(11, "bold"),
+                         text_color=T.MUTED).pack(anchor="w", padx=24, pady=(16, 4))
             for text, done, hint in steps:
-                ctk.CTkLabel(card, text=("✓  " if done else "○  ") + text, font=T.f(13),
-                             text_color=T.OK if done else T.TEXT).pack(anchor="w", padx=24, pady=(3, 0))
+                ctk.CTkLabel(card, text=("✓  " if done else "○  ") + text,
+                             font=T.f(13), text_color=T.OK if done else T.TEXT).pack(
+                             anchor="w", padx=24, pady=(3, 0))
                 if not done:
-                    ctk.CTkLabel(card, text="     " + hint, font=T.f(11), text_color=T.ACCENT).pack(
-                        anchor="w", padx=24)
+                    ctk.CTkLabel(card, text="     " + hint, font=T.f(11),
+                                 text_color=T.ACCENT).pack(anchor="w", padx=24)
         ctk.CTkFrame(card, fg_color=T.CARD, corner_radius=0, height=18).pack()
         return card
 
@@ -276,4 +280,5 @@ class Shell(ctk.CTkFrame):
         st = settings.load_settings()
         st["last_backup"] = date.today().isoformat()
         settings.save_settings(st)
-        messagebox.showinfo("MUNIM", f"Backup saved:\n{path}\n\nKeep a copy on a USB drive or cloud folder, not only on this PC.")
+        messagebox.showinfo("MUNIM", f"Backup saved:\n{path}\n\n"
+                            "Keep a copy on a USB drive or cloud folder, not only on this PC.")

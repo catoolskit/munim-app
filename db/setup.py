@@ -24,7 +24,6 @@ def to_rupees(paise):
     return paise / 100
 
 def fy_of(d):
-    """Indian FY label, e.g. 2026-11-14 -> '2026-27'."""
     y = d.year if d.month >= 4 else d.year - 1
     return f"{y}-{str(y + 1)[2:]}"
 
@@ -99,13 +98,25 @@ def hash_pw(password, salt):
     return hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), 200_000).hex()
 
 def add_user(con, username, password, role="staff", must_change=0):
+    if len(password) < 8:
+        raise ValueError("Password must be at least 8 characters")
     salt = secrets.token_hex(16)
     con.execute("INSERT INTO users(username,salt,pw_hash,role,must_change) VALUES(?,?,?,?,?)",
                 (username, salt, hash_pw(password, salt), role, must_change))
     con.commit()
 
+def list_users(con):
+    return con.execute(
+        "SELECT username, role, must_change FROM users ORDER BY username COLLATE NOCASE"
+    ).fetchall()
+
+def delete_user(con, username):
+    if not con.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone():
+        raise ValueError("User not found")
+    con.execute("DELETE FROM users WHERE username=?", (username,))
+    con.commit()
+
 def login(con, username, password):
-    """Returns the user row on success, else None."""
     r = con.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
     if r and secrets.compare_digest(r["pw_hash"], hash_pw(password, r["salt"])):
         return r
@@ -136,7 +147,7 @@ def init_db(path=None):
     con = connect(path)
     con.executescript(SCHEMA)
     cols = [r["name"] for r in con.execute("PRAGMA table_info(users)")]
-    if "must_change" not in cols:  # database created by an older MUNIM version
+    if "must_change" not in cols:
         con.execute("ALTER TABLE users ADD COLUMN must_change INTEGER NOT NULL DEFAULT 0")
     if "customer_name" not in [r["name"] for r in con.execute("PRAGMA table_info(invoices)")]:
         con.execute("ALTER TABLE invoices ADD COLUMN customer_name TEXT NOT NULL DEFAULT ''")
@@ -147,13 +158,34 @@ def init_db(path=None):
             con.execute("INSERT INTO accounts(name,grp,nature) VALUES(?,?,?)", (n, g, nat))
     if not con.execute("SELECT 1 FROM users LIMIT 1").fetchone():
         add_user(con, "admin", "admin123", "admin", must_change=1)
-    if login(con, "admin", "admin123"):  # default password still in use
+    if login(con, "admin", "admin123"):
         con.execute("UPDATE users SET must_change=1 WHERE username='admin'")
     con.commit()
     return con
 
+def reset_all_data(con, admin_password):
+    """Wipe all business data. Keeps user logins. Requires admin password."""
+    admin = con.execute("SELECT * FROM users WHERE role='admin' LIMIT 1").fetchone()
+    if not admin:
+        raise ValueError("No admin account found")
+    if not secrets.compare_digest(admin["pw_hash"], hash_pw(admin_password, admin["salt"])):
+        raise ValueError("Wrong admin password")
+    con.executescript("""
+        DELETE FROM allocations;
+        DELETE FROM invoice_items;
+        DELETE FROM invoices;
+        DELETE FROM entries;
+        DELETE FROM vouchers;
+        DELETE FROM parties;
+        DELETE FROM audit_log;
+        DELETE FROM stock_manual;
+        DELETE FROM accounts;
+    """)
+    for n, g, nat in DEFAULT_ACCOUNTS:
+        con.execute("INSERT INTO accounts(name,grp,nature) VALUES(?,?,?)", (n, g, nat))
+    con.commit()
+
 def post_voucher(con, vtype, vdate, narration, lines, username=""):
-    """lines: list of (account_name, dr_rupees, cr_rupees). Rejects unbalanced vouchers."""
     return post_voucher_paise(con, vtype, vdate, narration,
                               [(n, to_paise(d), to_paise(c)) for n, d, c in lines], username)
 
@@ -177,7 +209,6 @@ def _next_vno(con, vtype, fy):
                        (vtype, fy)).fetchone()[0]
 
 def _insert_voucher(con, vtype, vdate, narration, lines):
-    """Inserts a voucher WITHOUT committing. Returns (vno, voucher_id)."""
     rows = _resolve(con, lines)
     fy = fy_of(vdate)
     vno = _next_vno(con, vtype, fy)
@@ -188,7 +219,6 @@ def _insert_voucher(con, vtype, vdate, narration, lines):
     return vno, cur.lastrowid
 
 def post_voucher_paise(con, vtype, vdate, narration, lines, username=""):
-    """Same as post_voucher but amounts are integer paise (used by GST billing)."""
     try:
         vno, vid = _insert_voucher(con, vtype, vdate, narration, lines)
         log_action(con, username, "create", after=voucher_snapshot(con, vid))
@@ -199,8 +229,7 @@ def post_voucher_paise(con, vtype, vdate, narration, lines, username=""):
     return vno
 
 def _replace_voucher(con, vid, vtype, vdate, narration, lines):
-    """Rewrites a voucher in place WITHOUT committing. Keeps its number unless type or FY changes."""
-    rows = _resolve(con, lines)          # validate everything before touching the old data
+    rows = _resolve(con, lines)
     old = con.execute("SELECT vtype, vno, fy FROM vouchers WHERE id=?", (vid,)).fetchone()
     fy = fy_of(vdate)
     vno = old["vno"] if (old["vtype"], old["fy"]) == (vtype, fy) else _next_vno(con, vtype, fy)
@@ -239,7 +268,6 @@ def voucher_snapshot(con, vid):
             "payments_in": pays, "applied_to": applied}
 
 def log_action(con, username, action, before=None, after=None):
-    """Adds an audit row WITHOUT committing."""
     import json
     from datetime import datetime
     ref = after or before or {}
@@ -251,7 +279,6 @@ def log_action(con, username, action, before=None, after=None):
 MANUAL_TYPES = ("Journal", "Payment", "Receipt", "Contra")
 
 def update_voucher(con, vid, vtype, vdate, narration, lines, username=""):
-    """Edit a Journal/Payment/Receipt/Contra voucher. lines in rupees. All-or-nothing."""
     if vtype not in MANUAL_TYPES:
         raise ValueError("Sales and purchase bills are edited from their own screens")
     if con.execute("SELECT 1 FROM invoices WHERE voucher_id=?", (vid,)).fetchone():
@@ -296,9 +323,6 @@ def ensure_account(con, name, grp, nature):
         con.commit()
 
 def account_states(con, fy):
-    """Per account: opening brought forward, FY movement, and the prior-year profit.
-    Balance-sheet accounts carry prior years forward; income/expense accounts start at zero
-    each FY and their prior result is rolled into 'prior_pl' (Cr-positive = profit), in paise."""
     start, end = fy_range(fy)
     rows = con.execute(
         """SELECT a.id, a.name, a.nature, a.opening, a.opening_side,
@@ -323,7 +347,6 @@ def account_states(con, fy):
     return out, prior_pl
 
 def trial_balance(con, fy):
-    """Returns (rows, total_dr, total_cr) in rupees, with prior years carried forward."""
     states, prior_pl = account_states(con, fy)
     out, td, tc = [], 0, 0
     def add(name, net):
@@ -336,7 +359,7 @@ def trial_balance(con, fy):
     for st in states:
         add(st["name"], st["bf"] + st["dr"] - st["cr"])
     add("Profit & Loss A/c (b/f)", -prior_pl)
-    if td != tc:  # opening balances entered one-sided, as Tally shows it
+    if td != tc:
         diff = abs(td - tc)
         if td > tc:
             out.append(("Difference in opening balances", 0, to_rupees(diff))); tc += diff
@@ -344,8 +367,6 @@ def trial_balance(con, fy):
             out.append(("Difference in opening balances", to_rupees(diff), 0)); td += diff
     return out, to_rupees(td), to_rupees(tc)
 
-
-# ---------- Party master ----------
 import re
 GSTIN_RE = re.compile(r"^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
 
@@ -364,7 +385,6 @@ def set_credit_days(con, name, days):
     con.commit()
 
 def add_party(con, name, ptype, gstin="", phone="", address="", opening=0, credit_days=0):
-    """Creates the party and its ledger account together. Opening: customers Dr, suppliers Cr."""
     name = (name or "").strip()
     gstin = (gstin or "").strip().upper()
     if not name:
@@ -412,9 +432,7 @@ def counts(con):
             "accounts": one("SELECT COUNT(*) FROM accounts"),
             "vouchers": one("SELECT COUNT(*) FROM vouchers")}
 
-
 def backup_db(con, folder):
-    """Consistent copy of the live database into folder. Returns the new file's path."""
     from datetime import datetime
     dest_path = os.path.join(folder, f"munim_backup_{datetime.now():%Y%m%d_%H%M%S}.db")
     dest = sqlite3.connect(dest_path)
@@ -424,23 +442,17 @@ def backup_db(con, folder):
         dest.close()
     return dest_path
 
-
 def fy_choices(con):
-    """Financial years to offer in pickers: this year, last year, and any year with vouchers."""
     y = date.today().year if date.today().month >= 4 else date.today().year - 1
     fys = {f"{y}-{str(y + 1)[2:]}", f"{y - 1}-{str(y)[2:]}"}
     fys |= {r[0] for r in con.execute("SELECT DISTINCT fy FROM vouchers")}
     return sorted(fys, reverse=True)
 
-
 def find_voucher(con, vtype, vno, vdate):
-    """Voucher id for a type, number and date (used to open a voucher just saved)."""
     r = con.execute("SELECT id FROM vouchers WHERE vtype=? AND vno=? AND fy=?",
                     (vtype, vno, fy_of(vdate))).fetchone()
     return r["id"] if r else None
 
-
-# ---------- ledger accounts master ----------
 ACCOUNT_GROUPS = [
     ("Direct Expenses", "Expense"), ("Indirect Expenses", "Expense"),
     ("Direct Income", "Income"), ("Indirect Income", "Income"),
@@ -483,7 +495,8 @@ def set_account_opening(con, name, opening, side):
         raise ValueError("Opening balance must be a number")
     if amount < 0:
         raise ValueError("Opening balance cannot be negative")
-    if con.execute("UPDATE accounts SET opening=?, opening_side=? WHERE name=?", (amount, side, name)).rowcount == 0:
+    if con.execute("UPDATE accounts SET opening=?, opening_side=? WHERE name=?",
+                   (amount, side, name)).rowcount == 0:
         raise ValueError("Account not found")
     con.commit()
 
@@ -504,7 +517,6 @@ def list_accounts(con):
     return con.execute("SELECT name, grp, nature, opening, opening_side FROM accounts "
                        "ORDER BY nature, grp, name COLLATE NOCASE").fetchall()
 
-# ---------- opening / closing stock entered by hand (until the Stock module exists) ----------
 UNSET = object()
 
 def prev_fy(fy):
@@ -512,7 +524,6 @@ def prev_fy(fy):
     return f"{y - 1}-{str(y)[2:]}"
 
 def set_stock(con, fy, opening=UNSET, closing=UNSET):
-    """opening=None (or '') means 'same as last year's closing'. Amounts in rupees."""
     row = con.execute("SELECT opening, closing FROM stock_manual WHERE fy=?", (fy,)).fetchone()
     o = row["opening"] if row else None
     c = row["closing"] if row else 0
@@ -526,11 +537,11 @@ def set_stock(con, fy, opening=UNSET, closing=UNSET):
     if (o is not None and o < 0) or c < 0:
         raise ValueError("Stock value cannot be negative")
     con.execute("INSERT INTO stock_manual(fy,opening,closing) VALUES(?,?,?) "
-                "ON CONFLICT(fy) DO UPDATE SET opening=excluded.opening, closing=excluded.closing", (fy, o, c))
+                "ON CONFLICT(fy) DO UPDATE SET opening=excluded.opening, closing=excluded.closing",
+                (fy, o, c))
     con.commit()
 
 def get_stock(con, fy):
-    """(opening, closing) in paise for a financial year."""
     row = con.execute("SELECT opening, closing FROM stock_manual WHERE fy=?", (fy,)).fetchone()
     closing = row["closing"] if row else 0
     if row and row["opening"] is not None:
@@ -539,7 +550,6 @@ def get_stock(con, fy):
     return (prev["closing"] if prev else 0), closing
 
 def prior_stock_effect(con, fy):
-    """Profit effect of stock in all earlier years (closing minus opening), paise."""
     total = 0
     for r in con.execute("SELECT fy FROM stock_manual WHERE fy < ? ORDER BY fy", (fy,)):
         o, c = get_stock(con, r["fy"])

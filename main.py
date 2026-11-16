@@ -2,7 +2,8 @@ import customtkinter as ctk
 from db.setup import init_db, db_path, login, change_password
 from ui.shell import Shell
 from ui import theme as T
-from utils import shortcut, errlog
+from utils import shortcut, errlog, settings
+from utils.licence import validate_key, licence_status
 from tkinter import messagebox
 
 
@@ -16,7 +17,7 @@ class MunimApp(ctk.CTk):
         self.minsize(1000, 640)
         self.con = init_db()
         self.frame = None
-        self.show_login()
+        self._check_licence_and_start()
         self.after(700, self._desktop_shortcut)
 
     def report_callback_exception(self, exc, val, tb):
@@ -31,6 +32,21 @@ class MunimApp(ctk.CTk):
                 "the shortcut updates itself the next time you open MUNIM."),
             notify=lambda m: messagebox.showinfo("MUNIM", m))
 
+    def _check_licence_and_start(self):
+        st = settings.load_settings()
+        key = st.get("licence_key", "")
+        # Check if licence is valid
+        try:
+            if key:
+                validate_key(key)   # raises ValueError if expired/invalid
+                # Valid licence: go straight to login
+                self.show_login()
+                return
+        except ValueError:
+            pass
+        # No valid licence: show activation screen
+        self.show_activation()
+
     def _swap(self, frame):
         if self.frame is not None:
             self.frame.destroy()
@@ -38,7 +54,6 @@ class MunimApp(ctk.CTk):
         frame.pack(fill="both", expand=True)
 
     def _auth(self, heading, sub):
-        """Split layout: brand panel on the left, form card on the right."""
         f = ctk.CTkFrame(self, fg_color="transparent")
         f.grid_columnconfigure(0, weight=2, uniform="a")
         f.grid_columnconfigure(1, weight=3, uniform="a")
@@ -59,12 +74,29 @@ class MunimApp(ctk.CTk):
                      justify="left").pack(anchor="w", padx=34, pady=(0, 18))
         return f, card
 
+    def show_activation(self):
+        from ui.activation import ActivationFrame
+        f = ActivationFrame(self, self.con, self._after_activation)
+        self._swap(f)
+
+    def _after_activation(self, row):
+        if row["must_change"]:
+            self.show_change_password(row["username"], row["role"])
+        else:
+            self.show_shell(row["username"], row["role"])
+
     def show_login(self):
         f, card = self._auth("Welcome back", "Log in to your books.")
         user = T.entry(card, "Username", width=330)
         user.pack(padx=34, pady=(0, 10))
         pw = T.entry(card, "Password", width=330, show="*")
         pw.pack(padx=34, pady=(0, 6))
+        # Show licence status
+        st = settings.load_settings()
+        lic = licence_status(st.get("licence_key", ""))
+        lic_color = T.DANGER if "expir" in lic.lower() or "not" in lic.lower() else T.MUTED
+        ctk.CTkLabel(card, text=lic, font=T.f(11), text_color=lic_color).pack(
+            anchor="w", padx=34, pady=(0, 2))
         msg = ctk.CTkLabel(card, text="", font=T.f(12), text_color=T.MUTED)
         msg.pack(anchor="w", padx=34, pady=4)
 
