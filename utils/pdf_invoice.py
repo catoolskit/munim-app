@@ -211,7 +211,7 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
     # Total usable width split across: # | Desc | Qty | Rate | Taxable | tax cols | Total
     # Money columns get 52pt each — wide enough for "1,00,000.00" on one line at font 9
     n_money = 2 + tax_cols          # Rate + Taxable + tax amount cols + Total
-    money_w = 52                    # points — fits 10-char number at font 9
+    money_w = 62                    # points — fits 10-char number at font 9
     idx_w   = 18
     qty_w   = 28
     pct_w   = 30                    # GST% columns
