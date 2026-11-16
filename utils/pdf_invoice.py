@@ -170,14 +170,14 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
     # Fixed column widths — money columns wide enough for any amount, no wrap
     IDX  = 18
     QTY  = 30
-    PCT  = 34   # GST % cols
+    PCT  = 42   # GST % cols
     MON  = 75   # money cols: Rate, Taxable, CGST Amt, SGST Amt, Total
     # Desc gets the remainder
     if interstate:
         # cols: # Desc Qty Rate Taxable IGST% IGST_Amt Total  = 8 cols
         DESC = W - IDX - QTY - MON * 3 - PCT - MON
         col_ws = [IDX, DESC, QTY, MON, MON, PCT, MON, MON]
-        hdr_labels = ["#","Description","Qty","Rate","Taxable","IGST%","IGST Amt","Total"]
+        hdr_labels = ["#","Desc","Qty","Rate","Taxable","CGST%","CGST Amt","SGST%","SGST Amt","Total"]
         hdr_aligns = ["CTR","HLFT","CTR","HRGT","HRGT","HCTR","HRGT","HRGT"]
     else:
         # cols: # Desc Qty Rate Taxable CGST% CGST_Amt SGST% SGST_Amt Total = 10 cols
