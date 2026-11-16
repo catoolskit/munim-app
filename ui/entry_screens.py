@@ -239,7 +239,7 @@ class JournalFrame(EntryBase):
 
 class TradeFrame(EntryBase):
     """Sales invoice or purchase bill with GST. kind is 'Sales' or 'Purchase'."""
-    GST_RATES = ["0", "5", "12", "18", "28"]
+    GST_RATES = ["0", "0.25", "1.5", "3", "5", "12", "18", "28", "40"]
     ROWS = 5
 
     def __init__(self, master, con, kind, username="", edit_id=None, on_done=None, opener=None):
