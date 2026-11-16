@@ -14,7 +14,6 @@ from ui.report_screens import (TrialBalanceFrame, LedgerFrame, DayBookFrame, Out
 from ui.voucher_dialog import VoucherDialog
 from ui.widgets import ErrorPanel
 from ui.utilities import CompanyFrame, PasswordFrame, AuditFrame, ResetDataFrame
-from ui.user_mgmt import UserMgmtFrame
 from utils import errlog
 from utils import settings
 from utils.fmt import inr, disp_date
@@ -23,7 +22,6 @@ PAGES = {
     "party":      ("Party Master",         lambda sh: PartyFrame(sh.body, sh.con)),
     "company":    ("Company Details",      lambda sh: CompanyFrame(sh.body, sh.refresh_company)),
     "password":   ("Change Password",      lambda sh: PasswordFrame(sh.body, sh.con, sh.username)),
-    "users":      ("User Management",      lambda sh: UserMgmtFrame(sh.body, sh.con, sh.username)),
     "reset":      ("Reset All Data",       lambda sh: ResetDataFrame(sh.body, sh.con)),
     "journal":    ("Voucher Entry",        lambda sh: JournalFrame(sh.body, sh.con, sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
     "sales":      ("Sales Invoice",        lambda sh: TradeFrame(sh.body, sh.con, "Sales", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
