@@ -5,9 +5,10 @@ from ui import theme as T
 from utils import settings
 from utils.fmt import inr
 from ui.widgets import DataTable
+from utils.licence import validate_key, licence_status, days_remaining
 from datetime import datetime
 
-# Indian state codes from GSTIN first 2 digits
+
 STATE_CODES = {
     "01": "Jammu & Kashmir", "02": "Himachal Pradesh", "03": "Punjab",
     "04": "Chandigarh", "05": "Uttarakhand", "06": "Haryana",
@@ -46,7 +47,6 @@ class CompanyFrame(ctk.CTkFrame):
         st = settings.load_settings()
         self.w = {}
 
-        # Row 0-1: Company name (full width)
         e = T.entry(card, "Your business name", width=560)
         e.insert(0, st.get("company_name", ""))
         self.w["company_name"] = e
@@ -54,13 +54,11 @@ class CompanyFrame(ctk.CTkFrame):
             row=0, column=0, columnspan=3, sticky="w", padx=20, pady=(14, 2))
         e.grid(row=1, column=0, columnspan=3, sticky="ew", padx=20)
 
-        # Row 2-3: Address (full width)
         addr = T.entry(card, "Street, area, city", width=560)
         addr.insert(0, st.get("address", ""))
         self.w["address"] = addr
         _field(card, "Address", addr, 2, 0, 3)
 
-        # Row 4-5: GSTIN, Phone, State
         gstin_e = T.entry(card, "03ABCDE1234F1Z5", width=200)
         gstin_e.insert(0, st.get("gstin", ""))
         self.w["gstin"] = gstin_e
@@ -79,7 +77,6 @@ class CompanyFrame(ctk.CTkFrame):
                 row=4, column=c, sticky="w", padx=20, pady=(14, 2))
             w.grid(row=5, column=c, padx=20, pady=(0, 4))
 
-        # Row 6-7: GST registered toggle, Invoice prefix, Round-off
         self.gst_reg = ctk.CTkCheckBox(card, text="GST Registered",
                                        font=T.f(13), text_color=T.TEXT,
                                        fg_color=T.ACCENT, hover_color=T.ACCENT_HOVER,
@@ -106,7 +103,8 @@ class CompanyFrame(ctk.CTkFrame):
                 ctk.CTkLabel(card, text=h, font=T.f(12), text_color=T.MUTED).grid(
                     row=6, column=c, sticky="w", padx=20, pady=(14, 2))
             else:
-                ctk.CTkLabel(card, text=" ", font=T.f(12)).grid(row=6, column=c, sticky="w", padx=20, pady=(14, 2))
+                ctk.CTkLabel(card, text=" ", font=T.f(12)).grid(
+                    row=6, column=c, sticky="w", padx=20, pady=(14, 2))
             w.grid(row=7, column=c, padx=20, pady=(0, 4), sticky="w")
 
         self.roundoff.grid(row=8, column=0, columnspan=2, sticky="w", padx=20, pady=(10, 4))
@@ -119,7 +117,6 @@ class CompanyFrame(ctk.CTkFrame):
         self._gst_toggle()
 
     def _gst_toggle(self):
-        """Hide GSTIN and state fields when not GST registered."""
         if self.gst_reg.get():
             self.w["gstin"].configure(state="normal", fg_color="white")
             self.state_menu.configure(state="normal")
@@ -139,7 +136,6 @@ class CompanyFrame(ctk.CTkFrame):
         if vals["gst_registered"] and vals["gstin"] and not s.GSTIN_RE.match(vals["gstin"]):
             self.msg.configure(text="GSTIN format is invalid", text_color=T.DANGER)
             return
-        # Auto-fill state from GSTIN if not manually selected
         if vals["gst_registered"] and vals["gstin"] and len(vals["gstin"]) >= 2:
             code = vals["gstin"][:2]
             if code in STATE_CODES and vals["state_name"] == "-- Select state --":
@@ -186,7 +182,6 @@ class PasswordFrame(ctk.CTkFrame):
 
 
 class AuditFrame(ctk.CTkFrame):
-    """Every voucher created, edited or deleted, newest first."""
     def __init__(self, master, con):
         super().__init__(master, fg_color="transparent")
         T.title(self, "Audit Log",
@@ -205,7 +200,6 @@ class AuditFrame(ctk.CTkFrame):
 
 
 class ResetDataFrame(ctk.CTkFrame):
-    """Wipe all business data — vouchers, parties, accounts. Keeps logins."""
     def __init__(self, master, con):
         super().__init__(master, fg_color="transparent")
         self.con = con
@@ -214,7 +208,6 @@ class ResetDataFrame(ctk.CTkFrame):
                 ).pack(anchor="w", padx=28, pady=(24, 12))
         card = T.card(self)
         card.pack(anchor="w", padx=28)
-
         ctk.CTkLabel(card, text="⚠  This will permanently delete all your business data.",
                      font=T.f(14, "bold"), text_color=T.DANGER).pack(anchor="w", padx=24, pady=(20, 4))
         ctk.CTkLabel(card,
@@ -222,14 +215,12 @@ class ResetDataFrame(ctk.CTkFrame):
                           "Your login password will NOT change.\n"
                           "Take a Backup first if you want to keep a copy.",
                      font=T.f(13), text_color=T.TEXT, justify="left").pack(anchor="w", padx=24, pady=(0, 16))
-
         ctk.CTkLabel(card, text="Enter admin password to confirm:", font=T.f(13),
                      text_color=T.MUTED).pack(anchor="w", padx=24)
         self.pw = T.entry(card, "Admin password", width=300, show="*")
         self.pw.pack(anchor="w", padx=24, pady=(6, 4))
         self.msg = ctk.CTkLabel(card, text="", font=T.f(13), text_color=T.DANGER, wraplength=400)
         self.msg.pack(anchor="w", padx=24, pady=4)
-
         bar = ctk.CTkFrame(card, fg_color="transparent")
         bar.pack(fill="x", padx=24, pady=(4, 20))
         T.button(bar, "DELETE ALL DATA", self.reset, width=200,
@@ -250,10 +241,64 @@ class ResetDataFrame(ctk.CTkFrame):
         except ValueError as e:
             self.msg.configure(text=str(e))
             return
-        # Also clear settings data fields
         st = settings.load_settings()
         for k in ("last_backup",):
             st.pop(k, None)
         settings.save_settings(st)
         messagebox.showinfo("MUNIM", "All data has been cleared.\nThe app will now restart.")
         self.winfo_toplevel().destroy()
+
+
+class RenewLicenceFrame(ctk.CTkFrame):
+    """Enter a new licence key when the current one has expired or is about to expire."""
+    def __init__(self, master):
+        super().__init__(master, fg_color="transparent")
+        T.title(self, "Renew Licence",
+                "Enter the new licence key provided by your software provider."
+                ).pack(anchor="w", padx=28, pady=(24, 12))
+        card = T.card(self)
+        card.pack(anchor="w", padx=28)
+
+        # Show current status
+        st = settings.load_settings()
+        current_key = st.get("licence_key", "")
+        status = licence_status(current_key)
+        days = days_remaining(current_key)
+        color = T.OK if days > 30 else (T.DANGER if days == 0 else "#B26A00")
+
+        ctk.CTkLabel(card, text="Current licence status:", font=T.f(12),
+                     text_color=T.MUTED).pack(anchor="w", padx=24, pady=(20, 2))
+        ctk.CTkLabel(card, text=status, font=T.f(14, "bold"),
+                     text_color=color).pack(anchor="w", padx=24, pady=(0, 16))
+
+        ctk.CTkLabel(card, text="New licence key:", font=T.f(12),
+                     text_color=T.MUTED).pack(anchor="w", padx=24)
+        self.key_e = T.entry(card, "MNM-...", width=500)
+        self.key_e.pack(anchor="w", padx=24, pady=(6, 4))
+
+        self.msg = ctk.CTkLabel(card, text="", font=T.f(13), text_color=T.MUTED,
+                                wraplength=500, justify="left")
+        self.msg.pack(anchor="w", padx=24, pady=4)
+
+        bar = ctk.CTkFrame(card, fg_color="transparent")
+        bar.pack(fill="x", padx=24, pady=(4, 24))
+        T.button(bar, "Activate new key", self.renew, width=200).pack(side="left")
+
+    def renew(self):
+        key = self.key_e.get().strip()
+        if not key:
+            self.msg.configure(text="Please enter the new licence key",
+                               text_color=T.DANGER)
+            return
+        try:
+            _, expiry = validate_key(key)
+        except ValueError as e:
+            self.msg.configure(text=str(e), text_color=T.DANGER)
+            return
+        st = settings.load_settings()
+        st["licence_key"] = key
+        settings.save_settings(st)
+        self.msg.configure(
+            text=f"✓ Licence renewed! Valid until {expiry.strftime('%d-%m-%Y')}",
+            text_color=T.OK)
+        self.key_e.delete(0, "end")
