@@ -88,9 +88,9 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
     BLD  = S("BLD",  fontSize=10, textColor=BLACK,  fontName="Helvetica-Bold", leading=14)
     NRM  = S("NRM",  fontSize=9,  textColor=BLACK,  fontName="Helvetica",      leading=12)
     SML  = S("SML",  fontSize=8,  textColor=MUTED,  fontName="Helvetica",      leading=10)
-    RGT  = S("RGT",  fontSize=9,  textColor=BLACK,  fontName="Helvetica",      leading=12, alignment=TA_RIGHT)
-    BRGT = S("BRGT", fontSize=10, textColor=BLACK,  fontName="Helvetica-Bold", leading=13, alignment=TA_RIGHT)
-    CTR  = S("CTR",  fontSize=9,  textColor=BLACK,  fontName="Helvetica",      leading=12, alignment=TA_CENTER)
+    RGT  = S("RGT",  fontSize=8,  textColor=BLACK,  fontName="Helvetica",      leading=12, alignment=TA_RIGHT)
+    BRGT = S("BRGT", fontSize=8, textColor=BLACK,  fontName="Helvetica-Bold", leading=13, alignment=TA_RIGHT)
+    CTR  = S("CTR",  fontSize=8,  textColor=BLACK,  fontName="Helvetica",      leading=12, alignment=TA_CENTER)
     HCTR = S("HCTR", fontSize=8,  textColor=WHITE,  fontName="Helvetica-Bold", leading=11, alignment=TA_CENTER)
     HRGT = S("HRGT", fontSize=8,  textColor=WHITE,  fontName="Helvetica-Bold", leading=11, alignment=TA_RIGHT)
     HLFT = S("HLFT", fontSize=8,  textColor=WHITE,  fontName="Helvetica-Bold", leading=11, alignment=TA_LEFT)
@@ -171,7 +171,7 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
     IDX  = 18
     QTY  = 30
     PCT  = 34   # GST % cols
-    MON  = 90   # money cols: Rate, Taxable, CGST Amt, SGST Amt, Total
+    MON  = 75   # money cols: Rate, Taxable, CGST Amt, SGST Amt, Total
     # Desc gets the remainder
     if interstate:
         # cols: # Desc Qty Rate Taxable IGST% IGST_Amt Total  = 8 cols
@@ -237,7 +237,7 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
         ("TOPPADDING",    (0, 0),     (-1, 0),     6),
         ("BOTTOMPADDING", (0, 0),     (-1, 0),     6),
         # body
-        ("FONTSIZE",      (0, 1),     (-1, -1),    9),
+        ("FONTSIZE",      (0, 1),     (-1, -1),    8),
         ("TOPPADDING",    (0, 1),     (-1, -1),    5),
         ("BOTTOMPADDING", (0, 1),     (-1, -1),    5),
         ("ROWBACKGROUNDS",(0, 1),     (-1, -2),    [WHITE, LIGHT]),
