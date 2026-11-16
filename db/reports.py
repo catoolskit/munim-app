@@ -9,8 +9,13 @@ def _side(bal):
     return ("Dr" if bal >= 0 else "Cr"), abs(bal)
 
 
-def ledger_view(con, name, fy):
+def ledger_view(con, name, fy, date_from=None, date_to=None):
     start, end = fy_range(fy)
+    # Apply date range filter if provided
+    if date_from:
+        start = max(start, date_from.isoformat())
+    if date_to:
+        end = min(end, date_to.isoformat())
     states, _ = account_states(con, fy)
     st = next((s for s in states if s["name"] == name), None)
     if st is None:
@@ -18,20 +23,22 @@ def ledger_view(con, name, fy):
     bal = st["bf"]
     s0, a0 = _side(bal)
     rows = []
-    q = """SELECT v.vdate, v.vtype, v.vno, v.narration, e.dr, e.cr FROM entries e
-           JOIN vouchers v ON v.id=e.voucher_id
-           WHERE e.account_id=? AND v.vdate BETWEEN ? AND ? ORDER BY v.vdate, v.id, e.id"""
+    q = """SELECT v.vdate, v.vtype, v.vno, v.narration, e.dr, e.cr
+           FROM entries e JOIN vouchers v ON v.id=e.voucher_id
+           WHERE e.account_id=? AND v.vdate BETWEEN ? AND ?
+           ORDER BY v.vdate, v.id, e.id"""
     tdr = tcr = 0
     for r in con.execute(q, (st["id"], start, end)):
         bal += r["dr"] - r["cr"]
         tdr += r["dr"]; tcr += r["cr"]
         side, amt = _side(bal)
         rows.append({"date": r["vdate"], "vtype": r["vtype"], "vno": r["vno"],
-                     "narration": r["narration"], "dr": to_rupees(r["dr"]), "cr": to_rupees(r["cr"]),
-                     "balance": to_rupees(amt), "side": side})
+                     "narration": r["narration"], "dr": to_rupees(r["dr"]),
+                     "cr": to_rupees(r["cr"]), "balance": to_rupees(amt),
+                     "side": side})
     cs, ca = _side(bal)
-    return {"account": name, "opening": to_rupees(a0), "opening_side": s0, "rows": rows,
-            "total_dr": to_rupees(tdr), "total_cr": to_rupees(tcr),
+    return {"account": name, "opening": to_rupees(a0), "opening_side": s0,
+            "rows": rows, "total_dr": to_rupees(tdr), "total_cr": to_rupees(tcr),
             "closing": to_rupees(ca), "closing_side": cs}
 
 

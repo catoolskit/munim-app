@@ -19,29 +19,29 @@ from utils import settings
 from utils.fmt import inr, disp_date
 
 PAGES = {
-    "party":      ("Party Master",         lambda sh: PartyFrame(sh.body, sh.con)),
-    "company":    ("Company Details",      lambda sh: CompanyFrame(sh.body, sh.refresh_company)),
-    "password":   ("Change Password",      lambda sh: PasswordFrame(sh.body, sh.con, sh.username)),
-    "reset":      ("Reset All Data",       lambda sh: ResetDataFrame(sh.body, sh.con)),
-    "renew":      ("Renew Licence",        lambda sh: RenewLicenceFrame(sh.body)),
-    "journal":    ("Voucher Entry",        lambda sh: JournalFrame(sh.body, sh.con, sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
-    "sales":      ("Sales Invoice",        lambda sh: TradeFrame(sh.body, sh.con, "Sales", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
-    "purchase":   ("Purchase Bill",        lambda sh: TradeFrame(sh.body, sh.con, "Purchase", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
-    "summary":    ("Daily Sales Summary",  lambda sh: SummaryFrame(sh.body, sh.con, sh.username, sh.open_voucher)),
-    "payment":    ("Receipt / Payment",    lambda sh: PaymentFrame(sh.body, sh.con, sh.username, sh.open_voucher)),
-    "outstanding":("Outstanding",          lambda sh: OutstandingFrame(sh.body, sh.con, sh.open_voucher)),
-    "help":       ("Help & Shortcuts",     lambda sh: HelpFrame(sh.body)),
-    "accounts":   ("Ledger Accounts",      lambda sh: AccountMasterFrame(sh.body, sh.con)),
-    "salesreg":   ("Sales Register",       lambda sh: InvoiceRegisterFrame(sh.body, sh.con, "Sales", sh.open_voucher)),
-    "purchasereg":("Purchase Register",    lambda sh: InvoiceRegisterFrame(sh.body, sh.con, "Purchase", sh.open_voucher)),
-    "audit":      ("Audit Log",            lambda sh: AuditFrame(sh.body, sh.con)),
-    "trial":      ("Trial Balance",        lambda sh: TrialBalanceFrame(sh.body, sh.con)),
-    "ledger":     ("Ledger View",          lambda sh: LedgerFrame(sh.body, sh.con)),
-    "cashbook":   ("Cash Book",            lambda sh: LedgerFrame(sh.body, sh.con, ["Cash", "Bank"], "Cash Book",
+    "party":       ("Party Master",        lambda sh: PartyFrame(sh.body, sh.con)),
+    "company":     ("Company Details",     lambda sh: CompanyFrame(sh.body, sh.refresh_company)),
+    "password":    ("Change Password",     lambda sh: PasswordFrame(sh.body, sh.con, sh.username)),
+    "reset":       ("Reset All Data",      lambda sh: ResetDataFrame(sh.body, sh.con)),
+    "renew":       ("Renew Licence",       lambda sh: RenewLicenceFrame(sh.body)),
+    "journal":     ("Voucher Entry",       lambda sh: JournalFrame(sh.body, sh.con, sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
+    "sales":       ("Sales Invoice",       lambda sh: TradeFrame(sh.body, sh.con, "Sales", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
+    "purchase":    ("Purchase Bill",       lambda sh: TradeFrame(sh.body, sh.con, "Purchase", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
+    "summary":     ("Daily Sales Summary", lambda sh: SummaryFrame(sh.body, sh.con, sh.username, sh.open_voucher)),
+    "payment":     ("Receipt / Payment",   lambda sh: PaymentFrame(sh.body, sh.con, sh.username, sh.open_voucher)),
+    "outstanding": ("Outstanding",         lambda sh: OutstandingFrame(sh.body, sh.con, sh.open_voucher)),
+    "help":        ("Help & Shortcuts",    lambda sh: HelpFrame(sh.body)),
+    "accounts":    ("Ledger Accounts",     lambda sh: AccountMasterFrame(sh.body, sh.con)),
+    "salesreg":    ("Sales Register",      lambda sh: InvoiceRegisterFrame(sh.body, sh.con, "Sales", sh.open_voucher)),
+    "purchasereg": ("Purchase Register",   lambda sh: InvoiceRegisterFrame(sh.body, sh.con, "Purchase", sh.open_voucher)),
+    "audit":       ("Audit Log",           lambda sh: AuditFrame(sh.body, sh.con)),
+    "trial":       ("Trial Balance",       lambda sh: TrialBalanceFrame(sh.body, sh.con)),
+    "ledger":      ("Ledger View",         lambda sh: LedgerFrame(sh.body, sh.con)),
+    "cashbook":    ("Cash Book",           lambda sh: LedgerFrame(sh.body, sh.con, ["Cash", "Bank"], "Cash Book",
                                                                    "Cash and bank entries with a running balance.")),
-    "daybook":    ("Day Book",             lambda sh: DayBookFrame(sh.body, sh.con, sh.open_voucher)),
-    "pl":         ("Trading & P&L",        lambda sh: ProfitLossFrame(sh.body, sh.con)),
-    "bs":         ("Balance Sheet",        lambda sh: BalanceSheetFrame(sh.body, sh.con)),
+    "daybook":     ("Day Book",            lambda sh: DayBookFrame(sh.body, sh.con, sh.open_voucher)),
+    "pl":          ("Trading & P&L",       lambda sh: ProfitLossFrame(sh.body, sh.con)),
+    "bs":          ("Balance Sheet",       lambda sh: BalanceSheetFrame(sh.body, sh.con)),
 }
 SEL_BG, HINT = "#E6EEFA", "↑ ↓ move     Enter open     Letter jump     Esc back"
 
@@ -131,9 +131,9 @@ class Shell(ctk.CTkFrame):
         self.body = ctk.CTkFrame(self, fg_color="transparent")
         self.body.pack(fill="both", expand=True)
 
-        self.top.bind("<Key>",        self._on_key)
-        self.top.bind("<Control-s>",  self._on_save)
-        self.top.bind("<Control-S>",  self._on_save)
+        self.top.bind("<Key>",       self._on_key)
+        self.top.bind("<Control-s>", self._on_save)
+        self.top.bind("<Control-S>", self._on_save)
         self.refresh_company()
         self.push(("menu", "gateway"))
 
@@ -236,11 +236,13 @@ class Shell(ctk.CTkFrame):
                      justify="left").pack(anchor="w", padx=24)
         ctk.CTkLabel(card, text=f"Financial year {s.fy_of(date.today())}", font=T.f(12),
                      text_color=T.MUTED).pack(anchor="w", padx=24, pady=(2, 14))
+
         def row(label, value, color=T.TEXT):
             r = ctk.CTkFrame(card, fg_color=T.CARD, corner_radius=0)
             r.pack(fill="x", padx=24, pady=3)
             ctk.CTkLabel(r, text=label, font=T.f(13), text_color=T.MUTED).pack(side="left")
             ctk.CTkLabel(r, text=value, font=T.f(13, "bold"), text_color=color).pack(side="right")
+
         row("Customers owe you", inr(receivable), T.OK if receivable else T.TEXT)
         row("You owe suppliers", inr(payable), "#B26A00" if payable else T.TEXT)
         row("Vouchers", str(c["vouchers"]))
@@ -250,10 +252,12 @@ class Shell(ctk.CTkFrame):
             row("Last backup", disp_date(last), T.DANGER if days > 7 else T.OK)
         else:
             row("Last backup", "never", T.DANGER)
-        steps = [("Set up your company",         bool(st.get("company_name")),  "Utilities > Company Details"),
-                 ("Add a customer or supplier",   c["parties"] > 0,              "Masters > Party Master"),
-                 ("Record a sale or purchase",    c["vouchers"] > 0,             "Transactions"),
-                 ("Take a backup",                bool(last),                    "Utilities > Backup Data")]
+        steps = [
+            ("Set up your company",       bool(st.get("company_name")), "Utilities > Company Details"),
+            ("Add a customer or supplier", c["parties"] > 0,            "Masters > Party Master"),
+            ("Record a sale or purchase",  c["vouchers"] > 0,           "Transactions"),
+            ("Take a backup",              bool(last),                   "Utilities > Backup Data"),
+        ]
         if not all(done for _t, done, _h in steps):
             ctk.CTkLabel(card, text="GETTING STARTED", font=T.f(11, "bold"),
                          text_color=T.MUTED).pack(anchor="w", padx=24, pady=(16, 4))

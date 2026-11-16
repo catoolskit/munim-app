@@ -11,9 +11,8 @@ class ActivationFrame(ctk.CTkFrame):
     """on_activated(user_row) is called on success."""
     def __init__(self, master, con, on_activated):
         super().__init__(master, fg_color="transparent")
-        from db.setup import login, add_user
+        from db.setup import login
         self._login_fn = login
-        self._add_user_fn = add_user
         self.con = con
         self.on_activated = on_activated
 
@@ -25,8 +24,8 @@ class ActivationFrame(ctk.CTkFrame):
 
         left = ctk.CTkFrame(f, fg_color=T.NAVY, corner_radius=0)
         left.grid(row=0, column=0, sticky="nsew")
-        ctk.CTkLabel(left, text="MUNIM", font=T.f(44, "bold"),
-                     text_color="white").place(relx=0.5, rely=0.42, anchor="center")
+        ctk.CTkLabel(left, text="MUNIM", font=T.f(44, "bold"), text_color="white").place(
+            relx=0.5, rely=0.42, anchor="center")
         ctk.CTkLabel(left, text="Simple books for small traders", font=T.f(14),
                      text_color="#9FB3D9").place(relx=0.5, rely=0.50, anchor="center")
         ctk.CTkLabel(left, text="Activate your copy", font=T.f(13),
@@ -53,8 +52,7 @@ class ActivationFrame(ctk.CTkFrame):
         self.msg = ctk.CTkLabel(card, text="", font=T.f(12), text_color=T.MUTED,
                                 wraplength=330, justify="left")
         self.msg.pack(anchor="w", padx=34, pady=4)
-        T.button(card, "Activate", self.activate, width=330).pack(
-            padx=34, pady=(8, 32))
+        T.button(card, "Activate", self.activate, width=330).pack(padx=34, pady=(8, 32))
 
         chain_enter([self.user, self.pw, self.key_e], self.activate)
         focus_later(self.user)
@@ -63,64 +61,26 @@ class ActivationFrame(ctk.CTkFrame):
         username = self.user.get().strip()
         password = self.pw.get()
         key = self.key_e.get().strip()
-
         if not username or not password or not key:
-            self.msg.configure(text="Please fill all three fields",
-                               text_color=T.DANGER)
+            self.msg.configure(text="Please fill all three fields", text_color=T.DANGER)
             return
-
-        # Step 1: Validate licence key
         try:
             lic_user, expiry = validate_key(key)
         except ValueError as e:
             self.msg.configure(text=str(e), text_color=T.DANGER)
             return
-
-        # Step 2: Check username matches key
         if lic_user.lower() != username.lower():
-            self.msg.configure(
-                text="This licence key does not belong to this username",
-                text_color=T.DANGER)
+            self.msg.configure(text="This licence key does not belong to this username",
+                               text_color=T.DANGER)
             return
-
-        # Step 3: Try to log in with existing credentials
         row = self._login_fn(self.con, username, password)
-
         if not row:
-            # Step 4: User doesn't exist yet — create them automatically
-            # This handles fresh installs where only 'admin' exists
-            existing = self.con.execute(
-                "SELECT 1 FROM users WHERE username=?", (username,)
-            ).fetchone()
-
-            if existing:
-                # User exists but wrong password
-                self.msg.configure(text="Wrong password",
-                                   text_color=T.DANGER)
-                return
-
-            # Create the user with the provided password
-            try:
-                self._add_user_fn(self.con, username, password,
-                                  "admin", must_change=1)
-            except Exception as e:
-                self.msg.configure(text=f"Could not create account: {e}",
-                                   text_color=T.DANGER)
-                return
-
-            # Log in with the newly created user
-            row = self._login_fn(self.con, username, password)
-            if not row:
-                self.msg.configure(text="Activation failed — please try again",
-                                   text_color=T.DANGER)
-                return
-
-        # Step 5: Save licence key
+            self.msg.configure(text="Wrong username or password", text_color=T.DANGER)
+            return
         st = settings.load_settings()
         st["licence_key"] = key
         st["licence_user"] = username
         settings.save_settings(st)
-
         self.msg.configure(
             text=f"Activated! Valid until {expiry.strftime('%d-%m-%Y')}",
             text_color=T.OK)

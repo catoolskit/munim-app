@@ -1,4 +1,5 @@
 import customtkinter as ctk
+import os, subprocess, sys
 from db import setup as s, billing as b
 from ui import theme as T
 from ui.dialogs import PartyQuickDialog
@@ -26,6 +27,7 @@ class EntryBase(ctk.CTkFrame):
         self.msg = ctk.CTkLabel(foot, text="", font=T.f(13))
         self.msg.pack(side="left", padx=16)
         self.view_btn = T.button(foot, "View", self._view, width=70, height=30, **GHOST)
+        self.pdf_btn = T.button(foot, "Save PDF", self._save_pdf, width=90, height=30, **GHOST)
 
     def ok(self, text, vtype=None, vno=None, vdate=None):
         self.msg.configure(text=text, text_color=T.OK)
@@ -34,18 +36,43 @@ class EntryBase(ctk.CTkFrame):
             self.view_btn.pack(side="left")
         else:
             self.view_btn.pack_forget()
+        # Show PDF button only for Sales invoices
+        if vtype == "Sales" and self._last_vid:
+            self.pdf_btn.pack(side="left", padx=(4, 0))
+        else:
+            self.pdf_btn.pack_forget()
 
     def err(self, text):
         self.msg.configure(text=text, text_color=T.DANGER)
         self.view_btn.pack_forget()
+        self.pdf_btn.pack_forget()
 
     def _view(self):
         if self._last_vid and self.opener:
             self.opener(self._last_vid, lambda: None)
 
+    def _save_pdf(self):
+        if not self._last_vid:
+            return
+        try:
+            from utils.pdf_invoice import generate_invoice_pdf
+            path = generate_invoice_pdf(self.con, self._last_vid)
+            # Open the containing folder (Windows)
+            folder = os.path.dirname(path)
+            if sys.platform == "win32":
+                os.startfile(folder)
+            else:
+                subprocess.Popen(["xdg-open", folder])
+            self.msg.configure(
+                text=f"PDF saved: {os.path.basename(path)}", text_color=T.OK)
+        except Exception as e:
+            self.msg.configure(text=f"PDF error: {e}", text_color=T.DANGER)
+
     def is_dirty(self):
         return False
 
+
+# ── JournalFrame ────────────────────────────────────────────────────────────
 
 class JournalFrame(EntryBase):
     VTYPES = ["Journal", "Payment", "Receipt", "Contra"]
@@ -208,6 +235,8 @@ class JournalFrame(EntryBase):
         focus_later(self.rows[0][0], 50)
 
 
+# ── TradeFrame ───────────────────────────────────────────────────────────────
+
 class TradeFrame(EntryBase):
     """Sales invoice or purchase bill with GST. kind is 'Sales' or 'Purchase'."""
     GST_RATES = ["0", "5", "12", "18", "28"]
@@ -299,7 +328,6 @@ class TradeFrame(EntryBase):
         return self.party.get().strip() in ("Cash", "Bank")
 
     def _cash_mode(self):
-        """Cash/Bank bills have nothing to settle later, so ask for the customer's name instead."""
         for w in (self.paid_lbl, self.paid, self.mode, self.bill_lbl, self.bill_name):
             if w is not None:
                 w.pack_forget()
@@ -427,6 +455,8 @@ class TradeFrame(EntryBase):
         focus_later(self.rows[0][0], 50)
 
 
+# ── SummaryFrame ─────────────────────────────────────────────────────────────
+
 class SummaryFrame(EntryBase):
     """Daily sales summary for counter / retail sales that do not need an invoice each."""
     RATES = ["0", "5", "12", "18", "28"]
@@ -525,6 +555,8 @@ class SummaryFrame(EntryBase):
                 "Sales", res["vno"], d)
         focus_later(self.rows[0][1], 50)
 
+
+# ── PaymentFrame ──────────────────────────────────────────────────────────────
 
 class PaymentFrame(EntryBase):
     """Money received from a customer, or paid to a supplier, matched to their oldest bills."""

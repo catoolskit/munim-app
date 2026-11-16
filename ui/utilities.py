@@ -5,10 +5,10 @@ from ui import theme as T
 from utils import settings
 from utils.fmt import inr
 from ui.widgets import DataTable
+from datetime import datetime, date
 from utils.licence import validate_key, licence_status, days_remaining
-from datetime import datetime
 
-
+# Indian state codes from GSTIN first 2 digits
 STATE_CODES = {
     "01": "Jammu & Kashmir", "02": "Himachal Pradesh", "03": "Punjab",
     "04": "Chandigarh", "05": "Uttarakhand", "06": "Haryana",
@@ -47,6 +47,7 @@ class CompanyFrame(ctk.CTkFrame):
         st = settings.load_settings()
         self.w = {}
 
+        # Row 0-1: Company name (full width)
         e = T.entry(card, "Your business name", width=560)
         e.insert(0, st.get("company_name", ""))
         self.w["company_name"] = e
@@ -54,11 +55,13 @@ class CompanyFrame(ctk.CTkFrame):
             row=0, column=0, columnspan=3, sticky="w", padx=20, pady=(14, 2))
         e.grid(row=1, column=0, columnspan=3, sticky="ew", padx=20)
 
+        # Row 2-3: Address (full width)
         addr = T.entry(card, "Street, area, city", width=560)
         addr.insert(0, st.get("address", ""))
         self.w["address"] = addr
         _field(card, "Address", addr, 2, 0, 3)
 
+        # Row 4-5: GSTIN, Phone, State
         gstin_e = T.entry(card, "03ABCDE1234F1Z5", width=200)
         gstin_e.insert(0, st.get("gstin", ""))
         self.w["gstin"] = gstin_e
@@ -77,6 +80,7 @@ class CompanyFrame(ctk.CTkFrame):
                 row=4, column=c, sticky="w", padx=20, pady=(14, 2))
             w.grid(row=5, column=c, padx=20, pady=(0, 4))
 
+        # Row 6-7: GST registered toggle, Invoice prefix, Round-off
         self.gst_reg = ctk.CTkCheckBox(card, text="GST Registered",
                                        font=T.f(13), text_color=T.TEXT,
                                        fg_color=T.ACCENT, hover_color=T.ACCENT_HOVER,
@@ -130,6 +134,7 @@ class CompanyFrame(ctk.CTkFrame):
         vals["gst_registered"] = bool(self.gst_reg.get())
         vals["state_name"] = self.state_menu.get()
         vals["round_off"] = bool(self.roundoff.get())
+        vals["books_begin"] = self.books_begin.get().strip()
         if not vals["company_name"]:
             self.msg.configure(text="Company name is required", text_color=T.DANGER)
             return
@@ -182,24 +187,125 @@ class PasswordFrame(ctk.CTkFrame):
 
 
 class AuditFrame(ctk.CTkFrame):
+    """Every voucher created, edited or deleted. Filter by type and date."""
     def __init__(self, master, con):
         super().__init__(master, fg_color="transparent")
+        self.con = con
         T.title(self, "Audit Log",
-                "Who created, edited or deleted what. Newest first."
+                "Who created, edited or deleted what. Filter by type and date range."
                 ).pack(anchor="w", padx=28, pady=(24, 12))
-        table = DataTable(self, [("at", "When", 150, "w"), ("u", "User", 110, "w"),
-                                  ("a", "Action", 90, "w"), ("v", "Voucher", 160, "w"),
-                                  ("m", "Amount (Rs)", 130, "e")], height=14)
-        table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
+
+        ctrl = T.card(self)
+        ctrl.pack(fill="x", padx=28, pady=(0, 10))
+        today = date.today()
+
+        self.vtype_filter = T.option_menu(
+            ctrl, ["All types", "Sales", "Purchase", "Journal",
+                   "Receipt", "Payment", "Contra"], width=150)
+        self.action_filter = T.option_menu(
+            ctrl, ["All actions", "create", "edit", "delete"], width=130)
+        self.d1 = T.entry(ctrl, width=120)
+        self.d1.insert(0, today.replace(day=1).strftime("%d-%m-%Y"))
+        self.d2 = T.entry(ctrl, width=120)
+        self.d2.insert(0, today.strftime("%d-%m-%Y"))
+
+        for c, (label, w) in enumerate((
+            ("Voucher type", self.vtype_filter),
+            ("Action",       self.action_filter),
+            ("From date",    self.d1),
+            ("To date",      self.d2),
+        )):
+            ctk.CTkLabel(ctrl, text=label, font=T.f(12), text_color=T.MUTED).grid(
+                row=0, column=c, sticky="w",
+                padx=(20 if c == 0 else 10, 10), pady=(12, 2))
+            w.grid(row=1, column=c,
+                   padx=(20 if c == 0 else 10, 10), pady=(0, 14))
+
+        T.button(ctrl, "Show", self.refresh, width=80).grid(
+            row=1, column=4, padx=10, pady=(0, 14))
+
+        self.table = DataTable(self, [
+            ("at", "When",        150, "w"),
+            ("u",  "User",        110, "w"),
+            ("a",  "Action",       90, "w"),
+            ("v",  "Voucher",     160, "w"),
+            ("m",  "Amount (Rs)", 130, "e"),
+            ("ch", "Change",      200, "w"),
+        ], height=12)
+        self.table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
+        self.refresh()
+
+    def refresh(self):
+        import json
+        from utils.fmt import parse_date as pd
+
+        try:
+            d1 = pd(self.d1.get())
+            d2 = pd(self.d2.get())
+        except ValueError:
+            return
+
+        vtype_f  = self.vtype_filter.get()
+        action_f = self.action_filter.get()
+
+        rows_raw = self.con.execute(
+            "SELECT * FROM audit_log ORDER BY id DESC LIMIT 500"
+        ).fetchall()
+
         rows = []
-        for e in s.audit_entries(con):
+        for e in rows_raw:
+            try:
+                entry_date = date.fromisoformat(e["at"][:10])
+                if not (d1 <= entry_date <= d2):
+                    continue
+            except Exception:
+                continue
+
+            if vtype_f != "All types" and e["vtype"] != vtype_f:
+                continue
+            if action_f != "All actions" and e["action"] != action_f:
+                continue
+
+            change = ""
+            try:
+                import json as _json
+                d = _json.loads(e["detail"] or "{}")
+                before = d.get("before")
+                after  = d.get("after")
+                if e["action"] == "edit" and before and after:
+                    b_total = sum(l["dr"] for l in before.get("lines", []))
+                    a_total = sum(l["dr"] for l in after.get("lines",  []))
+                    if b_total != a_total:
+                        from db.setup import to_rupees
+                        change = (f"Amount: {to_rupees(b_total):,.2f} → "
+                                  f"{to_rupees(a_total):,.2f}")
+                    else:
+                        change = "Details changed"
+                elif e["action"] == "delete":
+                    change = "Permanently deleted"
+                elif e["action"] == "create":
+                    change = "Created"
+            except Exception:
+                pass
+
+            import json as _json2
+            snap  = _json2.loads(e["detail"] or "{}")
+            ref   = (snap.get("after") or snap.get("before") or {})
+            total = sum(l["dr"] for l in ref.get("lines", []))
+            from db.setup import to_rupees
+            from utils.fmt import inr as _inr
+
             when = datetime.strptime(e["at"], "%Y-%m-%d %H:%M:%S").strftime("%d-%m-%Y %H:%M")
-            rows.append((when, e["user"] or "-", e["action"].capitalize(),
-                         f"{e['vtype']} #{e['vno']}", inr(e["amount"])))
-        table.set_rows(rows)
+            rows.append((when, e["username"] or "-",
+                         e["action"].capitalize(),
+                         f"{e['vtype']} #{e['vno']}" if e["vtype"] else "-",
+                         _inr(to_rupees(total)),
+                         change))
+        self.table.set_rows(rows)
 
 
 class ResetDataFrame(ctk.CTkFrame):
+    """Wipe all business data — vouchers, parties, accounts. Keeps logins."""
     def __init__(self, master, con):
         super().__init__(master, fg_color="transparent")
         self.con = con
@@ -208,6 +314,7 @@ class ResetDataFrame(ctk.CTkFrame):
                 ).pack(anchor="w", padx=28, pady=(24, 12))
         card = T.card(self)
         card.pack(anchor="w", padx=28)
+
         ctk.CTkLabel(card, text="⚠  This will permanently delete all your business data.",
                      font=T.f(14, "bold"), text_color=T.DANGER).pack(anchor="w", padx=24, pady=(20, 4))
         ctk.CTkLabel(card,
@@ -215,12 +322,14 @@ class ResetDataFrame(ctk.CTkFrame):
                           "Your login password will NOT change.\n"
                           "Take a Backup first if you want to keep a copy.",
                      font=T.f(13), text_color=T.TEXT, justify="left").pack(anchor="w", padx=24, pady=(0, 16))
+
         ctk.CTkLabel(card, text="Enter admin password to confirm:", font=T.f(13),
                      text_color=T.MUTED).pack(anchor="w", padx=24)
         self.pw = T.entry(card, "Admin password", width=300, show="*")
         self.pw.pack(anchor="w", padx=24, pady=(6, 4))
         self.msg = ctk.CTkLabel(card, text="", font=T.f(13), text_color=T.DANGER, wraplength=400)
         self.msg.pack(anchor="w", padx=24, pady=4)
+
         bar = ctk.CTkFrame(card, fg_color="transparent")
         bar.pack(fill="x", padx=24, pady=(4, 20))
         T.button(bar, "DELETE ALL DATA", self.reset, width=200,
@@ -250,48 +359,50 @@ class ResetDataFrame(ctk.CTkFrame):
 
 
 class RenewLicenceFrame(ctk.CTkFrame):
-    """Enter a new licence key when the current one has expired or is about to expire."""
+    """Utilities → Renew Licence: enter a new key without touching settings.json manually."""
+
     def __init__(self, master):
         super().__init__(master, fg_color="transparent")
-        T.title(self, "Renew Licence",
-                "Enter the new licence key provided by your software provider."
-                ).pack(anchor="w", padx=28, pady=(24, 12))
-        card = T.card(self)
-        card.pack(anchor="w", padx=28)
-
-        # Show current status
         st = settings.load_settings()
         current_key = st.get("licence_key", "")
         status = licence_status(current_key)
         days = days_remaining(current_key)
-        color = T.OK if days > 30 else (T.DANGER if days == 0 else "#B26A00")
 
-        ctk.CTkLabel(card, text="Current licence status:", font=T.f(12),
-                     text_color=T.MUTED).pack(anchor="w", padx=24, pady=(20, 2))
+        T.title(self, "Renew Licence",
+                "Enter a new licence key to extend your subscription.").pack(
+            anchor="w", padx=28, pady=(24, 14))
+
+        card = T.card(self)
+        card.pack(anchor="w", padx=28)
+        card.grid_columnconfigure(0, weight=1)
+
+        status_color = T.DANGER if days <= 7 else T.OK
+        ctk.CTkLabel(card, text="Current licence status", font=T.f(12),
+                     text_color=T.MUTED).grid(
+            row=0, column=0, sticky="w", padx=20, pady=(18, 2))
         ctk.CTkLabel(card, text=status, font=T.f(14, "bold"),
-                     text_color=color).pack(anchor="w", padx=24, pady=(0, 16))
+                     text_color=status_color).grid(
+            row=1, column=0, sticky="w", padx=20, pady=(0, 14))
 
-        ctk.CTkLabel(card, text="New licence key:", font=T.f(12),
-                     text_color=T.MUTED).pack(anchor="w", padx=24)
-        self.key_e = T.entry(card, "MNM-...", width=500)
-        self.key_e.pack(anchor="w", padx=24, pady=(6, 4))
+        ctk.CTkLabel(card, text="New licence key", font=T.f(12),
+                     text_color=T.MUTED).grid(
+            row=2, column=0, sticky="w", padx=20, pady=(4, 2))
+        self.key_entry = T.entry(card, "MNM-…", width=500)
+        self.key_entry.grid(row=3, column=0, sticky="w", padx=20, pady=(0, 4))
 
-        self.msg = ctk.CTkLabel(card, text="", font=T.f(13), text_color=T.MUTED,
-                                wraplength=500, justify="left")
-        self.msg.pack(anchor="w", padx=24, pady=4)
+        self.msg = ctk.CTkLabel(card, text="", font=T.f(13), wraplength=480, justify="left")
+        self.msg.grid(row=4, column=0, sticky="w", padx=20, pady=(4, 4))
 
-        bar = ctk.CTkFrame(card, fg_color="transparent")
-        bar.pack(fill="x", padx=24, pady=(4, 24))
-        T.button(bar, "Activate new key", self.renew, width=200).pack(side="left")
+        T.button(card, "Activate new key", self._activate, width=200).grid(
+            row=5, column=0, sticky="w", padx=20, pady=(6, 24))
 
-    def renew(self):
-        key = self.key_e.get().strip()
+    def _activate(self):
+        key = self.key_entry.get().strip()
         if not key:
-            self.msg.configure(text="Please enter the new licence key",
-                               text_color=T.DANGER)
+            self.msg.configure(text="Please enter a licence key.", text_color=T.DANGER)
             return
         try:
-            _, expiry = validate_key(key)
+            username, expiry = validate_key(key)
         except ValueError as e:
             self.msg.configure(text=str(e), text_color=T.DANGER)
             return
@@ -299,6 +410,6 @@ class RenewLicenceFrame(ctk.CTkFrame):
         st["licence_key"] = key
         settings.save_settings(st)
         self.msg.configure(
-            text=f"✓ Licence renewed! Valid until {expiry.strftime('%d-%m-%Y')}",
+            text=f"✓  Licence activated for {username}. Valid until {expiry.strftime('%d-%m-%Y')}.",
             text_color=T.OK)
-        self.key_e.delete(0, "end")
+        self.key_entry.delete(0, "end")

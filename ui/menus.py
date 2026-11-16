@@ -1,4 +1,4 @@
-"""Tally-style menu tree."""
+"""Tally-style menu tree. go=None means 'not built yet' (shown dimmed, with a 'soon' tag)."""
 def M(label, key, go=None):
     return {"label": label, "key": key, "go": go}
 
@@ -36,12 +36,11 @@ MENUS = {
         M("Stock Summary",     "K"),
     ]),
     "utilities": ("Utilities", [
-        M("Company Details",   "C", ("page", "company")),
-        M("Backup Data",       "B", ("fn",   "backup")),
-        M("Renew Licence",     "L", ("page", "renew")),
-        M("Reset All Data",    "X", ("page", "reset")),
-        M("Audit Log",         "A", ("page", "audit")),
-        M("Help & Shortcuts",  "H", ("page", "help")),
-        M("Change Password",   "P", ("page", "password")),
+        M("Company Details",  "C", ("page", "company")),
+        M("Backup Data",      "B", ("fn",   "backup")),
+        M("Audit Log",        "A", ("page", "audit")),
+        M("Help & Shortcuts", "H", ("page", "help")),
+        M("Change Password",  "P", ("page", "password")),
+        M("Renew Licence",    "R", ("page", "renew")),
     ]),
 }
