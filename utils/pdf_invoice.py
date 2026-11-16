@@ -5,12 +5,11 @@ Returns the full path of the saved file.
 import os
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import mm, pt
+from reportlab.lib.units import mm
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.enums import TA_RIGHT, TA_CENTER, TA_LEFT
 from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
                                 Paragraph, Spacer, HRFlowable)
-from reportlab.graphics.shapes import Drawing, Rect, String, Line
 from db import setup as s, billing as b
 from utils import settings
 from utils.fmt import disp_date
