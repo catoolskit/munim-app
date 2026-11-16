@@ -59,7 +59,28 @@ CREATE TABLE IF NOT EXISTS parties(
   id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL,
   ptype TEXT NOT NULL CHECK(ptype IN ('Customer','Supplier')),
   gstin TEXT DEFAULT '', phone TEXT DEFAULT '', address TEXT DEFAULT '',
+  credit_days INTEGER NOT NULL DEFAULT 0,
   account_id INTEGER NOT NULL REFERENCES accounts(id));
+CREATE TABLE IF NOT EXISTS invoices(
+  id INTEGER PRIMARY KEY,
+  voucher_id INTEGER UNIQUE NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK(kind IN ('Sales','Purchase')),
+  party TEXT NOT NULL, interstate INTEGER NOT NULL DEFAULT 0,
+  taxable INTEGER NOT NULL, cgst INTEGER NOT NULL, sgst INTEGER NOT NULL,
+  igst INTEGER NOT NULL, total INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS invoice_items(
+  id INTEGER PRIMARY KEY,
+  invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+  seq INTEGER NOT NULL, description TEXT NOT NULL,
+  qty TEXT NOT NULL, rate TEXT NOT NULL, gst TEXT NOT NULL, amount INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS allocations(
+  id INTEGER PRIMARY KEY,
+  payment_voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+  invoice_voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+  amount INTEGER NOT NULL CHECK(amount > 0));
+CREATE TABLE IF NOT EXISTS audit_log(
+  id INTEGER PRIMARY KEY, at TEXT NOT NULL, username TEXT NOT NULL DEFAULT '',
+  action TEXT NOT NULL, vtype TEXT, vno INTEGER, fy TEXT, detail TEXT);
 """
 
 DEFAULT_ACCOUNTS = [
@@ -115,6 +136,8 @@ def init_db(path=None):
     cols = [r["name"] for r in con.execute("PRAGMA table_info(users)")]
     if "must_change" not in cols:  # database created by an older MUNIM version
         con.execute("ALTER TABLE users ADD COLUMN must_change INTEGER NOT NULL DEFAULT 0")
+    if "credit_days" not in [r["name"] for r in con.execute("PRAGMA table_info(parties)")]:
+        con.execute("ALTER TABLE parties ADD COLUMN credit_days INTEGER NOT NULL DEFAULT 0")
     if not con.execute("SELECT 1 FROM accounts LIMIT 1").fetchone():
         for n, g, nat in DEFAULT_ACCOUNTS:
             con.execute("INSERT INTO accounts(name,grp,nature) VALUES(?,?,?)", (n, g, nat))
@@ -125,13 +148,12 @@ def init_db(path=None):
     con.commit()
     return con
 
-def post_voucher(con, vtype, vdate, narration, lines):
+def post_voucher(con, vtype, vdate, narration, lines, username=""):
     """lines: list of (account_name, dr_rupees, cr_rupees). Rejects unbalanced vouchers."""
     return post_voucher_paise(con, vtype, vdate, narration,
-                              [(n, to_paise(d), to_paise(c)) for n, d, c in lines])
+                              [(n, to_paise(d), to_paise(c)) for n, d, c in lines], username)
 
-def post_voucher_paise(con, vtype, vdate, narration, lines):
-    """Same as post_voucher but amounts are integer paise (used by GST billing)."""
+def _resolve(con, lines):
     rows = []
     for name, dr, cr in lines:
         if dr == 0 and cr == 0:
@@ -144,19 +166,125 @@ def post_voucher_paise(con, vtype, vdate, narration, lines):
         raise ValueError("A voucher needs at least two lines")
     if sum(r[1] for r in rows) != sum(r[2] for r in rows):
         raise ValueError("Voucher not balanced: total Dr must equal total Cr")
+    return rows
+
+def _next_vno(con, vtype, fy):
+    return con.execute("SELECT COALESCE(MAX(vno),0)+1 FROM vouchers WHERE vtype=? AND fy=?",
+                       (vtype, fy)).fetchone()[0]
+
+def _insert_voucher(con, vtype, vdate, narration, lines):
+    """Inserts a voucher WITHOUT committing. Returns (vno, voucher_id)."""
+    rows = _resolve(con, lines)
     fy = fy_of(vdate)
-    vno = (con.execute("SELECT COALESCE(MAX(vno),0) FROM vouchers WHERE vtype=? AND fy=?",
-                       (vtype, fy)).fetchone()[0]) + 1
+    vno = _next_vno(con, vtype, fy)
+    cur = con.execute("INSERT INTO vouchers(vtype,vno,vdate,fy,narration) VALUES(?,?,?,?,?)",
+                      (vtype, vno, vdate.isoformat(), fy, narration))
+    con.executemany("INSERT INTO entries(voucher_id,account_id,dr,cr) VALUES(?,?,?,?)",
+                    [(cur.lastrowid, a, d, c) for a, d, c in rows])
+    return vno, cur.lastrowid
+
+def post_voucher_paise(con, vtype, vdate, narration, lines, username=""):
+    """Same as post_voucher but amounts are integer paise (used by GST billing)."""
     try:
-        cur = con.execute("INSERT INTO vouchers(vtype,vno,vdate,fy,narration) VALUES(?,?,?,?,?)",
-                          (vtype, vno, vdate.isoformat(), fy, narration))
-        con.executemany("INSERT INTO entries(voucher_id,account_id,dr,cr) VALUES(?,?,?,?)",
-                        [(cur.lastrowid, a, d, c) for a, d, c in rows])
+        vno, vid = _insert_voucher(con, vtype, vdate, narration, lines)
+        log_action(con, username, "create", after=voucher_snapshot(con, vid))
         con.commit()
     except Exception:
         con.rollback()
         raise
     return vno
+
+def _replace_voucher(con, vid, vtype, vdate, narration, lines):
+    """Rewrites a voucher in place WITHOUT committing. Keeps its number unless type or FY changes."""
+    rows = _resolve(con, lines)          # validate everything before touching the old data
+    old = con.execute("SELECT vtype, vno, fy FROM vouchers WHERE id=?", (vid,)).fetchone()
+    fy = fy_of(vdate)
+    vno = old["vno"] if (old["vtype"], old["fy"]) == (vtype, fy) else _next_vno(con, vtype, fy)
+    con.execute("UPDATE vouchers SET vtype=?, vno=?, vdate=?, fy=?, narration=? WHERE id=?",
+                (vtype, vno, vdate.isoformat(), fy, narration, vid))
+    con.execute("DELETE FROM entries WHERE voucher_id=?", (vid,))
+    con.executemany("INSERT INTO entries(voucher_id,account_id,dr,cr) VALUES(?,?,?,?)",
+                    [(vid, a, d, c) for a, d, c in rows])
+    return vno
+
+def voucher_snapshot(con, vid):
+    v = con.execute("SELECT * FROM vouchers WHERE id=?", (vid,)).fetchone()
+    if not v:
+        raise ValueError("Voucher not found")
+    lines = [{"account": r["name"], "dr": r["dr"], "cr": r["cr"]} for r in con.execute(
+        """SELECT a.name, e.dr, e.cr FROM entries e JOIN accounts a ON a.id=e.account_id
+           WHERE e.voucher_id=? ORDER BY e.id""", (vid,))]
+    inv = None
+    i = con.execute("SELECT * FROM invoices WHERE voucher_id=?", (vid,)).fetchone()
+    if i:
+        inv = {k: i[k] for k in ("kind", "party", "interstate", "taxable", "cgst", "sgst", "igst", "total")}
+        inv["items"] = [{k: it[k] for k in ("description", "qty", "rate", "gst", "amount")}
+                        for it in con.execute("SELECT * FROM invoice_items WHERE invoice_id=? ORDER BY seq", (i["id"],))]
+    pays = [{"id": r["id"], "vtype": r["vtype"], "vno": r["vno"], "vdate": r["vdate"], "amount": r["amount"]}
+            for r in con.execute(
+                """SELECT v.id, v.vtype, v.vno, v.vdate, a.amount FROM allocations a
+                   JOIN vouchers v ON v.id=a.payment_voucher_id
+                   WHERE a.invoice_voucher_id=? ORDER BY v.vdate, v.id""", (vid,))]
+    applied = [{"id": r["id"], "vtype": r["vtype"], "vno": r["vno"], "vdate": r["vdate"], "amount": r["amount"]}
+               for r in con.execute(
+                   """SELECT v.id, v.vtype, v.vno, v.vdate, a.amount FROM allocations a
+                      JOIN vouchers v ON v.id=a.invoice_voucher_id
+                      WHERE a.payment_voucher_id=? ORDER BY v.vdate, v.id""", (vid,))]
+    return {"id": vid, "vtype": v["vtype"], "vno": v["vno"], "vdate": v["vdate"], "fy": v["fy"],
+            "narration": v["narration"], "lines": lines, "invoice": inv,
+            "payments_in": pays, "applied_to": applied}
+
+def log_action(con, username, action, before=None, after=None):
+    """Adds an audit row WITHOUT committing."""
+    import json
+    from datetime import datetime
+    ref = after or before or {}
+    con.execute("INSERT INTO audit_log(at,username,action,vtype,vno,fy,detail) VALUES(?,?,?,?,?,?,?)",
+                (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), username or "", action,
+                 ref.get("vtype"), ref.get("vno"), ref.get("fy"),
+                 json.dumps({"before": before, "after": after})))
+
+MANUAL_TYPES = ("Journal", "Payment", "Receipt", "Contra")
+
+def update_voucher(con, vid, vtype, vdate, narration, lines, username=""):
+    """Edit a Journal/Payment/Receipt/Contra voucher. lines in rupees. All-or-nothing."""
+    if vtype not in MANUAL_TYPES:
+        raise ValueError("Sales and purchase bills are edited from their own screens")
+    if con.execute("SELECT 1 FROM invoices WHERE voucher_id=?", (vid,)).fetchone():
+        raise ValueError("This is an invoice. Edit it from the Sales/Purchase screen")
+    if con.execute("SELECT 1 FROM allocations WHERE payment_voucher_id=? OR invoice_voucher_id=?",
+                   (vid, vid)).fetchone():
+        raise ValueError("This entry settles bills, so it cannot be edited. Delete it and enter it again")
+    before = voucher_snapshot(con, vid)
+    try:
+        _replace_voucher(con, vid, vtype, vdate, narration,
+                         [(n, to_paise(d), to_paise(c)) for n, d, c in lines])
+        log_action(con, username, "edit", before=before, after=voucher_snapshot(con, vid))
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+
+def delete_voucher(con, vid, username=""):
+    before = voucher_snapshot(con, vid)
+    try:
+        log_action(con, username, "delete", before=before)
+        con.execute("DELETE FROM vouchers WHERE id=?", (vid,))
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+
+def audit_entries(con, limit=300):
+    import json
+    out = []
+    for r in con.execute("SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", (limit,)):
+        d = json.loads(r["detail"] or "{}")
+        snap = d.get("after") or d.get("before") or {}
+        total = sum(l["dr"] for l in snap.get("lines", []))
+        out.append({"at": r["at"], "user": r["username"], "action": r["action"],
+                    "vtype": r["vtype"], "vno": r["vno"], "amount": to_rupees(total)})
+    return out
 
 def ensure_account(con, name, grp, nature):
     if not con.execute("SELECT 1 FROM accounts WHERE name=?", (name,)).fetchone():
@@ -217,7 +345,21 @@ def trial_balance(con, fy):
 import re
 GSTIN_RE = re.compile(r"^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
 
-def add_party(con, name, ptype, gstin="", phone="", address="", opening=0):
+def _credit_days(value):
+    try:
+        days = int(str(value if value not in (None, "") else 0).strip())
+    except ValueError:
+        raise ValueError("Credit days must be a whole number")
+    if not 0 <= days <= 365:
+        raise ValueError("Credit days must be between 0 and 365")
+    return days
+
+def set_credit_days(con, name, days):
+    d = _credit_days(days)
+    con.execute("UPDATE parties SET credit_days=? WHERE name=?", (d, name))
+    con.commit()
+
+def add_party(con, name, ptype, gstin="", phone="", address="", opening=0, credit_days=0):
     """Creates the party and its ledger account together. Opening: customers Dr, suppliers Cr."""
     name = (name or "").strip()
     gstin = (gstin or "").strip().upper()
@@ -233,6 +375,7 @@ def add_party(con, name, ptype, gstin="", phone="", address="", opening=0):
         raise ValueError("Opening balance must be a number")
     if amount < 0:
         raise ValueError("Opening balance cannot be negative")
+    days = _credit_days(credit_days)
     if con.execute("SELECT 1 FROM accounts WHERE name=?", (name,)).fetchone():
         raise ValueError("A ledger account with this name already exists")
     grp, nature, side = (("Sundry Debtors", "Asset", "Dr") if ptype == "Customer"
@@ -242,8 +385,8 @@ def add_party(con, name, ptype, gstin="", phone="", address="", opening=0):
             "INSERT INTO accounts(name,grp,nature,opening,opening_side) VALUES(?,?,?,?,?)",
             (name, grp, nature, amount, side))
         con.execute(
-            "INSERT INTO parties(name,ptype,gstin,phone,address,account_id) VALUES(?,?,?,?,?,?)",
-            (name, ptype, gstin, (phone or "").strip(), (address or "").strip(), cur.lastrowid))
+            "INSERT INTO parties(name,ptype,gstin,phone,address,account_id,credit_days) VALUES(?,?,?,?,?,?,?)",
+            (name, ptype, gstin, (phone or "").strip(), (address or "").strip(), cur.lastrowid, days))
         con.commit()
     except Exception:
         con.rollback()
@@ -251,7 +394,7 @@ def add_party(con, name, ptype, gstin="", phone="", address="", opening=0):
     return cur.lastrowid
 
 def list_parties(con, ptype=None):
-    q = """SELECT p.name, p.ptype, p.gstin, p.phone, p.address, a.opening, a.opening_side
+    q = """SELECT p.name, p.ptype, p.gstin, p.phone, p.address, a.opening, a.opening_side, p.credit_days
            FROM parties p JOIN accounts a ON a.id=p.account_id"""
     args = ()
     if ptype in ("Customer", "Supplier"):
@@ -284,3 +427,10 @@ def fy_choices(con):
     fys = {f"{y}-{str(y + 1)[2:]}", f"{y - 1}-{str(y)[2:]}"}
     fys |= {r[0] for r in con.execute("SELECT DISTINCT fy FROM vouchers")}
     return sorted(fys, reverse=True)
+
+
+def find_voucher(con, vtype, vno, vdate):
+    """Voucher id for a type, number and date (used to open a voucher just saved)."""
+    r = con.execute("SELECT id FROM vouchers WHERE vtype=? AND vno=? AND fy=?",
+                    (vtype, vno, fy_of(vdate))).fetchone()
+    return r["id"] if r else None

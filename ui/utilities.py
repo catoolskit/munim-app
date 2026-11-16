@@ -2,6 +2,9 @@ import customtkinter as ctk
 from db import setup as s
 from ui import theme as T
 from utils import settings
+from utils.fmt import inr
+from ui.widgets import DataTable
+from datetime import datetime
 
 
 def _field(parent, label, widget, row, col=0, span=1):
@@ -81,3 +84,20 @@ class PasswordFrame(ctk.CTkFrame):
             for w in (self.cur, self.new, self.conf):
                 w.delete(0, "end")
             self.msg.configure(text="Password updated", text_color=T.OK)
+
+
+class AuditFrame(ctk.CTkFrame):
+    """Every voucher created, edited or deleted, newest first."""
+    def __init__(self, master, con):
+        super().__init__(master, fg_color="transparent")
+        T.title(self, "Audit Log", "Who created, edited or deleted what. Newest first.").pack(
+            anchor="w", padx=28, pady=(24, 12))
+        table = DataTable(self, [("at", "When", 150, "w"), ("u", "User", 110, "w"), ("a", "Action", 90, "w"),
+                                 ("v", "Voucher", 160, "w"), ("m", "Amount (Rs)", 130, "e")], height=14)
+        table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
+        rows = []
+        for e in s.audit_entries(con):
+            when = datetime.strptime(e["at"], "%Y-%m-%d %H:%M:%S").strftime("%d-%m-%Y %H:%M")
+            rows.append((when, e["user"] or "-", e["action"].capitalize(),
+                         f"{e['vtype']} #{e['vno']}", inr(e["amount"])))
+        table.set_rows(rows)

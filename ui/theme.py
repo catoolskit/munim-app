@@ -61,6 +61,10 @@ def style_tree():
     st.map("Munim.Treeview", background=[("selected", ACCENT)],
            foreground=[("selected", "white")])
     st.map("Munim.Treeview.Heading", background=[("active", "#E3E9F4")])
+    st.configure("Munim.Vertical.TScrollbar", background="#C5CEE0", troughcolor="#F1F4F9",
+                 bordercolor="#F1F4F9", lightcolor="#C5CEE0", darkcolor="#C5CEE0",
+                 arrowcolor=TEXT, relief="flat")
+    st.map("Munim.Vertical.TScrollbar", background=[("active", "#A9B6D0")])
 
 
 def combo(master, values, **kw):

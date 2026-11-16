@@ -18,6 +18,20 @@ class FmtTests(unittest.TestCase):
         self.assertEqual(fmt.parse_date("14/11/2026"), date(2026, 11, 14))
         with self.assertRaises(ValueError): fmt.parse_date("31-02-2026")
         self.assertEqual(fmt.disp_date("2026-11-14"), "14-11-2026")
+    def test_date_shortcuts(self):
+        today = date(2026, 11, 15)
+        pd = lambda x: fmt.parse_date(x, today)
+        self.assertEqual(pd("t"), today)
+        self.assertEqual(pd("3"), date(2026, 11, 3))
+        self.assertEqual(pd("1411"), date(2026, 11, 14))
+        self.assertEqual(pd("14-11"), date(2026, 11, 14))
+        self.assertEqual(pd("141126"), date(2026, 11, 14))
+        self.assertEqual(pd("14-11-26"), date(2026, 11, 14))
+        self.assertEqual(pd("2026-11-14"), date(2026, 11, 14))
+        for bad in ("31", "3102", "abc", "", "32-13", "99"):
+            with self.assertRaises(ValueError, msg=bad):
+                pd(bad)
+
     def test_fy_choices(self):
         con = s.init_db(os.path.join(tempfile.mkdtemp(), "t.db"))
         s.post_voucher(con, "Journal", date(2020, 6, 1), "", [("Cash", 1, 0), ("Capital", 0, 1)])
