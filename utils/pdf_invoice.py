@@ -171,7 +171,7 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
     IDX  = 18
     QTY  = 30
     PCT  = 34   # GST % cols
-    MON  = 70   # money cols: Rate, Taxable, CGST Amt, SGST Amt, Total
+    MON  = 90   # money cols: Rate, Taxable, CGST Amt, SGST Amt, Total
     # Desc gets the remainder
     if interstate:
         # cols: # Desc Qty Rate Taxable IGST% IGST_Amt Total  = 8 cols
