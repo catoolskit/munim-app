@@ -16,12 +16,12 @@ MENUS = {
         M("Stock Items",     "S"),
     ]),
     "transactions": ("Transactions", [
-        M("Sales Invoice",              "S", ("page", "sales")),
-        M("Daily Sales Summary",        "D", ("page", "summary")),
-        M("Purchase Bill",              "P", ("page", "purchase")),
-        M("Receipt / Payment",          "R", ("page", "payment")),
-        M("Voucher Entry (journal etc.)","V", ("page", "journal")),
-        M("GST Invoice (print)",        "G"),
+        M("Sales Invoice",               "S", ("page", "sales")),
+        M("Daily Sales Summary",         "D", ("page", "summary")),
+        M("Purchase Bill",               "P", ("page", "purchase")),
+        M("Receipt / Payment",           "R", ("page", "payment")),
+        M("Voucher Entry (journal etc.)", "V", ("page", "journal")),
+        M("GST Invoice (print)",         "G"),
     ]),
     "reports": ("Reports", [
         M("Ledger View",       "L", ("page", "ledger")),
@@ -38,6 +38,7 @@ MENUS = {
     "utilities": ("Utilities", [
         M("Company Details",   "C", ("page", "company")),
         M("Backup Data",       "B", ("fn",   "backup")),
+        M("Renew Licence",     "L", ("page", "renew")),
         M("Reset All Data",    "X", ("page", "reset")),
         M("Audit Log",         "A", ("page", "audit")),
         M("Help & Shortcuts",  "H", ("page", "help")),
