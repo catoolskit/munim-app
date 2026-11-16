@@ -6,6 +6,8 @@ import os
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
+from reportlab.pdfbase.pdfmetrics import stringWidth
+from xml.sax.saxutils import escape
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.enums import TA_RIGHT, TA_CENTER, TA_LEFT
 from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
@@ -84,14 +86,14 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
     def S(name, **kw):
         return ParagraphStyle(name, **kw)
 
-    HDR  = S("HDR",  fontSize=22, textColor=WHITE,  fontName="Helvetica-Bold", leading=26)
+    HDR  = S("HDR",  fontSize=13, textColor=WHITE,  fontName="Helvetica-Bold", leading=16)
     BLD  = S("BLD",  fontSize=10, textColor=BLACK,  fontName="Helvetica-Bold", leading=14)
     NRM  = S("NRM",  fontSize=9,  textColor=BLACK,  fontName="Helvetica",      leading=12)
     SML  = S("SML",  fontSize=8,  textColor=MUTED,  fontName="Helvetica",      leading=10)
     RGT  = S("RGT",  fontSize=8,  textColor=BLACK,  fontName="Helvetica",      leading=12, alignment=TA_RIGHT)
     BRGT = S("BRGT", fontSize=8, textColor=BLACK,  fontName="Helvetica-Bold", leading=13, alignment=TA_RIGHT)
     CTR  = S("CTR",  fontSize=8,  textColor=BLACK,  fontName="Helvetica",      leading=12, alignment=TA_CENTER)
-    HCTR = S("HCTR", fontSize=8,  textColor=WHITE,  fontName="Helvetica-Bold", leading=11, alignment=TA_CENTER)
+    HCTR = S("HCTR", fontSize=7,  textColor=WHITE,  fontName="Helvetica-Bold", leading=11, alignment=TA_CENTER)
     HRGT = S("HRGT", fontSize=8,  textColor=WHITE,  fontName="Helvetica-Bold", leading=11, alignment=TA_RIGHT)
     HLFT = S("HLFT", fontSize=8,  textColor=WHITE,  fontName="Helvetica-Bold", leading=11, alignment=TA_LEFT)
     MLBL = S("MLBL", fontSize=9,  textColor=MUTED,  fontName="Helvetica",      leading=12)
@@ -104,7 +106,7 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
     # Right cell: Invoice No. / Date
 
     icon_cell = [
-        _p("🧾  TAX INVOICE", HDR),
+        _p("TAX INVOICE", HDR),
     ]
     meta_cell = [
         _p("Invoice No.", SML),
@@ -115,12 +117,12 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
     ]
 
     # Override meta colours for dark background
-    MVAL_W = S("MVAL_W", fontSize=12, textColor=WHITE, fontName="Helvetica-Bold", leading=16)
-    SML_W  = S("SML_W",  fontSize=8,  textColor=LBLUE, fontName="Helvetica",      leading=10)
-    VD_W   = S("VD_W",   fontSize=10, textColor=WHITE, fontName="Helvetica",      leading=13)
+    MVAL_W = S("MVAL_W", fontSize=10, textColor=WHITE, fontName="Helvetica-Bold", leading=12)
+    SML_W  = S("SML_W",  fontSize=7,  textColor=LBLUE, fontName="Helvetica",      leading=9)
+    VD_W   = S("VD_W",   fontSize=9,  textColor=WHITE, fontName="Helvetica",      leading=11)
 
     hdr_tbl = Table(
-        [[_p("🧾  TAX INVOICE", HDR),
+        [[_p("TAX INVOICE", HDR),
           [_p("Invoice No.", SML_W), _p(inv_no, MVAL_W),
            _p("Date", SML_W),        _p(vdate,  VD_W)]]],
         colWidths=[W * 0.55, W * 0.45],
@@ -130,8 +132,8 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
         ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
         ("LEFTPADDING",   (0, 0), (-1, -1), 14),
         ("RIGHTPADDING",  (0, 0), (-1, -1), 14),
-        ("TOPPADDING",    (0, 0), (-1, -1), 14),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 14),
+        ("TOPPADDING",    (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
         ("LINEAFTER",     (0, 0), (0, 0),   0.5, colors.HexColor("#334E7A")),
     ]))
     story.append(hdr_tbl)
@@ -167,27 +169,43 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
     story.append(HRFlowable(width="100%", thickness=1, color=NAVY, spaceAfter=4))
 
     # ── ITEMS TABLE ───────────────────────────────────────────────────────────
-    # Fixed column widths — money columns wide enough for any amount, no wrap
-    IDX  = 18
-    QTY  = 30
-    PCT  = 42   # GST % cols
-    MON  = 75   # money cols: Rate, Taxable, CGST Amt, SGST Amt, Total
-    # Desc gets the remainder
+    # Allocate enough room to Description while keeping every heading/value on
+    # one line.  Amount columns are compact but still sized for normal invoices.
+    IDX = 16
+    QTY = 30
+    PCT = 32
+    MON = 58
     if interstate:
-        # cols: # Desc Qty Rate Taxable IGST% IGST_Amt Total  = 8 cols
-        DESC = W - IDX - QTY - MON * 3 - PCT - MON
-        col_ws = [IDX, DESC, QTY, MON, MON, PCT, MON, MON]
-        hdr_labels = ["#","Desc","Qty","Rate","Taxable","CGST%","CGST Amt","SGST%","SGST Amt","Total"]
-        hdr_aligns = ["CTR","HLFT","CTR","HRGT","HRGT","HCTR","HRGT","HRGT"]
+        # #, Description, Qty, Rate, Taxable, IGST%, IGST Amt, Total
+        col_ws = [IDX, W - IDX - QTY - MON * 4 - PCT, QTY, MON, MON, PCT, MON, MON]
+        hdr_labels = ["#", "Description", "Qty", "Rate", "Taxable", "IGST%", "IGST Amt", "Total"]
+        hdr_aligns = ["CTR", "HLFT", "CTR", "HRGT", "HRGT", "HCTR", "HRGT", "HRGT"]
     else:
-        # cols: # Desc Qty Rate Taxable CGST% CGST_Amt SGST% SGST_Amt Total = 10 cols
-        DESC = W - IDX - QTY - MON * 5 - PCT * 2
-        col_ws = [IDX, DESC, QTY, MON, MON, PCT, MON, PCT, MON, MON]
-        hdr_labels = ["#","Description","Qty","Rate","Taxable","CGST%","CGST Amt","SGST%","SGST Amt","Total"]
-        hdr_aligns = ["CTR","HLFT","CTR","HRGT","HRGT","HCTR","HRGT","HCTR","HRGT","HRGT"]
+        # #, Description, Qty, Rate, Taxable, CGST%, CGST Amt, SGST%, SGST Amt, Total
+        col_ws = [IDX, W - IDX - QTY - MON * 5 - PCT * 2, QTY, MON, MON, PCT, MON, PCT, MON, MON]
+        hdr_labels = ["#", "Description", "Qty", "Rate", "Taxable", "CGST%", "CGST Amt", "SGST%", "SGST Amt", "Total"]
+        hdr_aligns = ["CTR", "HLFT", "CTR", "HRGT", "HRGT", "HCTR", "HRGT", "HCTR", "HRGT", "HRGT"]
+
+    # A no-wrap paragraph shrinks slightly when necessary instead of breaking
+    # long descriptions or numeric values into multiple lines.
+    def nw(text, base_style, width, min_size=6.2):
+        raw = str(text or "")
+        font_name = base_style.fontName
+        size = base_style.fontSize
+        available = max(8, width - 5)
+        measured = stringWidth(raw, font_name, size)
+        if measured > available and measured:
+            size = max(min_size, size * available / measured)
+        stl = ParagraphStyle(
+            f"NW_{id(base_style)}_{len(raw)}", parent=base_style,
+            fontSize=size, leading=max(size + 2, base_style.leading * size / base_style.fontSize),
+            splitLongWords=0,
+        )
+        return Paragraph(f"<nobr>{escape(raw)}</nobr>", stl)
 
     style_map = {"CTR": HCTR, "HLFT": HLFT, "HRGT": HRGT, "HCTR": HCTR}
-    hdr_row = [_p(lbl, style_map[aln]) for lbl, aln in zip(hdr_labels, hdr_aligns)]
+    hdr_row = [nw(lbl, style_map[aln], col_ws[i], min_size=6.0)
+               for i, (lbl, aln) in enumerate(zip(hdr_labels, hdr_aligns))]
 
     rows_data = [hdr_row]
     for idx, it in enumerate(items, 1):
@@ -200,19 +218,19 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
         if interstate:
             igst    = round(tax_p * gst_p / 100)
             total_p = tax_p + igst
-            t_cells = [_p(f"{gst_p:g}%", CTR), _m(igst, RGT)]
+            t_cells = [nw(f"{gst_p:g}%", CTR, col_ws[5]), nw(_fmt(igst), RGT, col_ws[6])]
         else:
             half    = gst_p / 2
             cgst    = round(tax_p * half / 100)
             sgst    = cgst
             total_p = tax_p + cgst + sgst
-            t_cells = [_p(f"{half:g}%", CTR), _m(cgst, RGT),
-                       _p(f"{half:g}%", CTR), _m(sgst, RGT)]
+            t_cells = [nw(f"{half:g}%", CTR, col_ws[5]), nw(_fmt(cgst), RGT, col_ws[6]),
+                       nw(f"{half:g}%", CTR, col_ws[7]), nw(_fmt(sgst), RGT, col_ws[8])]
 
         rows_data.append(
-            [_p(str(idx), CTR), _p(desc, NRM), _p(f"{qty:g}", CTR),
-             _m(round(rate * 100), RGT), _m(tax_p, RGT)]
-            + t_cells + [_m(total_p, RGT)]
+            [nw(str(idx), CTR, col_ws[0]), nw(desc, NRM, col_ws[1]), nw(f"{qty:g}", CTR, col_ws[2]),
+             nw(_fmt(round(rate * 100)), RGT, col_ws[3]), nw(_fmt(tax_p), RGT, col_ws[4])]
+            + t_cells + [nw(_fmt(total_p), RGT, col_ws[-1])]
         )
 
     # totals row
@@ -222,11 +240,20 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
         tot_cells = [_p("", NRM), _m(tax["cgst"], BRGT),
                      _p("", NRM), _m(tax["sgst"], BRGT)]
 
-    rows_data.append(
-        [_p("", NRM), _p("Total", BLD), _p("", NRM), _p("", NRM),
-         _m(tax["taxable"], BRGT)]
-        + tot_cells + [_m(tax["total"], BRGT)]
-    )
+    if interstate:
+        total_cells = [nw("", NRM, col_ws[0]), nw("Total", BLD, col_ws[1]),
+                       nw("", NRM, col_ws[2]), nw("", NRM, col_ws[3]),
+                       nw(_fmt(tax["taxable"]), BRGT, col_ws[4]),
+                       nw("", NRM, col_ws[5]), nw(_fmt(tax["igst"]), BRGT, col_ws[6]),
+                       nw(_fmt(tax["total"]), BRGT, col_ws[7])]
+    else:
+        total_cells = [nw("", NRM, col_ws[0]), nw("Total", BLD, col_ws[1]),
+                       nw("", NRM, col_ws[2]), nw("", NRM, col_ws[3]),
+                       nw(_fmt(tax["taxable"]), BRGT, col_ws[4]),
+                       nw("", NRM, col_ws[5]), nw(_fmt(tax["cgst"]), BRGT, col_ws[6]),
+                       nw("", NRM, col_ws[7]), nw(_fmt(tax["sgst"]), BRGT, col_ws[8]),
+                       nw(_fmt(tax["total"]), BRGT, col_ws[9])]
+    rows_data.append(total_cells)
 
     n = len(rows_data)
     item_tbl = Table(rows_data, colWidths=col_ws, repeatRows=1)
@@ -234,12 +261,12 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
         # header row
         ("BACKGROUND",    (0, 0),     (-1, 0),     NAVY),
         ("FONTSIZE",      (0, 0),     (-1, 0),     8),
-        ("TOPPADDING",    (0, 0),     (-1, 0),     6),
-        ("BOTTOMPADDING", (0, 0),     (-1, 0),     6),
+        ("TOPPADDING",    (0, 0),     (-1, 0),     5),
+        ("BOTTOMPADDING", (0, 0),     (-1, 0),     5),
         # body
         ("FONTSIZE",      (0, 1),     (-1, -1),    8),
-        ("TOPPADDING",    (0, 1),     (-1, -1),    5),
-        ("BOTTOMPADDING", (0, 1),     (-1, -1),    5),
+        ("TOPPADDING",    (0, 1),     (-1, -1),    4),
+        ("BOTTOMPADDING", (0, 1),     (-1, -1),    4),
         ("ROWBACKGROUNDS",(0, 1),     (-1, -2),    [WHITE, LIGHT]),
         # totals
         ("BACKGROUND",    (0, n - 1), (-1, n - 1), LBLUE),
