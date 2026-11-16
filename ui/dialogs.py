@@ -88,3 +88,50 @@ class CreditDaysDialog(ctk.CTkToplevel):
             return
         self.destroy()
         self.on_saved()
+
+
+class OpeningDialog(ctk.CTkToplevel):
+    """Change an account's opening balance."""
+    def __init__(self, master, con, name, amount, side, on_saved):
+        super().__init__(master)
+        self.con, self.name, self.on_saved = con, name, on_saved
+        self.title("Opening balance")
+        self.geometry("400x270")
+        self.resizable(False, False)
+        self.configure(fg_color=T.BG)
+        ctk.CTkLabel(self, text=name, font=T.f(18, "bold"), text_color=T.TEXT, wraplength=350,
+                     justify="left").pack(anchor="w", padx=24, pady=(20, 2))
+        ctk.CTkLabel(self, text="Opening balance on the first day of your books", font=T.f(12),
+                     text_color=T.MUTED).pack(anchor="w", padx=24)
+        row = ctk.CTkFrame(self, fg_color="transparent")
+        row.pack(anchor="w", padx=24, pady=14)
+        self.amount = T.entry(row, "0.00", width=160)
+        self.amount.insert(0, f"{amount:.2f}" if amount else "")
+        self.amount.pack(side="left")
+        self.side = T.option_menu(row, ["Dr", "Cr"], width=80)
+        self.side.set(side)
+        self.side.pack(side="left", padx=10)
+        self.msg = ctk.CTkLabel(self, text="", font=T.f(12), text_color=T.DANGER, wraplength=350, justify="left")
+        self.msg.pack(anchor="w", padx=24)
+        bar = ctk.CTkFrame(self, fg_color="transparent")
+        bar.pack(side="bottom", fill="x", padx=24, pady=16)
+        T.button(bar, "Save", self.save, width=110).pack(side="left")
+        T.button(bar, "Cancel", self.destroy, width=100, fg_color="#E7ECF5", text_color=T.TEXT,
+                 hover_color="#DCE3F0").pack(side="left", padx=10)
+        chain_enter([self.amount], self.save)
+        self.after(150, self._front)
+
+    def _front(self):
+        try:
+            self.lift(); self.focus_force(); self.grab_set(); self.amount._entry.focus_set()
+        except Exception:
+            pass
+
+    def save(self):
+        try:
+            s.set_account_opening(self.con, self.name, self.amount.get() or 0, self.side.get())
+        except ValueError as e:
+            self.msg.configure(text=str(e))
+            return
+        self.destroy()
+        self.on_saved()

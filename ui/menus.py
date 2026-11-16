@@ -11,7 +11,7 @@ MENUS = {
         M("Log out", "Q", ("quit",)),
     ]),
     "masters": ("Masters", [
-        M("Party Master", "P", ("page", "party")),
+        M("Party Master", "P", ("page", "party")), M("Ledger Accounts", "L", ("page", "accounts")),
         M("Stock Items", "S"),
     ]),
     "transactions": ("Transactions", [
@@ -23,7 +23,7 @@ MENUS = {
         M("Ledger View", "L", ("page", "ledger")), M("Trial Balance", "T", ("page", "trial")),
         M("Cash Book", "C", ("page", "cashbook")), M("Day Book", "D", ("page", "daybook")),
         M("Outstanding", "O", ("page", "outstanding")), M("Sales Register", "S", ("page", "salesreg")), M("Purchase Register", "U", ("page", "purchasereg")),
-        M("Balance Sheet", "B", ("page", "bs")), M("Profit & Loss", "P", ("page", "pl")),
+        M("Balance Sheet", "B", ("page", "bs")), M("Trading & P&L", "P", ("page", "pl")),
         M("Stock Summary", "K"),
     ]),
     "utilities": ("Utilities", [

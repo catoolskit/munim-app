@@ -1,6 +1,7 @@
 """Read-only reports: ledger, day book, profit & loss, balance sheet. Amounts returned in rupees."""
 from datetime import date, timedelta
 from db.setup import account_states, fy_range, to_rupees
+from db.setup import get_stock as s_get_stock, prior_stock_effect as s_prior_stock_effect
 from db import billing as bl
 
 
@@ -48,8 +49,13 @@ def day_book(con, date_from, date_to):
     return out
 
 
-def profit_and_loss(con, fy, closing_stock=0):
-    """Closing stock is entered manually until the Stock module exists."""
+def _paise(x):
+    return int(round(float(x) * 100))
+
+
+def profit_and_loss(con, fy, closing_stock=None, opening_stock=None):
+    """Totals for the whole year. Stock values default to those saved for the year (see set_stock);
+    pass numbers (rupees) to override. Net profit = income + closing stock - expenses - opening stock."""
     states, _ = account_states(con, fy)
     inc, exp = [], []
     ti = te = 0
@@ -59,16 +65,61 @@ def profit_and_loss(con, fy, closing_stock=0):
             inc.append((st["name"], to_rupees(-net))); ti += -net
         elif st["nature"] == "Expense" and net != 0:
             exp.append((st["name"], to_rupees(net))); te += net
-    cs = int(round(float(closing_stock) * 100))
-    return {"income": inc, "expenses": exp, "closing_stock": to_rupees(cs),
+    o_db, c_db = s_get_stock(con, fy)
+    cs = c_db if closing_stock is None else _paise(closing_stock)
+    os_ = o_db if opening_stock is None else _paise(opening_stock)
+    return {"income": inc, "expenses": exp, "closing_stock": to_rupees(cs), "opening_stock": to_rupees(os_),
             "total_income": to_rupees(ti), "total_expenses": to_rupees(te),
-            "net_profit": to_rupees(ti + cs - te)}
+            "net_profit": to_rupees(ti + cs - te - os_)}
 
 
-def balance_sheet(con, fy, closing_stock=0):
+TRADING_EXPENSE_GROUPS = ("Purchase Accounts", "Direct Expenses")
+TRADING_INCOME_GROUPS = ("Sales Accounts", "Direct Income")
+
+
+def trading_and_pl(con, fy, closing_stock=None, opening_stock=None):
+    """Trading Account (gross profit) and Profit & Loss Account (net profit), each with two sides
+    that total to the same figure. Sales/Purchase/direct accounts go to trading; the rest to P&L."""
+    states, _ = account_states(con, fy)
+    grp = {r["name"]: r["grp"] for r in con.execute("SELECT name, grp FROM accounts")}
+    pl = profit_and_loss(con, fy, closing_stock, opening_stock)
+    t_exp, t_inc, i_exp, i_inc = [], [], [], []
+    for st in states:
+        net = st["dr"] - st["cr"]
+        if net == 0:
+            continue
+        if st["nature"] == "Income":
+            (t_inc if grp.get(st["name"]) in TRADING_INCOME_GROUPS else i_inc).append((st["name"], -net))
+        elif st["nature"] == "Expense":
+            (t_exp if grp.get(st["name"]) in TRADING_EXPENSE_GROUPS else i_exp).append((st["name"], net))
+    os_, cs = _paise(pl["opening_stock"]), _paise(pl["closing_stock"])
+    gross = sum(a for _, a in t_inc) + cs - sum(a for _, a in t_exp) - os_
+    net = gross + sum(a for _, a in i_inc) - sum(a for _, a in i_exp)
+    tl = ([("Opening Stock", os_)] if os_ else []) + t_exp
+    tr = t_inc + ([("Closing Stock", cs)] if cs else [])
+    if gross > 0:
+        tl.append(("Gross Profit c/d", gross))
+    elif gross < 0:
+        tr.append(("Gross Loss c/d", -gross))
+    pl_l = ([("Gross Loss b/d", -gross)] if gross < 0 else []) + i_exp
+    pl_r = ([("Gross Profit b/d", gross)] if gross > 0 else []) + i_inc
+    if net > 0:
+        pl_l.append(("Net Profit", net))
+    elif net < 0:
+        pl_r.append(("Net Loss", -net))
+    cv = lambda rows: [(n, to_rupees(a)) for n, a in rows]
+    tot = lambda rows: to_rupees(sum(a for _, a in rows))
+    return {"trading": {"left": cv(tl), "right": cv(tr), "left_total": tot(tl), "right_total": tot(tr),
+                        "gross_profit": to_rupees(gross)},
+            "pl": {"left": cv(pl_l), "right": cv(pl_r), "left_total": tot(pl_l), "right_total": tot(pl_r),
+                   "net_profit": to_rupees(net)},
+            "opening_stock": pl["opening_stock"], "closing_stock": pl["closing_stock"]}
+
+
+def balance_sheet(con, fy, closing_stock=None, opening_stock=None):
     states, prior_pl = account_states(con, fy)
-    pl = profit_and_loss(con, fy, closing_stock)
-    cs = int(round(float(closing_stock) * 100))
+    pl = profit_and_loss(con, fy, closing_stock, opening_stock)
+    cs = _paise(pl["closing_stock"])
     assets, liabs = [], []
     for st in states:
         if st["nature"] not in ("Asset", "Liability"):
@@ -80,7 +131,7 @@ def balance_sheet(con, fy, closing_stock=0):
         (assets if to_assets else liabs).append((st["name"], abs(net)))
     if cs:
         assets.append(("Closing Stock", cs))
-    profit = prior_pl + int(round(pl["net_profit"] * 100))
+    profit = prior_pl + s_prior_stock_effect(con, fy) + _paise(pl["net_profit"])
     if profit > 0:
         liabs.append(("Profit & Loss A/c", profit))
     elif profit < 0:
@@ -102,7 +153,8 @@ def invoice_register(con, fy, kind):
     out = []
     q = """SELECT v.id, v.vdate, v.vno, v.narration, i.party, i.taxable, i.cgst, i.sgst, i.igst, i.total,
                   (SELECT COALESCE(SUM(dr),0) FROM entries WHERE voucher_id=v.id) AS dr_total,
-                  COALESCE((SELECT SUM(amount) FROM allocations WHERE invoice_voucher_id=v.id),0) AS settled
+                  COALESCE((SELECT SUM(amount) FROM allocations WHERE invoice_voucher_id=v.id),0) AS settled,
+                  i.customer_name
            FROM vouchers v LEFT JOIN invoices i ON i.voucher_id=v.id
            WHERE v.vtype=? AND v.vdate BETWEEN ? AND ? ORDER BY v.vdate, v.vno"""
     for r in con.execute(q, (kind, start, end)):
@@ -110,7 +162,8 @@ def invoice_register(con, fy, kind):
         total = r["total"] if has else r["dr_total"]
         immediate = has and r["party"] in ("Cash", "Bank")      # paid at the counter
         out.append({"id": r["id"], "date": r["vdate"], "vno": r["vno"],
-                    "party": r["party"] if has else "(details not stored)",
+                    "party": ((f"{r['party']} ({r['customer_name']})" if r["customer_name"] else r["party"])
+                              if has else "(details not stored)"),
                     "taxable": to_rupees(r["taxable"]) if has else 0,
                     "cgst": to_rupees(r["cgst"]) if has else 0,
                     "sgst": to_rupees(r["sgst"]) if has else 0,

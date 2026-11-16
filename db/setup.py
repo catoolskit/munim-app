@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS invoices(
   kind TEXT NOT NULL CHECK(kind IN ('Sales','Purchase')),
   party TEXT NOT NULL, interstate INTEGER NOT NULL DEFAULT 0,
   taxable INTEGER NOT NULL, cgst INTEGER NOT NULL, sgst INTEGER NOT NULL,
-  igst INTEGER NOT NULL, total INTEGER NOT NULL);
+  igst INTEGER NOT NULL, total INTEGER NOT NULL, customer_name TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS invoice_items(
   id INTEGER PRIMARY KEY,
   invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
@@ -78,6 +78,8 @@ CREATE TABLE IF NOT EXISTS allocations(
   payment_voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
   invoice_voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
   amount INTEGER NOT NULL CHECK(amount > 0));
+CREATE TABLE IF NOT EXISTS stock_manual(
+  fy TEXT PRIMARY KEY, opening INTEGER, closing INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS audit_log(
   id INTEGER PRIMARY KEY, at TEXT NOT NULL, username TEXT NOT NULL DEFAULT '',
   action TEXT NOT NULL, vtype TEXT, vno INTEGER, fy TEXT, detail TEXT);
@@ -136,6 +138,8 @@ def init_db(path=None):
     cols = [r["name"] for r in con.execute("PRAGMA table_info(users)")]
     if "must_change" not in cols:  # database created by an older MUNIM version
         con.execute("ALTER TABLE users ADD COLUMN must_change INTEGER NOT NULL DEFAULT 0")
+    if "customer_name" not in [r["name"] for r in con.execute("PRAGMA table_info(invoices)")]:
+        con.execute("ALTER TABLE invoices ADD COLUMN customer_name TEXT NOT NULL DEFAULT ''")
     if "credit_days" not in [r["name"] for r in con.execute("PRAGMA table_info(parties)")]:
         con.execute("ALTER TABLE parties ADD COLUMN credit_days INTEGER NOT NULL DEFAULT 0")
     if not con.execute("SELECT 1 FROM accounts LIMIT 1").fetchone():
@@ -217,7 +221,7 @@ def voucher_snapshot(con, vid):
     inv = None
     i = con.execute("SELECT * FROM invoices WHERE voucher_id=?", (vid,)).fetchone()
     if i:
-        inv = {k: i[k] for k in ("kind", "party", "interstate", "taxable", "cgst", "sgst", "igst", "total")}
+        inv = {k: i[k] for k in ("kind", "party", "customer_name", "interstate", "taxable", "cgst", "sgst", "igst", "total")}
         inv["items"] = [{k: it[k] for k in ("description", "qty", "rate", "gst", "amount")}
                         for it in con.execute("SELECT * FROM invoice_items WHERE invoice_id=? ORDER BY seq", (i["id"],))]
     pays = [{"id": r["id"], "vtype": r["vtype"], "vno": r["vno"], "vdate": r["vdate"], "amount": r["amount"]}
@@ -434,3 +438,110 @@ def find_voucher(con, vtype, vno, vdate):
     r = con.execute("SELECT id FROM vouchers WHERE vtype=? AND vno=? AND fy=?",
                     (vtype, vno, fy_of(vdate))).fetchone()
     return r["id"] if r else None
+
+
+# ---------- ledger accounts master ----------
+ACCOUNT_GROUPS = [
+    ("Direct Expenses", "Expense"), ("Indirect Expenses", "Expense"),
+    ("Direct Income", "Income"), ("Indirect Income", "Income"),
+    ("Cash-in-hand", "Asset"), ("Bank Accounts", "Asset"), ("Current Assets", "Asset"),
+    ("Fixed Assets", "Asset"), ("Loans & Advances (Asset)", "Asset"),
+    ("Capital Account", "Liability"), ("Current Liabilities", "Liability"),
+    ("Loans (Liability)", "Liability"), ("Duties & Taxes", "Liability"),
+]
+GROUP_NATURE = dict(ACCOUNT_GROUPS)
+SYSTEM_ACCOUNTS = {"Cash", "Bank", "Sales", "Purchase", "Capital", "Sundry Debtors", "Sundry Creditors",
+                   "Stock-in-Trade", "Output CGST", "Output SGST", "Output IGST",
+                   "Input CGST", "Input SGST", "Input IGST"}
+
+def add_ledger_account(con, name, group, opening=0, side="Dr"):
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("Account name is required")
+    if group not in GROUP_NATURE:
+        raise ValueError("Choose a group for the account")
+    if side not in ("Dr", "Cr"):
+        raise ValueError("Opening side must be Dr or Cr")
+    try:
+        amount = to_paise(opening or 0)
+    except ValueError:
+        raise ValueError("Opening balance must be a number")
+    if amount < 0:
+        raise ValueError("Opening balance cannot be negative")
+    if con.execute("SELECT 1 FROM accounts WHERE name=? COLLATE NOCASE", (name,)).fetchone():
+        raise ValueError("An account with this name already exists")
+    con.execute("INSERT INTO accounts(name,grp,nature,opening,opening_side) VALUES(?,?,?,?,?)",
+                (name, group, GROUP_NATURE[group], amount, side))
+    con.commit()
+
+def set_account_opening(con, name, opening, side):
+    if side not in ("Dr", "Cr"):
+        raise ValueError("Opening side must be Dr or Cr")
+    try:
+        amount = to_paise(opening or 0)
+    except ValueError:
+        raise ValueError("Opening balance must be a number")
+    if amount < 0:
+        raise ValueError("Opening balance cannot be negative")
+    if con.execute("UPDATE accounts SET opening=?, opening_side=? WHERE name=?", (amount, side, name)).rowcount == 0:
+        raise ValueError("Account not found")
+    con.commit()
+
+def delete_ledger_account(con, name):
+    a = con.execute("SELECT id FROM accounts WHERE name=?", (name,)).fetchone()
+    if not a:
+        raise ValueError("Account not found")
+    if name in SYSTEM_ACCOUNTS:
+        raise ValueError("This is a built-in account and cannot be deleted")
+    if con.execute("SELECT 1 FROM parties WHERE account_id=?", (a["id"],)).fetchone():
+        raise ValueError("This account belongs to a party. Parties cannot be deleted yet")
+    if con.execute("SELECT 1 FROM entries WHERE account_id=?", (a["id"],)).fetchone():
+        raise ValueError("This account already has entries, so it cannot be deleted")
+    con.execute("DELETE FROM accounts WHERE id=?", (a["id"],))
+    con.commit()
+
+def list_accounts(con):
+    return con.execute("SELECT name, grp, nature, opening, opening_side FROM accounts "
+                       "ORDER BY nature, grp, name COLLATE NOCASE").fetchall()
+
+# ---------- opening / closing stock entered by hand (until the Stock module exists) ----------
+UNSET = object()
+
+def prev_fy(fy):
+    y = int(fy[:4])
+    return f"{y - 1}-{str(y)[2:]}"
+
+def set_stock(con, fy, opening=UNSET, closing=UNSET):
+    """opening=None (or '') means 'same as last year's closing'. Amounts in rupees."""
+    row = con.execute("SELECT opening, closing FROM stock_manual WHERE fy=?", (fy,)).fetchone()
+    o = row["opening"] if row else None
+    c = row["closing"] if row else 0
+    try:
+        if opening is not UNSET:
+            o = None if opening in (None, "") else to_paise(opening)
+        if closing is not UNSET:
+            c = 0 if closing in (None, "") else to_paise(closing)
+    except ValueError:
+        raise ValueError("Stock value must be a number")
+    if (o is not None and o < 0) or c < 0:
+        raise ValueError("Stock value cannot be negative")
+    con.execute("INSERT INTO stock_manual(fy,opening,closing) VALUES(?,?,?) "
+                "ON CONFLICT(fy) DO UPDATE SET opening=excluded.opening, closing=excluded.closing", (fy, o, c))
+    con.commit()
+
+def get_stock(con, fy):
+    """(opening, closing) in paise for a financial year."""
+    row = con.execute("SELECT opening, closing FROM stock_manual WHERE fy=?", (fy,)).fetchone()
+    closing = row["closing"] if row else 0
+    if row and row["opening"] is not None:
+        return row["opening"], closing
+    prev = con.execute("SELECT closing FROM stock_manual WHERE fy=?", (prev_fy(fy),)).fetchone()
+    return (prev["closing"] if prev else 0), closing
+
+def prior_stock_effect(con, fy):
+    """Profit effect of stock in all earlier years (closing minus opening), paise."""
+    total = 0
+    for r in con.execute("SELECT fy FROM stock_manual WHERE fy < ? ORDER BY fy", (fy,)):
+        o, c = get_stock(con, r["fy"])
+        total += c - o
+    return total

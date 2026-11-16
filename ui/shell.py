@@ -8,6 +8,7 @@ from ui.menus import MENUS
 from ui.party import PartyFrame
 from ui.entry_screens import JournalFrame, TradeFrame, SummaryFrame, PaymentFrame
 from ui.help import HelpFrame
+from ui.account_master import AccountMasterFrame
 from ui.report_screens import (TrialBalanceFrame, LedgerFrame, DayBookFrame, OutstandingFrame,
                                ProfitLossFrame, BalanceSheetFrame, InvoiceRegisterFrame)
 from ui.voucher_dialog import VoucherDialog
@@ -28,6 +29,7 @@ PAGES = {
     "payment": ("Receipt / Payment", lambda sh: PaymentFrame(sh.body, sh.con, sh.username, sh.open_voucher)),
     "outstanding": ("Outstanding", lambda sh: OutstandingFrame(sh.body, sh.con, sh.open_voucher)),
     "help": ("Help & Shortcuts", lambda sh: HelpFrame(sh.body)),
+    "accounts": ("Ledger Accounts", lambda sh: AccountMasterFrame(sh.body, sh.con)),
     "salesreg": ("Sales Register", lambda sh: InvoiceRegisterFrame(sh.body, sh.con, "Sales", sh.open_voucher)),
     "purchasereg": ("Purchase Register", lambda sh: InvoiceRegisterFrame(sh.body, sh.con, "Purchase", sh.open_voucher)),
     "audit": ("Audit Log", lambda sh: AuditFrame(sh.body, sh.con)),
@@ -36,7 +38,7 @@ PAGES = {
     "cashbook": ("Cash Book", lambda sh: LedgerFrame(sh.body, sh.con, ["Cash", "Bank"], "Cash Book",
                                                       "Cash and bank entries with a running balance.")),
     "daybook": ("Day Book", lambda sh: DayBookFrame(sh.body, sh.con, sh.open_voucher)),
-    "pl": ("Profit & Loss", lambda sh: ProfitLossFrame(sh.body, sh.con)),
+    "pl": ("Trading & P&L", lambda sh: ProfitLossFrame(sh.body, sh.con)),
     "bs": ("Balance Sheet", lambda sh: BalanceSheetFrame(sh.body, sh.con)),
 }
 SEL_BG, HINT = "#E6EEFA", "↑ ↓ move     Enter open     Letter jump     Esc back"

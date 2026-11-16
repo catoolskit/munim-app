@@ -44,7 +44,7 @@ class VoucherDialog(ctk.CTkToplevel):
                      text_color=T.TEXT).pack(anchor="w")
         sub = f"{disp_date(snap['vdate'])}   |   FY {snap['fy']}"
         if inv:
-            sub += f"   |   {inv['party']}"
+            sub += f"   |   {inv['party']}" + (f" ({inv['customer_name']})" if inv.get("customer_name") else "")
         ctk.CTkLabel(head, text=sub, font=T.f(13), text_color=T.MUTED).pack(anchor="w", pady=(2, 0))
         if snap["narration"]:
             ctk.CTkLabel(head, text=f"Narration: {snap['narration']}", font=T.f(13),

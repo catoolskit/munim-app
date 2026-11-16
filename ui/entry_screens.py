@@ -272,25 +272,44 @@ class TradeFrame(EntryBase):
 
         foot = ctk.CTkFrame(self, fg_color="transparent")
         foot.pack(fill="x", padx=28)
-        self.paid = self.mode = None
+        self.paid = self.mode = self.paid_lbl = None
         if not edit_id:
-            ctk.CTkLabel(foot, text="Received now (Rs)" if self.sales else "Paid now (Rs)",
-                         font=T.f(12), text_color=T.MUTED).pack(side="left", padx=(0, 8))
+            self.paid_lbl = ctk.CTkLabel(foot, text="Received now (Rs)" if self.sales else "Paid now (Rs)",
+                                         font=T.f(12), text_color=T.MUTED)
             self.paid = T.entry(foot, "0.00", width=120)
-            self.paid.pack(side="left", padx=(0, 8))
             self.paid.bind("<KeyRelease>", self.calc)
             self.mode = T.option_menu(foot, ["Cash", "Bank"], width=90)
-            self.mode.pack(side="left", padx=(0, 18))
-            order.append(self.paid)
-        T.button(foot, ("Update " if edit_id else "Save ") + ("invoice" if self.sales else "bill"),
-                 self.save, width=160).pack(side="left")
+        self.bill_lbl = ctk.CTkLabel(foot, text="Customer name on bill" if self.sales else "Supplier name on bill",
+                                     font=T.f(12), text_color=T.MUTED)
+        self.bill_name = T.entry(foot, "(optional)", width=200)
+        self.save_btn = T.button(foot, ("Update " if edit_id else "Save ") + ("invoice" if self.sales else "bill"),
+                                 self.save, width=160)
+        self.save_btn.pack(side="left")
         self._make_msg(foot)
+        order += [self.bill_name] + ([self.paid] if self.paid is not None else [])
         chain_enter(order, self.save if not edit_id else None)
         if edit_id:
             self._prefill()
         else:
             self.party_chosen(self.party.get())
             focus_later(self.rows[0][0])
+        self._cash_mode()
+
+    def _is_cash(self):
+        return self.party.get().strip() in ("Cash", "Bank")
+
+    def _cash_mode(self):
+        """Cash/Bank bills have nothing to settle later, so ask for the customer's name instead."""
+        for w in (self.paid_lbl, self.paid, self.mode, self.bill_lbl, self.bill_name):
+            if w is not None:
+                w.pack_forget()
+        if self._is_cash():
+            self.bill_lbl.pack(side="left", padx=(0, 8), before=self.save_btn)
+            self.bill_name.pack(side="left", padx=(0, 18), before=self.save_btn)
+        elif self.paid is not None:
+            self.paid_lbl.pack(side="left", padx=(0, 8), before=self.save_btn)
+            self.paid.pack(side="left", padx=(0, 8), before=self.save_btn)
+            self.mode.pack(side="left", padx=(0, 18), before=self.save_btn)
 
     def _party_names(self):
         return [p["name"] for p in s.list_parties(self.con, self.ptype)] + ["Cash"]
@@ -312,6 +331,7 @@ class TradeFrame(EntryBase):
         self.party.set(inv["party"])
         (self.inter.select if inv["interstate"] else self.inter.deselect)()
         self.narr.insert(0, snap["narration"] or "")
+        self.bill_name.insert(0, inv.get("customer_name", ""))
         for (desc, qty, rate, gst, _a), it in zip(self.rows, inv["items"]):
             desc.insert(0, it["description"]); qty.insert(0, _num(it["qty"])); rate.insert(0, _num(it["rate"]))
             gst.set(_num(it["gst"]))
@@ -320,7 +340,7 @@ class TradeFrame(EntryBase):
     def is_dirty(self):
         if self.edit_id:
             return False
-        return any(d.get().strip() or q.get().strip() or r.get().strip() for d, q, r, _g, _a in self.rows)
+        return any(d.get().strip() or q.get().strip() or r.get().strip() for d, q, r, _g, _a in self.rows) or bool(self.bill_name.get().strip())
 
     def party_chosen(self, name):
         row = self.con.execute("SELECT gstin FROM parties WHERE name=?", (name,)).fetchone()
@@ -328,6 +348,7 @@ class TradeFrame(EntryBase):
             self.inter.select()
         else:
             self.inter.deselect()
+        self._cash_mode()
         self.calc()
 
     def _collect(self):
@@ -373,14 +394,15 @@ class TradeFrame(EntryBase):
             if ac:
                 ac.commit()
             party = self.party.get().strip()
+            bn = self.bill_name.get().strip() if party in ("Cash", "Bank") else ""
             if self.edit_id:
                 res = b.update_invoice(self.con, self.edit_id, d, party, self._collect(),
-                                       bool(self.inter.get()), self.narr.get().strip(), self.username)
+                                       bool(self.inter.get()), self.narr.get().strip(), self.username, bn)
             else:
                 post = b.post_sale if self.sales else b.post_purchase
-                got = parse_amount(self.paid.get()) if self.paid else 0
+                got = parse_amount(self.paid.get()) if (self.paid and party not in ("Cash", "Bank")) else 0
                 res = post(self.con, d, party, self._collect(), bool(self.inter.get()),
-                           self.narr.get().strip(), self.username, got, self.mode.get() if self.mode else "Cash")
+                           self.narr.get().strip(), self.username, got, self.mode.get() if self.mode else "Cash", bn)
         except ValueError as e:
             self.err(str(e))
             return
@@ -396,6 +418,7 @@ class TradeFrame(EntryBase):
         self.narr.delete(0, "end")
         if self.paid:
             self.paid.delete(0, "end")
+        self.bill_name.delete(0, "end")
         self.summary.configure(text="")
         text = f"{self.kind} no. {res['vno']} saved. Total Rs {inr(res['total'])}"
         if res["received"]:

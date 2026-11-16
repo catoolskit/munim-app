@@ -21,6 +21,9 @@ SECTIONS = [
         "A part payment at the time of sale:  type the amount in 'Received now' before saving. The rest stays as the customer's outstanding.",
         "Money received later:  Receipt / Payment. It settles the oldest bills first. See who still owes you under Reports > Outstanding.",
         "Counter sales for a day:  Daily Sales Summary (amount per GST rate). Use it only for customers who do not need a GST invoice.",
+        "A walk-in customer:  choose Cash as the customer and, if they want a named bill, type their name in 'Customer name on bill'. A regular or credit customer must be in Party Master (use + New).",
+        "Expenses like Electricity or Freight:  Masters > Ledger Accounts to create them (pick Direct or Indirect), then enter them with Voucher Entry.",
+        "Gross profit:  Reports > Trading & P&L. Type your opening and closing stock there.",
         "A mistake:  open the entry from the Day Book or a Register, then Edit or Delete. Every change is kept in Utilities > Audit Log.",
     ]),
     ("Good to know", [

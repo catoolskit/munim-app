@@ -38,6 +38,10 @@ class DataTable(ctk.CTkFrame):
             if key is not None:
                 self.keys[iid] = key
 
+    def selected_key(self):
+        sel = self.tree.selection()
+        return getattr(self, "keys", {}).get(sel[0]) if sel else None
+
     def on_open(self, callback):
         """Double-click or Enter on a row that has a key calls callback(key)."""
         self._open_cb = callback

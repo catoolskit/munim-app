@@ -65,7 +65,7 @@ class MunimApp(ctk.CTk):
         user.pack(padx=34, pady=(0, 10))
         pw = T.entry(card, "Password", width=330, show="*")
         pw.pack(padx=34, pady=(0, 6))
-        msg = ctk.CTkLabel(card, text=f"Data: {db_path()}", font=T.f(11), text_color=T.MUTED)
+        msg = ctk.CTkLabel(card, text="", font=T.f(12), text_color=T.MUTED)
         msg.pack(anchor="w", padx=34, pady=4)
 
         def go(_e=None):

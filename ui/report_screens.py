@@ -158,14 +158,12 @@ class DayBookFrame(ReportBase):
 
 
 class TwoSideReport(ReportBase):
-    """Left and right tables that total to the same figure (Tally T-format)."""
-    has_stock_entry = True
+    """Left and right tables that total to the same figure (T-format statements)."""
 
     def __init__(self, master, con):
         super().__init__(master, con)
-        self.stock = T.entry(self.bar, "Closing stock (Rs)", width=160)
-        self.stock.bind("<KeyRelease>", lambda _e: self.refresh())
-        self.stock.pack(side="right", padx=(10, 0))
+        self.fy.configure(command=lambda _v: self.on_fy())
+        self.extra_controls()
         self.footer = ctk.CTkLabel(self, text="", font=T.f(15, "bold"))
         self.footer.pack(side="bottom", anchor="w", padx=28, pady=(8, 16))
         body = ctk.CTkFrame(self, fg_color="transparent")
@@ -182,11 +180,11 @@ class TwoSideReport(ReportBase):
         self.right.grid(row=1, column=1, sticky="nsew", padx=(10, 0))
         self.refresh()
 
-    def stock_value(self):
-        try:
-            return parse_amount(self.stock.get())
-        except ValueError:
-            return 0.0
+    def extra_controls(self):
+        pass
+
+    def on_fy(self):
+        self.refresh()
 
     def fill(self, ltitle, lrows, ltotal, rtitle, rrows, rtotal, footer, color):
         self.ltitle.configure(text=ltitle)
@@ -196,35 +194,115 @@ class TwoSideReport(ReportBase):
         self.right.set_rows(mk(rrows, rtotal))
         self.footer.configure(text=footer, text_color=color)
 
+    def _two_side_export(self, title, lrows, ltotal, rrows, rtotal, ltitle, rtitle):
+        n = max(len(lrows), len(rrows))
+        lrows = list(lrows) + [("", "")] * (n - len(lrows))
+        rrows = list(rrows) + [("", "")] * (n - len(rrows))
+        rows = [[a, b, c, d] for (a, b), (c, d) in zip(lrows, rrows)] + [["Total", ltotal, "Total", rtotal]]
+        return title, [ltitle, "Amount (Rs)", rtitle, "Amount (Rs)"], rows
+
 
 class ProfitLossFrame(TwoSideReport):
-    title_text, sub_text = "Profit & Loss", "Income against expenses. GST is not income or expense."
+    """Trading Account (gross profit) and Profit & Loss Account (net profit)."""
+    title_text = "Trading & Profit/Loss"
+    sub_text = "Trading Account gives gross profit; Profit & Loss Account carries it to net profit."
+
+    def extra_controls(self):
+        seg = dict(selected_color=T.ACCENT, selected_hover_color=T.ACCENT_HOVER, unselected_color="#E7ECF5",
+                   unselected_hover_color="#DCE3F0", text_color=T.TEXT, font=T.f(13))
+        row = T.card(self)
+        row.pack(fill="x", padx=28, pady=(0, 10))
+        self.opening = T.entry(row, "0.00", width=150)
+        self.closing = T.entry(row, "0.00", width=150)
+        self.mode = ctk.CTkSegmentedButton(row, values=["Trading Account", "Profit & Loss"],
+                                           command=lambda _v: self.refresh(), **seg)
+        self.mode.set("Trading Account")
+        for c, (label, w) in enumerate((("Show", self.mode), ("Opening stock (Rs)", self.opening),
+                                        ("Closing stock (Rs)", self.closing))):
+            if label != "Show":
+                ctk.CTkLabel(row, text=label, font=T.f(12), text_color=T.MUTED).grid(
+                    row=0, column=c, sticky="w", padx=(18 if c == 0 else 10, 10), pady=(12, 2))
+            w.grid(row=1, column=c, padx=(18 if c == 0 else 10, 10), pady=(0, 14))
+        ctk.CTkLabel(row, text="Opening stock follows last year's closing stock unless you change it. "
+                               "Type the values and press Enter.", font=T.f(11), text_color=T.MUTED,
+                     wraplength=330, justify="left").grid(row=1, column=3, padx=14, pady=(0, 14), sticky="w")
+        for w in (self.closing, self.opening):
+            w._entry.bind("<FocusOut>", lambda _e: self._save_stock(), add="+")
+            w._entry.bind("<Return>", lambda _e: self._save_stock(), add="+")
+        self._load_stock()
+
+    @property
+    def stock(self):            # kept so older scripts that type a closing stock keep working
+        return self.closing
+
+    def _load_stock(self):
+        o, c = s.get_stock(self.con, self.fy.get())
+        for box, v in ((self.opening, o), (self.closing, c)):
+            box.delete(0, "end")
+            if v:
+                box.insert(0, f"{v / 100:.2f}")
+
+    def _save_stock(self):
+        fy = self.fy.get()
+        try:
+            o_val, c_val = parse_amount(self.opening.get()), parse_amount(self.closing.get())
+        except ValueError:
+            self.footer.configure(text="Stock values must be numbers", text_color=T.DANGER)
+            return
+        auto = s.get_stock(self.con, s.prev_fy(fy))[1] / 100
+        s.set_stock(self.con, fy, opening=None if abs(o_val - auto) < 0.005 else o_val, closing=c_val)
+        self.refresh()
+
+    def on_fy(self):
+        self._load_stock()
+        self.refresh()
+
+    def _data(self):
+        return r.trading_and_pl(self.con, self.fy.get())
 
     def refresh(self):
-        pl = r.profit_and_loss(self.con, self.fy.get(), self.stock_value())
-        net = pl["net_profit"]
-        left, right = list(pl["expenses"]), list(pl["income"])
-        if pl["closing_stock"]:
-            right.append(("Closing Stock", pl["closing_stock"]))
-        if net > 0:
-            left.append(("Net Profit", net))
-        elif net < 0:
-            right.append(("Net Loss", -net))
-        lt = pl["total_expenses"] + max(net, 0)
-        rt = pl["total_income"] + pl["closing_stock"] + max(-net, 0)
-        self.fill("Expenses", left, lt, "Income", right, rt,
-                  f"Net {'Profit' if net >= 0 else 'Loss'}: Rs {inr(abs(net))}",
-                  T.OK if net >= 0 else T.DANGER)
+        ta = self._data()
+        t, p = ta["trading"], ta["pl"]
+        gp, npf = t["gross_profit"], p["net_profit"]
+        foot = (f"Gross {'Profit' if gp >= 0 else 'Loss'}: Rs {inr(abs(gp))}      "
+                f"Net {'Profit' if npf >= 0 else 'Loss'}: Rs {inr(abs(npf))}")
+        color = T.OK if npf >= 0 else T.DANGER
+        if self.mode.get() == "Trading Account":
+            self.fill("Debit side", t["left"], t["left_total"], "Credit side", t["right"], t["right_total"], foot, color)
+        else:
+            self.fill("Debit side", p["left"], p["left_total"], "Credit side", p["right"], p["right_total"], foot, color)
+
+    def export_data(self):
+        ta = self._data()
+        out_rows, title = [], f"Trading and Profit Loss {self.fy.get()}"
+        _t, h, rows = self._two_side_export("Trading Account", ta["trading"]["left"], ta["trading"]["left_total"],
+                                            ta["trading"]["right"], ta["trading"]["right_total"], "Debit", "Credit")
+        out_rows += [["TRADING ACCOUNT", "", "", ""]] + rows + [["", "", "", ""]]
+        _t, h, rows = self._two_side_export("Profit & Loss", ta["pl"]["left"], ta["pl"]["left_total"],
+                                            ta["pl"]["right"], ta["pl"]["right_total"], "Debit", "Credit")
+        out_rows += [["PROFIT & LOSS ACCOUNT", "", "", ""]] + rows
+        return title, h, out_rows
 
 
 class BalanceSheetFrame(TwoSideReport):
     title_text, sub_text = "Balance Sheet", "What the business owns and owes."
 
+    def extra_controls(self):
+        self.note = ctk.CTkLabel(self, text="", font=T.f(12), text_color=T.MUTED)
+        self.note.pack(anchor="w", padx=28, pady=(0, 8))
+
     def refresh(self):
-        bs = r.balance_sheet(self.con, self.fy.get(), self.stock_value())
+        bs = r.balance_sheet(self.con, self.fy.get())
+        cs = s.get_stock(self.con, self.fy.get())[1] / 100
+        self.note.configure(text=f"Closing stock: Rs {inr(cs)} (set under Trading & P&L)")
         self.fill("Liabilities", bs["liabilities"], bs["total_liabilities"],
                   "Assets", bs["assets"], bs["total_assets"],
                   f"Total: Rs {inr(bs['total_assets'])}", T.TEXT)
+
+    def export_data(self):
+        bs = r.balance_sheet(self.con, self.fy.get())
+        return self._two_side_export(f"Balance Sheet {self.fy.get()}", bs["liabilities"], bs["total_liabilities"],
+                                     bs["assets"], bs["total_assets"], "Liabilities", "Assets")
 
 
 class InvoiceRegisterFrame(ReportBase):

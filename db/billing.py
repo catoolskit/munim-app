@@ -56,11 +56,31 @@ def _ensure_tax_accounts(con, kind):
         ensure_account(con, n, TAX_GROUP, nature)
 
 
-def _store_invoice(con, vid, kind, party, interstate, items, t):
+def check_party(con, kind, party):
+    """A bill must go to Cash/Bank or to a real customer (sales) / supplier (purchase)."""
+    if party in ("Cash", "Bank"):
+        return
+    want = "Customer" if kind == "Sales" else "Supplier"
+    row = con.execute("SELECT ptype FROM parties WHERE name=?", (party,)).fetchone()
+    if row is None:
+        raise ValueError(f"'{party}' is not in Party Master. Add it with + New, or choose Cash for a walk-in {want.lower()}")
+    if row["ptype"] != want:
+        raise ValueError(f"'{party}' is a {row['ptype'].lower()}, not a {want.lower()}")
+
+
+def _clean_name(party, bill_name):
+    name = (bill_name or "").strip()
+    if len(name) > 80:
+        raise ValueError("The name on the bill is too long (80 characters at most)")
+    return name if party in ("Cash", "Bank") else ""
+
+
+def _store_invoice(con, vid, kind, party, interstate, items, t, bill_name=""):
     cur = con.execute(
-        """INSERT INTO invoices(voucher_id,kind,party,interstate,taxable,cgst,sgst,igst,total)
-           VALUES(?,?,?,?,?,?,?,?,?)""",
-        (vid, kind, party, int(bool(interstate)), t["taxable"], t["cgst"], t["sgst"], t["igst"], t["total"]))
+        """INSERT INTO invoices(voucher_id,kind,party,interstate,taxable,cgst,sgst,igst,total,customer_name)
+           VALUES(?,?,?,?,?,?,?,?,?,?)""",
+        (vid, kind, party, int(bool(interstate)), t["taxable"], t["cgst"], t["sgst"], t["igst"], t["total"],
+         _clean_name(party, bill_name)))
     for seq, (desc, qty, rate, gst) in enumerate(items):
         amt = int((Decimal(str(qty)) * Decimal(str(rate)) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
         con.execute("""INSERT INTO invoice_items(invoice_id,seq,description,qty,rate,gst,amount)
@@ -117,7 +137,9 @@ def _alloc(con, pvid, ivid, amt):
                 (pvid, ivid, amt))
 
 
-def _post(con, kind, vdate, party, items, interstate, narration, username, received, mode):
+def _post(con, kind, vdate, party, items, interstate, narration, username, received, mode, bill_name=""):
+    check_party(con, kind, party)
+    _clean_name(party, bill_name)
     t = compute_tax(items, interstate)
     rec = s.to_paise(received or 0)
     if rec < 0:
@@ -131,7 +153,7 @@ def _post(con, kind, vdate, party, items, interstate, narration, username, recei
     _ensure_tax_accounts(con, kind)
     try:
         vno, vid = s._insert_voucher(con, kind, vdate, narration, _lines(kind, party, t))
-        _store_invoice(con, vid, kind, party, interstate, items, t)
+        _store_invoice(con, vid, kind, party, interstate, items, t, bill_name)
         s.log_action(con, username, "create", after=s.voucher_snapshot(con, vid))
         if rec:
             pkind = "Receipt" if kind == "Sales" else "Payment"
@@ -149,13 +171,13 @@ def _post(con, kind, vdate, party, items, interstate, narration, username, recei
     return res
 
 
-def post_sale(con, vdate, party, items, interstate=False, narration="", username="", received=0, mode="Cash"):
-    return _post(con, "Sales", vdate, party, items, interstate, narration, username, received, mode)
+def post_sale(con, vdate, party, items, interstate=False, narration="", username="", received=0, mode="Cash", bill_name=""):
+    return _post(con, "Sales", vdate, party, items, interstate, narration, username, received, mode, bill_name)
 
 
-def post_purchase(con, vdate, party, items, interstate=False, narration="", username="", received=0, mode="Cash"):
+def post_purchase(con, vdate, party, items, interstate=False, narration="", username="", received=0, mode="Cash", bill_name=""):
     """For purchases, 'received' means the amount paid to the supplier now."""
-    return _post(con, "Purchase", vdate, party, items, interstate, narration, username, received, mode)
+    return _post(con, "Purchase", vdate, party, items, interstate, narration, username, received, mode, bill_name)
 
 
 def record_payment(con, kind, party, vdate, amount, mode="Cash", narration="", username="", allocations=None):
@@ -172,7 +194,7 @@ def record_payment(con, kind, party, vdate, amount, mode="Cash", narration="", u
     is_party = con.execute("SELECT 1 FROM parties WHERE name=? AND ptype=?",
                            (party, "Customer" if kind == "Receipt" else "Supplier")).fetchone()
     if not is_party:
-        raise ValueError(f"'{party}' is not a {'customer' if kind == 'Receipt' else 'supplier'} in Party Master")
+        raise ValueError(f"'{party}' is not a {'customer' if kind == 'Receipt' else 'supplier'} in Party Master. Add it with + New")
     open_ = {o["id"]: o for o in open_invoices(con, party, inv_kind)}
     if allocations is None:
         left, allocs = amt, []
@@ -205,7 +227,7 @@ def record_payment(con, kind, party, vdate, amount, mode="Cash", narration="", u
             "settled_bills": [(open_[v]["vno"], to_rupees(a)) for v, a in allocs]}
 
 
-def update_invoice(con, vid, vdate, party, items, interstate=False, narration="", username=""):
+def update_invoice(con, vid, vdate, party, items, interstate=False, narration="", username="", bill_name=""):
     """Edit a stored invoice. Recomputes tax and rewrites its voucher. All-or-nothing."""
     v = con.execute("SELECT vtype FROM vouchers WHERE id=?", (vid,)).fetchone()
     if not v or v["vtype"] not in ("Sales", "Purchase"):
@@ -213,6 +235,8 @@ def update_invoice(con, vid, vdate, party, items, interstate=False, narration=""
     if not con.execute("SELECT 1 FROM invoices WHERE voucher_id=?", (vid,)).fetchone():
         raise ValueError("This bill was saved before item details were stored. Delete it and enter it again")
     kind = v["vtype"]
+    check_party(con, kind, party)
+    _clean_name(party, bill_name)
     t = compute_tax(items, interstate)
     done = settled_paise(con, vid)
     if done:
@@ -225,7 +249,7 @@ def update_invoice(con, vid, vdate, party, items, interstate=False, narration=""
     try:
         s._replace_voucher(con, vid, kind, vdate, narration, _lines(kind, party, t))
         con.execute("DELETE FROM invoices WHERE voucher_id=?", (vid,))
-        _store_invoice(con, vid, kind, party, interstate, items, t)
+        _store_invoice(con, vid, kind, party, interstate, items, t, bill_name)
         s.log_action(con, username, "edit", before=before, after=s.voucher_snapshot(con, vid))
         con.commit()
     except Exception:

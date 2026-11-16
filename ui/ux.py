@@ -42,17 +42,19 @@ class Autocomplete:
 
 
 def chain_enter(widgets, on_last=None):
-    """Pressing Enter in a field moves to the next one; after the last, calls on_last."""
+    """Pressing Enter in a field moves to the next visible one; after the last, calls on_last."""
     for i, w in enumerate(widgets):
-        nxt = widgets[i + 1] if i + 1 < len(widgets) else None
+        rest = widgets[i + 1:]
 
-        def go(_e, w=w, nxt=nxt):
+        def go(_e, w=w, rest=rest):
             ac = getattr(w, "_ac", None)
             if ac:
                 ac.commit()
-            if nxt is not None:
-                inner(nxt).focus_set()
-            elif on_last:
+            for nxt in rest:
+                if inner(nxt).winfo_ismapped():
+                    inner(nxt).focus_set()
+                    return "break"
+            if on_last:
                 on_last()
             return "break"
         inner(w).bind("<Return>", go)
