@@ -82,73 +82,63 @@ class LedgerFrame(ReportBase):
     def __init__(self, master, con, accounts=None, title="Ledger View",
                  sub="Every entry in one account, with a running balance."):
         self.title_text, self.sub_text = title, sub
+        self._is_cashbook = accounts is not None
         super().__init__(master, con)
         names = accounts or [x["name"] for x in con.execute(
             "SELECT name FROM accounts ORDER BY name COLLATE NOCASE")]
-
-        # Account picker
         if accounts:
-            self.acct = T.option_menu(self.bar, names, width=160,
-                                      command=lambda _v: self.refresh())
+            self.acct = T.option_menu(self.bar, names, width=160, command=lambda _v: self.refresh())
         else:
-            self.acct = T.combo(self.bar, names, width=260,
-                                command=lambda _v: self.refresh())
+            self.acct = T.combo(self.bar, names, width=260, command=lambda _v: self.refresh())
         self.acct.set("Cash" if "Cash" in names else names[0])
         self.acct.pack(side="right", padx=(10, 0))
-
-        # Date range filter
-        today = date.today()
-        fy_start = date(today.year if today.month >= 4 else today.year - 1, 4, 1)
-        self.d2 = T.entry(self.bar, width=110)
-        self.d2.insert(0, today.strftime("%d-%m-%Y"))
-        self.d1 = T.entry(self.bar, width=110)
-        self.d1.insert(0, fy_start.strftime("%d-%m-%Y"))
-        T.button(self.bar, "Show", self.refresh, width=60).pack(side="right", padx=(6, 0))
-        self.d2.pack(side="right", padx=(4, 0))
-        ctk.CTkLabel(self.bar, text="to", font=T.f(12),
-                     text_color=T.MUTED).pack(side="right", padx=4)
-        self.d1.pack(side="right", padx=(10, 0))
-
         if not accounts:
-            T.button(self.bar, "Show", self.refresh, width=70).pack(
-                side="right", padx=(10, 0))
+            T.button(self.bar, "Show", self.refresh, width=70).pack(side="right", padx=(10, 0))
 
-        self.summary = ctk.CTkLabel(self, text="", font=T.f(13, "bold"),
-                                    text_color=T.TEXT)
+        # Date range filter — shown for Cash Book, hidden for Ledger View
+        if self._is_cashbook:
+            today = date.today()
+            self.d2 = T.entry(self.bar, width=120)
+            self.d2.insert(0, today.strftime("%d-%m-%Y"))
+            self.d1 = T.entry(self.bar, width=120)
+            self.d1.insert(0, today.replace(day=1).strftime("%d-%m-%Y"))
+            T.button(self.bar, "Show", self.refresh, width=70).pack(side="right")
+            self.d2.pack(side="right", padx=6)
+            ctk.CTkLabel(self.bar, text="to", text_color=T.MUTED).pack(side="right")
+            self.d1.pack(side="right", padx=6)
+
+        self.summary = ctk.CTkLabel(self, text="", font=T.f(13, "bold"), text_color=T.TEXT)
         self.summary.pack(anchor="w", padx=28, pady=(0, 8))
-        self.table = DataTable(self, [("dt", "Date", 100, L),
-                                      ("v",  "Voucher", 120, L),
-                                      ("n",  "Narration", 300, L),
-                                      ("d",  "Debit (Rs)", 130, R),
-                                      ("c",  "Credit (Rs)", 130, R),
-                                      ("b",  "Balance", 150, R)], height=14)
+        self.table = DataTable(self, [("dt", "Date", 100, L), ("v", "Voucher", 120, L),
+                                      ("n", "Narration", 300, L), ("d", "Debit (Rs)", 130, R),
+                                      ("c", "Credit (Rs)", 130, R), ("b", "Balance", 150, R)], height=14)
         self.table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
         self.refresh()
 
     def refresh(self):
         try:
-            d1 = parse_date(self.d1.get())
-            d2 = parse_date(self.d2.get())
-            led = r.ledger_view(self.con, self.acct.get().strip(),
-                                self.fy.get(), date_from=d1, date_to=d2)
+            if self._is_cashbook:
+                from utils.fmt import parse_date as pd
+                d1 = pd(self.d1.get())
+                d2 = pd(self.d2.get())
+                led = r.ledger_view(self.con, self.acct.get().strip(), self.fy.get(),
+                                    date_from=d1, date_to=d2)
+            else:
+                led = r.ledger_view(self.con, self.acct.get().strip(), self.fy.get())
         except ValueError as e:
             self.summary.configure(text=str(e), text_color=T.DANGER)
             self.table.set_rows([])
             return
-        rows = [(("", "", "Opening balance", "", "",
-                  f"{inr(led['opening'])} {led['opening_side']}"), "head")]
+        rows = [(("", "", "Opening balance", "", "", f"{inr(led['opening'])} {led['opening_side']}"), "head")]
         for x in led["rows"]:
-            rows.append((disp_date(x["date"]), f"{x['vtype']} #{x['vno']}",
-                         x["narration"], _amt(x["dr"]), _amt(x["cr"]),
-                         f"{inr(x['balance'])} {x['side']}"))
+            rows.append((disp_date(x["date"]), f"{x['vtype']} #{x['vno']}", x["narration"],
+                         _amt(x["dr"]), _amt(x["cr"]), f"{inr(x['balance'])} {x['side']}"))
         rows.append((("", "", "Total", inr(led["total_dr"]), inr(led["total_cr"]),
                       f"{inr(led['closing'])} {led['closing_side']}"), "total"))
         self.table.set_rows(rows)
         self.summary.configure(
-            text=f"{led['account']}   |   "
-                 f"Closing balance: Rs {inr(led['closing'])} {led['closing_side']}",
+            text=f"{led['account']}   |   Closing balance: Rs {inr(led['closing'])} {led['closing_side']}",
             text_color=T.TEXT)
-
     def export_data(self):
         try:
             d1 = parse_date(self.d1.get())
