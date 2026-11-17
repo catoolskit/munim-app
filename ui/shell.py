@@ -6,7 +6,7 @@ from db import setup as s, reports as rep
 from ui import theme as T
 from ui.menus import MENUS
 from ui.party import PartyFrame
-from ui.entry_screens import JournalFrame, TradeFrame, SummaryFrame, PaymentFrame
+from ui.entry_screens import JournalFrame, TradeFrame, SummaryFrame, PaymentFrame, SalesReturnFrame
 from ui.help import HelpFrame
 from ui.account_master import AccountMasterFrame
 from ui.report_screens import (TrialBalanceFrame, LedgerFrame, DayBookFrame, OutstandingFrame,
@@ -27,6 +27,7 @@ PAGES = {
     "journal":     ("Voucher Entry",       lambda sh: JournalFrame(sh.body, sh.con, sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
     "sales":       ("Sales Invoice",       lambda sh: TradeFrame(sh.body, sh.con, "Sales", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
     "purchase":    ("Purchase Bill",       lambda sh: TradeFrame(sh.body, sh.con, "Purchase", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
+    "salesreturn": ("Sales Return",        lambda sh: SalesReturnFrame(sh.body, sh.con, sh.username, sh.open_voucher)),
     "summary":     ("Daily Sales Summary", lambda sh: SummaryFrame(sh.body, sh.con, sh.username, sh.open_voucher)),
     "payment":     ("Receipt / Payment",   lambda sh: PaymentFrame(sh.body, sh.con, sh.username, sh.open_voucher)),
     "outstanding": ("Outstanding",         lambda sh: OutstandingFrame(sh.body, sh.con, sh.open_voucher)),
