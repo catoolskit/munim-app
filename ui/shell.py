@@ -19,31 +19,31 @@ from utils import settings
 from utils.fmt import inr, disp_date
 
 PAGES = {
-    "party":       ("Party Master",        lambda sh: PartyFrame(sh.body, sh.con)),
-    "company":     ("Company Details",     lambda sh: CompanyFrame(sh.body, sh.refresh_company)),
-    "password":    ("Change Password",     lambda sh: PasswordFrame(sh.body, sh.con, sh.username)),
-    "reset":       ("Reset All Data",      lambda sh: ResetDataFrame(sh.body, sh.con, on_done=sh._go_to_gateway)),
-    "renew":       ("Renew Licence",       lambda sh: RenewLicenceFrame(sh.body)),
-    "journal":     ("Voucher Entry",       lambda sh: JournalFrame(sh.body, sh.con, sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
-    "sales":       ("Sales Invoice",       lambda sh: TradeFrame(sh.body, sh.con, "Sales", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
-    "purchase":    ("Purchase Bill",       lambda sh: TradeFrame(sh.body, sh.con, "Purchase", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
-    "salesreturn": ("Sales Return",        lambda sh: SalesReturnFrame(sh.body, sh.con, sh.username, sh.open_voucher)),
-    "purchasereturn": ("Purchase Return", lambda sh: PurchaseReturnFrame(sh.body, sh.con, sh.username, sh.open_voucher)),
-    "summary":     ("Daily Sales Summary", lambda sh: SummaryFrame(sh.body, sh.con, sh.username, sh.open_voucher)),
-    "payment":     ("Receipt / Payment",   lambda sh: PaymentFrame(sh.body, sh.con, sh.username, sh.open_voucher)),
-    "outstanding": ("Outstanding",         lambda sh: OutstandingFrame(sh.body, sh.con, sh.open_voucher)),
-    "help":        ("Help & Shortcuts",    lambda sh: HelpFrame(sh.body)),
-    "accounts":    ("Ledger Accounts",     lambda sh: AccountMasterFrame(sh.body, sh.con)),
-    "salesreg":    ("Sales Register",      lambda sh: InvoiceRegisterFrame(sh.body, sh.con, "Sales", sh.open_voucher)),
-    "purchasereg": ("Purchase Register",   lambda sh: InvoiceRegisterFrame(sh.body, sh.con, "Purchase", sh.open_voucher)),
-    "audit":       ("Audit Log",           lambda sh: AuditFrame(sh.body, sh.con, sh.open_voucher)),
-    "trial":       ("Trial Balance",       lambda sh: TrialBalanceFrame(sh.body, sh.con)),
-    "ledger":      ("Ledger View",         lambda sh: LedgerFrame(sh.body, sh.con)),
-    "cashbook":    ("Cash Book",           lambda sh: LedgerFrame(sh.body, sh.con, ["Cash", "Bank"], "Cash Book",
-                                                                   "Cash and bank entries with a running balance.")),
-    "daybook":     ("Day Book",            lambda sh: DayBookFrame(sh.body, sh.con, sh.open_voucher)),
-    "pl":          ("Trading & P&L",       lambda sh: ProfitLossFrame(sh.body, sh.con)),
-    "bs":          ("Balance Sheet",       lambda sh: BalanceSheetFrame(sh.body, sh.con)),
+    "party":          ("Party Master",        lambda sh: PartyFrame(sh.body, sh.con)),
+    "company":        ("Company Details",     lambda sh: CompanyFrame(sh.body, sh.refresh_company)),
+    "password":       ("Change Password",     lambda sh: PasswordFrame(sh.body, sh.con, sh.username)),
+    "reset":          ("Reset All Data",      lambda sh: ResetDataFrame(sh.body, sh.con, on_done=sh._go_to_gateway)),
+    "renew":          ("Renew Licence",       lambda sh: RenewLicenceFrame(sh.body)),
+    "journal":        ("Voucher Entry",       lambda sh: JournalFrame(sh.body, sh.con, sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
+    "sales":          ("Sales Invoice",       lambda sh: TradeFrame(sh.body, sh.con, "Sales", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
+    "purchase":       ("Purchase Bill",       lambda sh: TradeFrame(sh.body, sh.con, "Purchase", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
+    "salesreturn":    ("Sales Return",        lambda sh: SalesReturnFrame(sh.body, sh.con, sh.username, sh.open_voucher)),
+    "purchasereturn": ("Purchase Return",     lambda sh: PurchaseReturnFrame(sh.body, sh.con, sh.username, sh.open_voucher)),
+    "summary":        ("Daily Sales Summary", lambda sh: SummaryFrame(sh.body, sh.con, sh.username, sh.open_voucher)),
+    "payment":        ("Receipt / Payment",   lambda sh: PaymentFrame(sh.body, sh.con, sh.username, sh.open_voucher)),
+    "outstanding":    ("Outstanding",         lambda sh: OutstandingFrame(sh.body, sh.con, sh.open_voucher)),
+    "help":           ("Help & Shortcuts",    lambda sh: HelpFrame(sh.body)),
+    "accounts":       ("Ledger Accounts",     lambda sh: AccountMasterFrame(sh.body, sh.con)),
+    "salesreg":       ("Sales Register",      lambda sh: InvoiceRegisterFrame(sh.body, sh.con, "Sales", sh.open_voucher)),
+    "purchasereg":    ("Purchase Register",   lambda sh: InvoiceRegisterFrame(sh.body, sh.con, "Purchase", sh.open_voucher)),
+    "audit":          ("Audit Log",           lambda sh: AuditFrame(sh.body, sh.con, sh.open_voucher)),
+    "trial":          ("Trial Balance",       lambda sh: TrialBalanceFrame(sh.body, sh.con)),
+    "ledger":         ("Ledger View",         lambda sh: LedgerFrame(sh.body, sh.con)),
+    "cashbook":       ("Cash Book",           lambda sh: LedgerFrame(sh.body, sh.con, ["Cash", "Bank"], "Cash Book",
+                                                                      "Cash and bank entries with a running balance.")),
+    "daybook":        ("Day Book",            lambda sh: DayBookFrame(sh.body, sh.con, sh.open_voucher)),
+    "pl":             ("Trading & P&L",       lambda sh: ProfitLossFrame(sh.body, sh.con)),
+    "bs":             ("Balance Sheet",       lambda sh: BalanceSheetFrame(sh.body, sh.con)),
 }
 SEL_BG, HINT = "#E6EEFA", "↑ ↓ move     Enter open     Letter jump     Esc back"
 
@@ -161,11 +161,11 @@ class Shell(ctk.CTkFrame):
                     return
             self.stack.pop()
             self.render()
-          
+
     def _go_to_gateway(self):
         self.stack.clear()
         self.push(("menu", "gateway"))
-      
+
     def render(self):
         if self.current is not None:
             self.current.destroy()
