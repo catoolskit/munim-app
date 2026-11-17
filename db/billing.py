@@ -281,3 +281,37 @@ def summary_items(rows, inclusive=False):
     if not items:
         raise ValueError("Enter at least one amount")
     return items
+
+def post_sales_return(con, vdate, party, invoice_vid, items, interstate=False,
+                      narration="", username=""):
+    """Credit note: reverses a sales invoice (or part of it) against the original bill."""
+    check_party(con, "Sales", party)
+    tax_items = [(d, q, r, g) for d, _h, q, r, g in items] if items and len(items[0]) == 5 \
+                else [(d, q, r, g) for d, q, r, g in items]
+    t = compute_tax(tax_items, interstate)
+    _ensure_tax_accounts(con, "Sales")
+    # Reverse of Sales: Dr Sales, Dr Output Tax, Cr Party
+    lines = [
+        ("Sales",       t["taxable"], 0),
+        ("Output CGST", t["cgst"],    0),
+        ("Output SGST", t["sgst"],    0),
+        ("Output IGST", t["igst"],    0),
+        (party,         0,            t["total"]),
+    ]
+    open_ = {o["id"]: o for o in open_invoices(con, party, "Sales")}
+    if invoice_vid not in open_:
+        raise ValueError("Selected invoice is fully settled or does not belong to this party")
+    if t["total"] > open_[invoice_vid]["balance"]:
+        raise ValueError(
+            f"Return amount Rs {to_rupees(t['total']):,.2f} exceeds invoice balance "
+            f"Rs {to_rupees(open_[invoice_vid]['balance']):,.2f}")
+    try:
+        vno, vid = s._insert_voucher(con, "Sales Return", vdate, narration, lines)
+        _store_invoice(con, vid, "Sales", party, interstate, items, t)
+        _alloc(con, vid, invoice_vid, t["total"])
+        s.log_action(con, username, "create", after=s.voucher_snapshot(con, vid))
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    return {"vno": vno, **{k: to_rupees(v) for k, v in t.items()}}
