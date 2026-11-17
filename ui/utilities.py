@@ -189,9 +189,9 @@ class PasswordFrame(ctk.CTkFrame):
 class AuditFrame(ctk.CTkFrame):
     """Every voucher created, edited or deleted. Filter by type and date."""
     def __init__(self, master, con, on_done=None):
+        self.on_done = on_done
         super().__init__(master, fg_color="transparent")
         self.con = con
-        self.on_done = on_done
         T.title(self, "Audit Log",
                 "Who created, edited or deleted what. Filter by type and date range."
                 ).pack(anchor="w", padx=28, pady=(24, 12))
@@ -307,9 +307,10 @@ class AuditFrame(ctk.CTkFrame):
 
 class ResetDataFrame(ctk.CTkFrame):
     """Wipe all business data — vouchers, parties, accounts. Keeps logins."""
-    def __init__(self, master, con):
+    def __init__(self, master, con, on_done=None):
         super().__init__(master, fg_color="transparent")
         self.con = con
+        self.on_done = on_done
         T.title(self, "Reset / Clear All Data",
                 "Deletes all vouchers, parties and accounts. Keeps your login. Cannot be undone."
                 ).pack(anchor="w", padx=28, pady=(24, 12))
