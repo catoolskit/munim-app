@@ -737,7 +737,7 @@ class PaymentFrame(EntryBase):
 class SalesReturnFrame(EntryBase):
     """Credit note against a specific sales invoice."""
     GST_RATES = ["0", "0.25", "1.5", "3", "5", "12", "18", "28", "40"]
-    ROWS = 5
+    ROWS = 3
 
     def __init__(self, master, con, username="", opener=None):
         super().__init__(master, fg_color="transparent")
@@ -791,7 +791,7 @@ class SalesReturnFrame(EntryBase):
 
         self.inv_frame = ctk.CTkScrollableFrame(self, fg_color="white",
                                                  border_width=1, border_color="#D1D5DB",
-                                                 corner_radius=0, height=120)
+                                                 corner_radius=0, height=90)
         self.inv_frame.pack(fill="x", padx=28)
         self._selected_inv_id = None
         self._inv_radio_var = ctk.StringVar(value="")
