@@ -141,7 +141,7 @@ def _alloc(con, pvid, ivid, amt):
 def _post(con, kind, vdate, party, items, interstate, narration, username, received, mode, bill_name=""):
     check_party(con, kind, party)
     _clean_name(party, bill_name)
-    tax_items = [(d, q, r, g) for d, _h, q, r, g in items] if len(items[0]) == 5 \
+    tax_items = [(d, q, r, g) for d, _h, q, r, g in items] if items and len(items[0]) == 5 \
                 else [(d, q, r, g) for d, q, r, g in items]
     t = compute_tax(tax_items, interstate)
     rec = s.to_paise(received or 0)
