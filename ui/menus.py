@@ -17,6 +17,7 @@ MENUS = {
     ]),
     "transactions": ("Transactions", [
         M("Sales Invoice",               "S", ("page", "sales")),
+        M("Sales Return / Credit Note",  "N", ("page", "salesreturn")),
         M("Daily Sales Summary",         "D", ("page", "summary")),
         M("Purchase Bill",               "P", ("page", "purchase")),
         M("Receipt / Payment",           "R", ("page", "payment")),
