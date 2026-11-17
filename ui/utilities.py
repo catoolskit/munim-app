@@ -47,7 +47,6 @@ class CompanyFrame(ctk.CTkFrame):
         st = settings.load_settings()
         self.w = {}
 
-        # Row 0-1: Company name (full width)
         e = T.entry(card, "Your business name", width=560)
         e.insert(0, st.get("company_name", ""))
         self.w["company_name"] = e
@@ -55,13 +54,11 @@ class CompanyFrame(ctk.CTkFrame):
             row=0, column=0, columnspan=3, sticky="w", padx=20, pady=(14, 2))
         e.grid(row=1, column=0, columnspan=3, sticky="ew", padx=20)
 
-        # Row 2-3: Address (full width)
         addr = T.entry(card, "Street, area, city", width=560)
         addr.insert(0, st.get("address", ""))
         self.w["address"] = addr
         _field(card, "Address", addr, 2, 0, 3)
 
-        # Row 4-5: GSTIN, Phone, State
         gstin_e = T.entry(card, "03ABCDE1234F1Z5", width=200)
         gstin_e.insert(0, st.get("gstin", ""))
         self.w["gstin"] = gstin_e
@@ -80,7 +77,6 @@ class CompanyFrame(ctk.CTkFrame):
                 row=4, column=c, sticky="w", padx=20, pady=(14, 2))
             w.grid(row=5, column=c, padx=20, pady=(0, 4))
 
-        # Row 6-7: GST registered toggle, Invoice prefix, Round-off
         self.gst_reg = ctk.CTkCheckBox(card, text="GST Registered",
                                        font=T.f(13), text_color=T.TEXT,
                                        fg_color=T.ACCENT, hover_color=T.ACCENT_HOVER,
@@ -188,10 +184,10 @@ class PasswordFrame(ctk.CTkFrame):
 
 class AuditFrame(ctk.CTkFrame):
     """Every voucher created, edited or deleted. Filter by type and date."""
-    def __init__(self, master, con, on_done=None):
-        self.on_done = on_done
+    def __init__(self, master, con, opener=None):
         super().__init__(master, fg_color="transparent")
         self.con = con
+        self.opener = opener
         T.title(self, "Audit Log",
                 "Who created, edited or deleted what. Filter by type and date range."
                 ).pack(anchor="w", padx=28, pady=(24, 12))
@@ -234,6 +230,8 @@ class AuditFrame(ctk.CTkFrame):
             ("ch", "Change",      200, "w"),
         ], height=12)
         self.table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
+        if opener:
+            self.table.on_open(lambda vid: opener(vid, self.refresh))
         self.refresh()
 
     def refresh(self):
@@ -296,12 +294,28 @@ class AuditFrame(ctk.CTkFrame):
             from db.setup import to_rupees
             from utils.fmt import inr as _inr
 
+            # get voucher id for Enter/double-click to open
+            vid = None
+            if e["vtype"] and e["vno"] and e["action"] != "delete":
+                try:
+                    r = self.con.execute(
+                        "SELECT id FROM vouchers WHERE vtype=? AND vno=? AND fy=?",
+                        (e["vtype"], e["vno"], e["fy"])).fetchone()
+                    if r:
+                        vid = r["id"]
+                except Exception:
+                    pass
+
             when = datetime.strptime(e["at"], "%Y-%m-%d %H:%M:%S").strftime("%d-%m-%Y %H:%M")
-            rows.append((when, e["username"] or "-",
-                         e["action"].capitalize(),
-                         f"{e['vtype']} #{e['vno']}" if e["vtype"] else "-",
-                         _inr(to_rupees(total)),
-                         change))
+            row_data = (when, e["username"] or "-",
+                        e["action"].capitalize(),
+                        f"{e['vtype']} #{e['vno']}" if e["vtype"] else "-",
+                        _inr(to_rupees(total)),
+                        change)
+            if vid:
+                rows.append((row_data, None, vid))
+            else:
+                rows.append(row_data)
         self.table.set_rows(rows)
 
 
