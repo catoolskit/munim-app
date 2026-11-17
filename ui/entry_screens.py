@@ -84,7 +84,7 @@ class JournalFrame(EntryBase):
         T.title(self, "Edit Voucher" if edit_id else "Voucher Entry",
                 "Journal, payment, receipt and contra. Total debit must equal total credit. "
                 "Enter moves to the next box, Ctrl+S saves."
-                ).pack(anchor="w", padx=28, pady=(24, 12))
+                ).pack(anchor="w", padx=28, pady=(10, 6))
         card = T.card(self)
         card.pack(fill="x", padx=28)
         self.vtype = T.option_menu(card, self.VTYPES, width=150)
@@ -780,7 +780,7 @@ class SalesReturnFrame(EntryBase):
         # ── Invoice selector ──────────────────────────────────────────────────
         ctk.CTkLabel(self, text="Select invoice to return against",
                      font=T.f(14, "bold"), text_color=T.TEXT).pack(
-            anchor="w", padx=28, pady=(14, 4))
+            anchor="w", padx=28, pady=(6, 2))
 
         hdr = ctk.CTkFrame(self, fg_color="#E8EDF5", corner_radius=0, height=28)
         hdr.pack(fill="x", padx=28)
@@ -798,7 +798,7 @@ class SalesReturnFrame(EntryBase):
 
         # ── Items table ───────────────────────────────────────────────────────
         items_card = T.card(self)
-        items_card.pack(fill="x", padx=28, pady=(14, 0))
+        items_card.pack(fill="x", padx=28, pady=(6, 0))
         for c, h in enumerate(("Item", "HSN/SAC", "Qty", "Rate (Rs)", "GST %", "", "Amount")):
             _lbl(items_card, h, row=0, column=c, sticky="w",
                  padx=(20 if c == 0 else 6, 6), pady=(12, 0))
