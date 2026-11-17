@@ -731,7 +731,6 @@ class PaymentFrame(EntryBase):
         self.ok(text, pkind, res["vno"], d)
         focus_later(self.party, 50)
 
-
 # ── SalesReturnFrame ──────────────────────────────────────────────────────────
 
 class SalesReturnFrame(EntryBase):
@@ -746,13 +745,15 @@ class SalesReturnFrame(EntryBase):
         self._open_bills = []
         self.company_gstin = settings.load_settings().get("gstin", "")
 
-        T.title(self, "Sales Return / Credit Note",
+        scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        scroll.pack(fill="both", expand=True)
+
+        T.title(scroll, "Sales Return / Credit Note",
                 "Select the customer and the original invoice to return against. "
                 "Enter returned items and quantities."
-                ).pack(anchor="w", padx=28, pady=(24, 12))
+                ).pack(anchor="w", padx=28, pady=(10, 6))
 
-        # ── Top card ──────────────────────────────────────────────────────────
-        top = T.card(self)
+        top = T.card(scroll)
         top.pack(fill="x", padx=28)
         self.date = T.entry(top, width=140)
         self.date.insert(0, today_str())
@@ -777,31 +778,30 @@ class SalesReturnFrame(EntryBase):
         self.inter.grid(row=1, column=2, padx=12, pady=(0, 14))
         self.narr.grid(row=1, column=3, padx=8, pady=(0, 14))
 
-        # ── Invoice selector ──────────────────────────────────────────────────
-        ctk.CTkLabel(self, text="Select invoice to return against",
+        ctk.CTkLabel(scroll, text="Select invoice to return against",
                      font=T.f(14, "bold"), text_color=T.TEXT).pack(
             anchor="w", padx=28, pady=(6, 2))
 
-        hdr = ctk.CTkFrame(self, fg_color="#E8EDF5", corner_radius=0, height=28)
+        hdr = ctk.CTkFrame(scroll, fg_color="#E8EDF5", corner_radius=0, height=28)
         hdr.pack(fill="x", padx=28)
         hdr.pack_propagate(False)
         for txt, w in (("Date", 110), ("Invoice", 120), ("Total", 160), ("Balance", 160), ("Select", 80)):
             ctk.CTkLabel(hdr, text=txt, font=T.f(11, "bold"), text_color=T.MUTED,
                          width=w, anchor="w").pack(side="left", padx=(12, 4))
 
-        self.inv_frame = ctk.CTkScrollableFrame(self, fg_color="white",
+        self.inv_frame = ctk.CTkScrollableFrame(scroll, fg_color="white",
                                                  border_width=1, border_color="#D1D5DB",
-                                                 corner_radius=0, height=90)
+                                                 corner_radius=0, height=130)
         self.inv_frame.pack(fill="x", padx=28)
         self._selected_inv_id = None
         self._inv_radio_var = ctk.StringVar(value="")
 
-        foot = ctk.CTkFrame(self, fg_color="transparent")
-        foot.pack(fill="x", padx=28, pady=14)
+        foot = ctk.CTkFrame(scroll, fg_color="transparent")
+        foot.pack(fill="x", padx=28, pady=10)
         T.button(foot, "Save Credit Note", self.save, width=180).pack(side="left")
         self._make_msg(foot)
-        # ── Items table ───────────────────────────────────────────────────────
-        items_card = T.card(self)
+
+        items_card = T.card(scroll)
         items_card.pack(fill="x", padx=28, pady=(6, 0))
         for c, h in enumerate(("Item", "HSN/SAC", "Qty", "Rate (Rs)", "GST %", "", "Amount")):
             _lbl(items_card, h, row=0, column=c, sticky="w",
@@ -936,6 +936,7 @@ class SalesReturnFrame(EntryBase):
         self.ok(f"Credit Note no. {res['vno']} saved. Total Rs {inr(res['total'])}")
         focus_later(self.rows[0][0], 50)
 
+
 # ── PurchaseReturnFrame ───────────────────────────────────────────────────────
 
 class PurchaseReturnFrame(EntryBase):
@@ -950,12 +951,15 @@ class PurchaseReturnFrame(EntryBase):
         self._open_bills = []
         self.company_gstin = settings.load_settings().get("gstin", "")
 
-        T.title(self, "Purchase Return / Debit Note",
+        scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        scroll.pack(fill="both", expand=True)
+
+        T.title(scroll, "Purchase Return / Debit Note",
                 "Select the supplier and the original bill to return against. "
                 "Enter returned items and quantities."
                 ).pack(anchor="w", padx=28, pady=(10, 6))
 
-        top = T.card(self)
+        top = T.card(scroll)
         top.pack(fill="x", padx=28)
         self.date = T.entry(top, width=140)
         self.date.insert(0, today_str())
@@ -980,31 +984,31 @@ class PurchaseReturnFrame(EntryBase):
         self.inter.grid(row=1, column=2, padx=12, pady=(0, 14))
         self.narr.grid(row=1, column=3, padx=8, pady=(0, 14))
 
-        ctk.CTkLabel(self, text="Select bill to return against",
+        ctk.CTkLabel(scroll, text="Select bill to return against",
                      font=T.f(14, "bold"), text_color=T.TEXT).pack(
             anchor="w", padx=28, pady=(6, 2))
 
-        hdr = ctk.CTkFrame(self, fg_color="#E8EDF5", corner_radius=0, height=28)
+        hdr = ctk.CTkFrame(scroll, fg_color="#E8EDF5", corner_radius=0, height=28)
         hdr.pack(fill="x", padx=28)
         hdr.pack_propagate(False)
         for txt, w in (("Date", 110), ("Bill", 120), ("Total", 160), ("Balance", 160), ("Select", 80)):
             ctk.CTkLabel(hdr, text=txt, font=T.f(11, "bold"), text_color=T.MUTED,
                          width=w, anchor="w").pack(side="left", padx=(12, 4))
 
-        self.inv_frame = ctk.CTkScrollableFrame(self, fg_color="white",
+        self.inv_frame = ctk.CTkScrollableFrame(scroll, fg_color="white",
                                                  border_width=1, border_color="#D1D5DB",
-                                                 corner_radius=0, height=90)
+                                                 corner_radius=0, height=130)
         self.inv_frame.pack(fill="x", padx=28)
         self._selected_inv_id = None
         self._inv_radio_var = ctk.StringVar(value="")
 
-        foot = ctk.CTkFrame(self, fg_color="transparent")
-        foot.pack(fill="x", padx=28, pady=14)
+        foot = ctk.CTkFrame(scroll, fg_color="transparent")
+        foot.pack(fill="x", padx=28, pady=10)
         T.button(foot, "Save Debit Note", self.save, width=180).pack(side="left")
         self._make_msg(foot)
 
-        items_card = T.card(self)
-        items_card.pack(fill="x", padx=28, pady=(6, 0))
+        items_card = T.card(scroll)
+        items_card.pack(fill="x", padx=28, pady=(6, 14))
         for c, h in enumerate(("Item", "HSN/SAC", "Qty", "Rate (Rs)", "GST %", "", "Amount")):
             _lbl(items_card, h, row=0, column=c, sticky="w",
                  padx=(20 if c == 0 else 6, 6), pady=(12, 0))
