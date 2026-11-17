@@ -34,7 +34,7 @@ PAGES = {
     "accounts":    ("Ledger Accounts",     lambda sh: AccountMasterFrame(sh.body, sh.con)),
     "salesreg":    ("Sales Register",      lambda sh: InvoiceRegisterFrame(sh.body, sh.con, "Sales", sh.open_voucher)),
     "purchasereg": ("Purchase Register",   lambda sh: InvoiceRegisterFrame(sh.body, sh.con, "Purchase", sh.open_voucher)),
-    "audit":       ("Audit Log",           lambda sh: AuditFrame(sh.body, sh.con)),
+    "audit":       ("Audit Log",           lambda sh: AuditFrame(sh.body, sh.con, sh.open_voucher)),
     "trial":       ("Trial Balance",       lambda sh: TrialBalanceFrame(sh.body, sh.con)),
     "ledger":      ("Ledger View",         lambda sh: LedgerFrame(sh.body, sh.con)),
     "cashbook":    ("Cash Book",           lambda sh: LedgerFrame(sh.body, sh.con, ["Cash", "Bank"], "Cash Book",
