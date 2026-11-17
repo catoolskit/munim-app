@@ -20,6 +20,7 @@ MENUS = {
         M("Sales Return / Credit Note",  "N", ("page", "salesreturn")),
         M("Daily Sales Summary",         "D", ("page", "summary")),
         M("Purchase Bill",               "P", ("page", "purchase")),
+        M("Purchase Return / Debit Note","E", ("page", "purchasereturn")),
         M("Receipt / Payment",           "R", ("page", "payment")),
         M("Voucher Entry (journal etc.)", "V", ("page", "journal")),
         M("GST Invoice (print)",         "G"),
