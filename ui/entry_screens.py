@@ -36,7 +36,6 @@ class EntryBase(ctk.CTkFrame):
             self.view_btn.pack(side="left")
         else:
             self.view_btn.pack_forget()
-        # Show PDF button only for Sales invoices
         if vtype == "Sales" and self._last_vid:
             self.pdf_btn.pack(side="left", padx=(4, 0))
         else:
@@ -57,7 +56,6 @@ class EntryBase(ctk.CTkFrame):
         try:
             from utils.pdf_invoice import generate_invoice_pdf
             path = generate_invoice_pdf(self.con, self._last_vid)
-            # Open the containing folder (Windows)
             folder = os.path.dirname(path)
             if sys.platform == "win32":
                 os.startfile(folder)
@@ -373,7 +371,7 @@ class TradeFrame(EntryBase):
     def is_dirty(self):
         if self.edit_id:
             return False
-    return any(d.get().strip() or q.get().strip() or r.get().strip()
+        return any(d.get().strip() or q.get().strip() or r.get().strip()
                    for d, _h, q, r, _g, _a in self.rows) or bool(self.bill_name.get().strip())
 
     def party_chosen(self, name):
@@ -404,9 +402,9 @@ class TradeFrame(EntryBase):
             except ValueError:
                 amt.configure(text="")
         try:
-        items = self._collect()
-        tax_items = [(d, q, r, g) for d, _h, q, r, g in items]
-        t = b.compute_tax(tax_items, bool(self.inter.get()))
+            items = self._collect()
+            tax_items = [(d, q, r, g) for d, _h, q, r, g in items]
+            t = b.compute_tax(tax_items, bool(self.inter.get()))
         except ValueError:
             self.summary.configure(text="")
             return
