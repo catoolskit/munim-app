@@ -796,6 +796,10 @@ class SalesReturnFrame(EntryBase):
         self._selected_inv_id = None
         self._inv_radio_var = ctk.StringVar(value="")
 
+        foot = ctk.CTkFrame(self, fg_color="transparent")
+        foot.pack(fill="x", padx=28, pady=14)
+        T.button(foot, "Save Credit Note", self.save, width=180).pack(side="left")
+        self._make_msg(foot)
         # ── Items table ───────────────────────────────────────────────────────
         items_card = T.card(self)
         items_card.pack(fill="x", padx=28, pady=(6, 0))
@@ -826,11 +830,6 @@ class SalesReturnFrame(EntryBase):
         self.summary = ctk.CTkLabel(items_card, text="", font=T.f(13, "bold"), text_color=T.TEXT)
         self.summary.grid(row=self.ROWS + 1, column=0, columnspan=7,
                           sticky="e", padx=20, pady=(8, 14))
-
-        foot = ctk.CTkFrame(self, fg_color="transparent")
-        foot.pack(fill="x", padx=28, pady=14)
-        T.button(foot, "Save Credit Note", self.save, width=180).pack(side="left")
-        self._make_msg(foot)
 
         self._party_changed(self.party.get())
         focus_later(self.rows[0][0])
