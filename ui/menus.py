@@ -42,5 +42,6 @@ MENUS = {
         M("Help & Shortcuts", "H", ("page", "help")),
         M("Change Password",  "P", ("page", "password")),
         M("Renew Licence",    "R", ("page", "renew")),
+        M("Reset All Data",   "X", ("page", "reset")),
     ]),
 }
