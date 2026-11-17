@@ -730,3 +730,209 @@ class PaymentFrame(EntryBase):
         self.show_bills()
         self.ok(text, pkind, res["vno"], d)
         focus_later(self.party, 50)
+
+
+# ── SalesReturnFrame ──────────────────────────────────────────────────────────
+
+class SalesReturnFrame(EntryBase):
+    """Credit note against a specific sales invoice."""
+    GST_RATES = ["0", "0.25", "1.5", "3", "5", "12", "18", "28", "40"]
+    ROWS = 5
+
+    def __init__(self, master, con, username="", opener=None):
+        super().__init__(master, fg_color="transparent")
+        self._init_base(con, username, opener)
+        self.rows = []
+        self._open_bills = []
+        self.company_gstin = settings.load_settings().get("gstin", "")
+
+        T.title(self, "Sales Return / Credit Note",
+                "Select the customer and the original invoice to return against. "
+                "Enter returned items and quantities."
+                ).pack(anchor="w", padx=28, pady=(24, 12))
+
+        # ── Top card ──────────────────────────────────────────────────────────
+        top = T.card(self)
+        top.pack(fill="x", padx=28)
+        self.date = T.entry(top, width=140)
+        self.date.insert(0, today_str())
+
+        parties = [p["name"] for p in s.list_parties(con, "Customer")]
+        pw = ctk.CTkFrame(top, fg_color="transparent")
+        self.party = T.combo(pw, parties, width=240, command=self._party_changed)
+        self.party.set(parties[0] if parties else "")
+        self.party.pack(side="left")
+        self.ac = Autocomplete(self.party, parties, on_pick=self._party_changed)
+
+        self.inter = ctk.CTkCheckBox(top, text="Inter-state (IGST)", font=T.f(13),
+                                     text_color=T.TEXT, fg_color=T.ACCENT,
+                                     hover_color=T.ACCENT_HOVER, command=self.calc)
+        self.narr = T.entry(top, "Reason for return (optional)", width=300)
+
+        _lbl(top, "Date", row=0, column=0, sticky="w", padx=(20, 8), pady=(14, 2))
+        _lbl(top, "Customer", row=0, column=1, sticky="w", padx=8, pady=(14, 2))
+        _lbl(top, "Narration", row=0, column=3, sticky="w", padx=8, pady=(14, 2))
+        self.date.grid(row=1, column=0, padx=(20, 8), pady=(0, 14))
+        pw.grid(row=1, column=1, padx=8, pady=(0, 14))
+        self.inter.grid(row=1, column=2, padx=12, pady=(0, 14))
+        self.narr.grid(row=1, column=3, padx=8, pady=(0, 14))
+
+        # ── Invoice selector ──────────────────────────────────────────────────
+        ctk.CTkLabel(self, text="Select invoice to return against",
+                     font=T.f(14, "bold"), text_color=T.TEXT).pack(
+            anchor="w", padx=28, pady=(14, 4))
+
+        hdr = ctk.CTkFrame(self, fg_color="#E8EDF5", corner_radius=0, height=28)
+        hdr.pack(fill="x", padx=28)
+        hdr.pack_propagate(False)
+        for txt, w in (("Date", 110), ("Invoice", 120), ("Total", 160), ("Balance", 160), ("Select", 80)):
+            ctk.CTkLabel(hdr, text=txt, font=T.f(11, "bold"), text_color=T.MUTED,
+                         width=w, anchor="w").pack(side="left", padx=(12, 4))
+
+        self.inv_frame = ctk.CTkScrollableFrame(self, fg_color="white",
+                                                 border_width=1, border_color="#D1D5DB",
+                                                 corner_radius=0, height=120)
+        self.inv_frame.pack(fill="x", padx=28)
+        self._selected_inv_id = None
+        self._inv_radio_var = ctk.StringVar(value="")
+
+        # ── Items table ───────────────────────────────────────────────────────
+        items_card = T.card(self)
+        items_card.pack(fill="x", padx=28, pady=(14, 0))
+        for c, h in enumerate(("Item", "HSN/SAC", "Qty", "Rate (Rs)", "GST %", "", "Amount")):
+            _lbl(items_card, h, row=0, column=c, sticky="w",
+                 padx=(20 if c == 0 else 6, 6), pady=(12, 0))
+
+        for r in range(self.ROWS):
+            desc = T.entry(items_card, "Description", width=260)
+            hsn  = T.entry(items_card, "HSN/SAC",     width=90)
+            qty  = T.entry(items_card, "1",            width=80)
+            rate = T.entry(items_card, "0.00",         width=120)
+            gst  = T.option_menu(items_card, self.GST_RATES, width=90,
+                                 command=lambda _v: self.calc())
+            gst.set("18")
+            amt  = ctk.CTkLabel(items_card, text="", width=110, anchor="e",
+                                font=T.f(13), text_color=T.TEXT)
+            desc.grid(row=r + 1, column=0, padx=(20, 6), pady=4)
+            hsn.grid( row=r + 1, column=1, padx=6,       pady=4)
+            qty.grid( row=r + 1, column=2, padx=6,       pady=4)
+            rate.grid(row=r + 1, column=3, padx=6,       pady=4)
+            gst.grid( row=r + 1, column=4, columnspan=2, padx=6, pady=4, sticky="w")
+            amt.grid( row=r + 1, column=6, padx=6,       pady=4)
+            for e in (qty, rate):
+                e.bind("<KeyRelease>", self.calc)
+            self.rows.append((desc, hsn, qty, rate, gst, amt))
+
+        self.summary = ctk.CTkLabel(items_card, text="", font=T.f(13, "bold"), text_color=T.TEXT)
+        self.summary.grid(row=self.ROWS + 1, column=0, columnspan=7,
+                          sticky="e", padx=20, pady=(8, 14))
+
+        foot = ctk.CTkFrame(self, fg_color="transparent")
+        foot.pack(fill="x", padx=28, pady=14)
+        T.button(foot, "Save Credit Note", self.save, width=180).pack(side="left")
+        self._make_msg(foot)
+
+        self._party_changed(self.party.get())
+        focus_later(self.rows[0][0])
+
+    def _party_changed(self, name=None):
+        if name is None:
+            name = self.party.get()
+        row = self.con.execute("SELECT gstin FROM parties WHERE name=?", (name,)).fetchone()
+        if row and b.is_interstate(row["gstin"], self.company_gstin):
+            self.inter.select()
+        else:
+            self.inter.deselect()
+        self._load_invoices(name)
+        self.calc()
+
+    def _load_invoices(self, party):
+        for w in self.inv_frame.winfo_children():
+            w.destroy()
+        self._selected_inv_id = None
+        self._inv_radio_var.set("")
+        self._open_bills = b.open_invoices(self.con, party, "Sales")
+
+        for i, o in enumerate(self._open_bills):
+            bg = "white" if i % 2 == 0 else "#F8FAFD"
+            row = ctk.CTkFrame(self.inv_frame, fg_color=bg, corner_radius=0, height=32)
+            row.pack(fill="x")
+            row.pack_propagate(False)
+            ctk.CTkLabel(row, text=disp_date(o["vdate"]), font=T.f(12),
+                         text_color=T.TEXT, width=110, anchor="w").pack(side="left", padx=(12, 4))
+            ctk.CTkLabel(row, text=f"Sales #{o['vno']}", font=T.f(12),
+                         text_color=T.TEXT, width=120, anchor="w").pack(side="left", padx=4)
+            ctk.CTkLabel(row, text=inr(o["total"] / 100), font=T.f(12),
+                         text_color=T.MUTED, width=160, anchor="e").pack(side="left", padx=4)
+            ctk.CTkLabel(row, text=inr(o["balance"] / 100), font=T.f(12, "bold"),
+                         text_color=T.TEXT, width=160, anchor="e").pack(side="left", padx=4)
+            rb = ctk.CTkRadioButton(row, text="", variable=self._inv_radio_var,
+                                    value=str(o["id"]), width=60,
+                                    fg_color=T.ACCENT, hover_color=T.ACCENT_HOVER,
+                                    command=lambda oid=o["id"]: self._select_inv(oid))
+            rb.pack(side="left", padx=8)
+
+    def _select_inv(self, inv_id):
+        self._selected_inv_id = inv_id
+
+    def _collect(self):
+        items = []
+        for desc, hsn, qty, rate, gst, _amt in self.rows:
+            d, h, q, r = desc.get().strip(), hsn.get().strip(), qty.get().strip(), rate.get().strip()
+            if not (d or q or r):
+                continue
+            if not q or not r:
+                raise ValueError("Every item needs a quantity and a rate")
+            items.append((d or "Item", h, parse_amount(q), parse_amount(r), float(gst.get())))
+        return items
+
+    def calc(self, _e=None):
+        for _d, _h, qty, rate, _g, amt in self.rows:
+            try:
+                q, rt = parse_amount(qty.get()), parse_amount(rate.get())
+                amt.configure(text=inr(q * rt) if q and rt else "")
+            except ValueError:
+                amt.configure(text="")
+        try:
+            items = self._collect()
+            tax_items = [(d, q, r, g) for d, _h, q, r, g in items]
+            t = b.compute_tax(tax_items, bool(self.inter.get()))
+        except ValueError:
+            self.summary.configure(text="")
+            return
+        k = lambda v: inr(v / 100)
+        tax = f"IGST {k(t['igst'])}" if self.inter.get() else \
+              f"CGST {k(t['cgst'])}   SGST {k(t['sgst'])}"
+        self.summary.configure(
+            text=f"Taxable {k(t['taxable'])}     {tax}     Total {k(t['total'])}")
+
+    def is_dirty(self):
+        return any(d.get().strip() or q.get().strip() or r.get().strip()
+                   for d, _h, q, r, _g, _a in self.rows)
+
+    def save(self):
+        try:
+            if not self._selected_inv_id:
+                raise ValueError("Select the invoice to return against")
+            d = parse_date(self.date.get())
+            items = self._collect()
+            if not items:
+                raise ValueError("Enter at least one item to return")
+            res = b.post_sales_return(
+                self.con, d, self.party.get().strip(),
+                self._selected_inv_id, items,
+                bool(self.inter.get()),
+                self.narr.get().strip() or "Sales return",
+                self.username)
+        except ValueError as e:
+            self.err(str(e))
+            return
+        for desc, hsn, qty, rate, _g, amt in self.rows:
+            for e in (desc, hsn, qty, rate):
+                e.delete(0, "end")
+            amt.configure(text="")
+        self.narr.delete(0, "end")
+        self.summary.configure(text="")
+        self._party_changed(self.party.get())
+        self.ok(f"Credit Note no. {res['vno']} saved. Total Rs {inr(res['total'])}")
+        focus_later(self.rows[0][0], 50)
