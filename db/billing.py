@@ -315,3 +315,37 @@ def post_sales_return(con, vdate, party, invoice_vid, items, interstate=False,
         con.rollback()
         raise
     return {"vno": vno, **{k: to_rupees(v) for k, v in t.items()}}
+
+def post_purchase_return(con, vdate, party, invoice_vid, items, interstate=False,
+                         narration="", username=""):
+    """Debit note: reverses a purchase bill (or part of it) against the original bill."""
+    check_party(con, "Purchase", party)
+    tax_items = [(d, q, r, g) for d, _h, q, r, g in items] if items and len(items[0]) == 5 \
+                else [(d, q, r, g) for d, q, r, g in items]
+    t = compute_tax(tax_items, interstate)
+    _ensure_tax_accounts(con, "Purchase")
+    # Reverse of Purchase: Cr Purchase, Cr Input Tax, Dr Supplier
+    lines = [
+        (party,         t["total"], 0),
+        ("Purchase",    0,          t["taxable"]),
+        ("Input CGST",  0,          t["cgst"]),
+        ("Input SGST",  0,          t["sgst"]),
+        ("Input IGST",  0,          t["igst"]),
+    ]
+    open_ = {o["id"]: o for o in open_invoices(con, party, "Purchase")}
+    if invoice_vid not in open_:
+        raise ValueError("Selected invoice is fully settled or does not belong to this party")
+    if t["total"] > open_[invoice_vid]["balance"]:
+        raise ValueError(
+            f"Return amount Rs {to_rupees(t['total']):,.2f} exceeds invoice balance "
+            f"Rs {to_rupees(open_[invoice_vid]['balance']):,.2f}")
+    try:
+        vno, vid = s._insert_voucher(con, "Purchase Return", vdate, narration, lines)
+        _store_invoice(con, vid, "Purchase", party, interstate, items, t)
+        _alloc(con, vid, invoice_vid, t["total"])
+        s.log_action(con, username, "create", after=s.voucher_snapshot(con, vid))
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    return {"vno": vno, **{k: to_rupees(v) for k, v in t.items()}}
