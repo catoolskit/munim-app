@@ -277,25 +277,27 @@ class TradeFrame(EntryBase):
 
         items = T.card(self)
         items.pack(fill="x", padx=28, pady=14)
-        for c, h in enumerate(("Item", "Qty", "Rate (Rs)", "GST %", "", "Amount")):
+        for c, h in enumerate(("Item", "HSN/SAC", "Qty", "Rate (Rs)", "GST %", "", "Amount")):
             _lbl(items, h, row=0, column=c, sticky="w", padx=(20 if c == 0 else 6, 6), pady=(12, 0))
         order = [self.date, self.party, self.narr]
         for r in range(self.ROWS):
-            desc = T.entry(items, "Description", width=330)
-            qty = T.entry(items, "1", width=90)
-            rate = T.entry(items, "0.00", width=130)
-            gst = T.option_menu(items, self.GST_RATES, width=90, command=lambda _v: self.calc())
+            desc = T.entry(items, "Description", width=260)
+            hsn  = T.entry(items, "HSN/SAC",     width=90)
+            qty  = T.entry(items, "1",            width=80)
+            rate = T.entry(items, "0.00",         width=120)
+            gst  = T.option_menu(items, self.GST_RATES, width=90, command=lambda _v: self.calc())
             gst.set("18")
-            amt = ctk.CTkLabel(items, text="", width=130, anchor="e", font=T.f(13), text_color=T.TEXT)
+            amt  = ctk.CTkLabel(items, text="", width=110, anchor="e", font=T.f(13), text_color=T.TEXT)
             desc.grid(row=r + 1, column=0, padx=(20, 6), pady=4)
-            qty.grid(row=r + 1, column=1, padx=6, pady=4)
-            rate.grid(row=r + 1, column=2, padx=6, pady=4)
-            gst.grid(row=r + 1, column=3, columnspan=2, padx=6, pady=4, sticky="w")
-            amt.grid(row=r + 1, column=5, padx=6, pady=4)
+            hsn.grid( row=r + 1, column=1, padx=6,       pady=4)
+            qty.grid( row=r + 1, column=2, padx=6,       pady=4)
+            rate.grid(row=r + 1, column=3, padx=6,       pady=4)
+            gst.grid( row=r + 1, column=4, columnspan=2, padx=6, pady=4, sticky="w")
+            amt.grid( row=r + 1, column=6, padx=6,       pady=4)
             for e in (qty, rate):
                 e.bind("<KeyRelease>", self.calc)
-            self.rows.append((desc, qty, rate, gst, amt))
-            order += [desc, qty, rate]
+            self.rows.append((desc, hsn, qty, rate, gst, amt))
+            order += [desc, hsn, qty, rate]
         self.summary = ctk.CTkLabel(items, text="", font=T.f(13, "bold"), text_color=T.TEXT)
         self.summary.grid(row=self.ROWS + 1, column=0, columnspan=6, sticky="e", padx=20, pady=(8, 14))
 
@@ -360,15 +362,18 @@ class TradeFrame(EntryBase):
         (self.inter.select if inv["interstate"] else self.inter.deselect)()
         self.narr.insert(0, snap["narration"] or "")
         self.bill_name.insert(0, inv.get("customer_name", ""))
-        for (desc, qty, rate, gst, _a), it in zip(self.rows, inv["items"]):
-            desc.insert(0, it["description"]); qty.insert(0, _num(it["qty"])); rate.insert(0, _num(it["rate"]))
+        for (desc, hsn, qty, rate, gst, _a), it in zip(self.rows, inv["items"]):
+            desc.insert(0, it["description"])
+            hsn.insert(0, it.get("hsn", ""))
+            qty.insert(0, _num(it["qty"]))
+            rate.insert(0, _num(it["rate"]))
             gst.set(_num(it["gst"]))
         self.calc()
 
     def is_dirty(self):
         if self.edit_id:
             return False
-        return any(d.get().strip() or q.get().strip() or r.get().strip() for d, q, r, _g, _a in self.rows) or bool(self.bill_name.get().strip())
+         return any(d.get().strip() or q.get().strip() or r.get().strip() for d, _h, q, r, _g, _a in self.rows) or bool(self.bill_name.get().strip())
 
     def party_chosen(self, name):
         row = self.con.execute("SELECT gstin FROM parties WHERE name=?", (name,)).fetchone()
@@ -381,17 +386,17 @@ class TradeFrame(EntryBase):
 
     def _collect(self):
         items = []
-        for desc, qty, rate, gst, _amt in self.rows:
-            d, q, r = desc.get().strip(), qty.get().strip(), rate.get().strip()
+        for desc, hsn, qty, rate, gst, _amt in self.rows:
+            d, h, q, r = desc.get().strip(), hsn.get().strip(), qty.get().strip(), rate.get().strip()
             if not (d or q or r):
                 continue
             if not q or not r:
                 raise ValueError("Every item needs a quantity and a rate")
-            items.append((d or "Item", parse_amount(q), parse_amount(r), float(gst.get())))
+            items.append((d or "Item", h, parse_amount(q), parse_amount(r), float(gst.get())))
         return items
 
     def calc(self, _e=None):
-        for _d, qty, rate, _g, amt in self.rows:
+        for _d, _h, qty, rate, _g, amt in self.rows:
             try:
                 q, rt = parse_amount(qty.get()), parse_amount(rate.get())
                 amt.configure(text=inr(q * rt) if q and rt else "")
@@ -439,8 +444,8 @@ class TradeFrame(EntryBase):
             if self.on_done:
                 self.after(60, self.on_done)
             return
-        for desc, qty, rate, _g, amt in self.rows:
-            for e in (desc, qty, rate):
+        for desc, hsn, qty, rate, _g, amt in self.rows:
+            for e in (desc, hsn, qty, rate):
                 e.delete(0, "end")
             amt.configure(text="")
         self.narr.delete(0, "end")
