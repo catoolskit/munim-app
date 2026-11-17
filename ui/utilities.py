@@ -188,9 +188,10 @@ class PasswordFrame(ctk.CTkFrame):
 
 class AuditFrame(ctk.CTkFrame):
     """Every voucher created, edited or deleted. Filter by type and date."""
-    def __init__(self, master, con):
+    def __init__(self, master, con, on_done=None):
         super().__init__(master, fg_color="transparent")
         self.con = con
+        self.on_done = on_done
         T.title(self, "Audit Log",
                 "Who created, edited or deleted what. Filter by type and date range."
                 ).pack(anchor="w", padx=28, pady=(24, 12))
@@ -354,8 +355,9 @@ class ResetDataFrame(ctk.CTkFrame):
         for k in ("last_backup",):
             st.pop(k, None)
         settings.save_settings(st)
-        messagebox.showinfo("MUNIM", "All data has been cleared.\nThe app will now restart.")
-        self.winfo_toplevel().destroy()
+        messagebox.showinfo("MUNIM", "All data has been cleared.")
+        if self.on_done:
+            self.on_done()
 
 
 class RenewLicenceFrame(ctk.CTkFrame):
