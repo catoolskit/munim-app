@@ -373,7 +373,8 @@ class TradeFrame(EntryBase):
     def is_dirty(self):
         if self.edit_id:
             return False
-        return any(d.get().strip() or q.get().strip() or r.get().strip() for d, _h, q, r, _g, _a in self.rows) or bool(self.bill_name.get().strip())
+    return any(d.get().strip() or q.get().strip() or r.get().strip()
+                   for d, _h, q, r, _g, _a in self.rows) or bool(self.bill_name.get().strip())
 
     def party_chosen(self, name):
         row = self.con.execute("SELECT gstin FROM parties WHERE name=?", (name,)).fetchone()
