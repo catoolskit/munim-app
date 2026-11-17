@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS invoice_items(
   id INTEGER PRIMARY KEY,
   invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
   seq INTEGER NOT NULL, description TEXT NOT NULL,
+  hsn TEXT NOT NULL DEFAULT '',
   qty TEXT NOT NULL, rate TEXT NOT NULL, gst TEXT NOT NULL, amount INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS allocations(
   id INTEGER PRIMARY KEY,
@@ -153,6 +154,8 @@ def init_db(path=None):
         con.execute("ALTER TABLE invoices ADD COLUMN customer_name TEXT NOT NULL DEFAULT ''")
     if "credit_days" not in [r["name"] for r in con.execute("PRAGMA table_info(parties)")]:
         con.execute("ALTER TABLE parties ADD COLUMN credit_days INTEGER NOT NULL DEFAULT 0")
+    if "hsn" not in [r["name"] for r in con.execute("PRAGMA table_info(invoice_items)")]:
+        con.execute("ALTER TABLE invoice_items ADD COLUMN hsn TEXT NOT NULL DEFAULT ''")
     if not con.execute("SELECT 1 FROM accounts LIMIT 1").fetchone():
         for n, g, nat in DEFAULT_ACCOUNTS:
             con.execute("INSERT INTO accounts(name,grp,nature) VALUES(?,?,?)", (n, g, nat))
@@ -251,7 +254,7 @@ def voucher_snapshot(con, vid):
     i = con.execute("SELECT * FROM invoices WHERE voucher_id=?", (vid,)).fetchone()
     if i:
         inv = {k: i[k] for k in ("kind", "party", "customer_name", "interstate", "taxable", "cgst", "sgst", "igst", "total")}
-        inv["items"] = [{k: it[k] for k in ("description", "qty", "rate", "gst", "amount")}
+        inv["items"] = [{k: it[k] for k in ("description", "hsn", "qty", "rate", "gst", "amount")}
                         for it in con.execute("SELECT * FROM invoice_items WHERE invoice_id=? ORDER BY seq", (i["id"],))]
     pays = [{"id": r["id"], "vtype": r["vtype"], "vno": r["vno"], "vdate": r["vdate"], "amount": r["amount"]}
             for r in con.execute(
