@@ -94,7 +94,6 @@ class LedgerFrame(ReportBase):
         self.acct.pack(side="right", padx=(10, 0))
         if not accounts:
             T.button(self.bar, "Show", self.refresh, width=70).pack(side="right", padx=(10, 0))
-
         if self._is_cashbook:
             today = date.today()
             self.d2 = T.entry(self.bar, width=120)
@@ -105,7 +104,6 @@ class LedgerFrame(ReportBase):
             self.d2.pack(side="right", padx=6)
             ctk.CTkLabel(self.bar, text="to", text_color=T.MUTED).pack(side="right")
             self.d1.pack(side="right", padx=6)
-
         self.summary = ctk.CTkLabel(self, text="", font=T.f(13, "bold"), text_color=T.TEXT)
         self.summary.pack(anchor="w", padx=28, pady=(0, 8))
         self.table = DataTable(self, [("dt", "Date", 100, L), ("v", "Voucher", 120, L),
@@ -117,9 +115,8 @@ class LedgerFrame(ReportBase):
     def refresh(self):
         try:
             if self._is_cashbook:
-                from utils.fmt import parse_date as pd
-                d1 = pd(self.d1.get())
-                d2 = pd(self.d2.get())
+                d1 = parse_date(self.d1.get())
+                d2 = parse_date(self.d2.get())
                 led = r.ledger_view(self.con, self.acct.get().strip(),
                                     self.fy.get(), date_from=d1, date_to=d2)
             else:
@@ -137,8 +134,7 @@ class LedgerFrame(ReportBase):
         self.table.set_rows(rows)
         self.summary.configure(
             text=f"{led['account']}   |   Closing balance: Rs {inr(led['closing'])} {led['closing_side']}",
-            text_color=T.TEXT)
-        
+            text_color=T.TEXT)        
         def export_data(self):
         try:
             d1 = parse_date(self.d1.get())
