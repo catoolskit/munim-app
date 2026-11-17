@@ -81,7 +81,8 @@ def _store_invoice(con, vid, kind, party, interstate, items, t, bill_name=""):
            VALUES(?,?,?,?,?,?,?,?,?,?)""",
         (vid, kind, party, int(bool(interstate)), t["taxable"], t["cgst"], t["sgst"], t["igst"], t["total"],
          _clean_name(party, bill_name)))
-    for seq, (desc, hsn, qty, rate, gst) in enumerate(items):
+    for seq, item in enumerate(items):
+        desc, hsn, qty, rate, gst = item if len(item) == 5 else (item[0], "", item[1], item[2], item[3])
         amt = int((Decimal(str(qty)) * Decimal(str(rate)) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
         con.execute("""INSERT INTO invoice_items(invoice_id,seq,description,hsn,qty,rate,gst,amount)
                        VALUES(?,?,?,?,?,?,?,?)""", (cur.lastrowid, seq, desc, hsn or "", str(qty), str(rate), str(gst), amt))
@@ -140,7 +141,8 @@ def _alloc(con, pvid, ivid, amt):
 def _post(con, kind, vdate, party, items, interstate, narration, username, received, mode, bill_name=""):
     check_party(con, kind, party)
     _clean_name(party, bill_name)
-    tax_items = [(d, q, r, g) for d, _h, q, r, g in items]
+    tax_items = [(d, q, r, g) for d, _h, q, r, g in items] if len(items[0]) == 5 \
+                else [(d, q, r, g) for d, q, r, g in items]
     t = compute_tax(tax_items, interstate)
     rec = s.to_paise(received or 0)
     if rec < 0:
@@ -238,7 +240,8 @@ def update_invoice(con, vid, vdate, party, items, interstate=False, narration=""
     kind = v["vtype"]
     check_party(con, kind, party)
     _clean_name(party, bill_name)
-    tax_items = [(d, q, r, g) for d, _h, q, r, g in items]
+    tax_items = [(d, q, r, g) for d, _h, q, r, g in items] if items and len(items[0]) == 5 \
+                else [(d, q, r, g) for d, q, r, g in items]
     t = compute_tax(tax_items, interstate)
     done = settled_paise(con, vid)
     if done:
@@ -274,7 +277,7 @@ def summary_items(rows, inclusive=False):
         taxable = (amt * 100 / (100 + g)) if inclusive else amt
         taxable = taxable.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         label = str(int(g)) if g == int(g) else str(g)
-        items.append((f"Sales summary @{label}%", "", 1, taxable, g))
+        items.append((f"Sales summary @{label}%", 1, taxable, g))
     if not items:
         raise ValueError("Enter at least one amount")
     return items
