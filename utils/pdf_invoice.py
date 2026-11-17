@@ -174,19 +174,18 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
     story.append(HRFlowable(width="100%", thickness=1, color=NAVY, spaceAfter=4))
 
     # ── ITEMS TABLE ───────────────────────────────────────────────────────────
-    IDX = 16
-    HSN = 46
-    QTY = 28
-    PCT = 30
-    MON = 54
-    if interstate:
-        col_ws = [IDX, HSN, W - IDX - HSN - QTY - MON * 4 - PCT, QTY, MON, MON, PCT, MON, MON]
-        hdr_labels = ["#", "HSN", "Description", "Qty", "Rate", "Taxable", "IGST%", "IGST Amt", "Total"]
-        hdr_aligns = ["CTR", "CTR", "HLFT", "CTR", "HRGT", "HRGT", "HCTR", "HRGT", "HRGT"]
-    else:
-        col_ws = [IDX, HSN, W - IDX - HSN - QTY - MON * 5 - PCT * 2, QTY, MON, MON, PCT, MON, PCT, MON, MON]
-        hdr_labels = ["#", "HSN", "Description", "Qty", "Rate", "Taxable", "CGST%", "CGST Amt", "SGST%", "SGST Amt", "Total"]
-        hdr_aligns = ["CTR", "CTR", "HLFT", "CTR", "HRGT", "HRGT", "HCTR", "HRGT", "HCTR", "HRGT", "HRGT"]
+    # Clean layout: # | HSN | Description | Qty | Rate/Unit | GST% | Amount
+    # Tax amounts removed from items table — shown only in HSN summary below
+    IDX  = 16
+    HSN  = 46
+    QTY  = 28
+    PCT  = 36   # GST%
+    MON  = 72   # Amount / Rate
+    DESC = W - IDX - HSN - QTY - PCT - MON - MON  # Description gets remaining space
+
+    col_ws     = [IDX, HSN, DESC, QTY, MON, PCT, MON]
+    hdr_labels = ["#", "HSN", "Description", "Qty", "Rate/Unit", "GST%", "Amount"]
+    hdr_aligns = ["CTR", "CTR", "HLFT", "CTR", "HRGT", "HCTR", "HRGT"]
 
     def nw(text, base_style, width, min_size=6.2):
         raw = str(text or "")
@@ -214,52 +213,36 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
         qty     = float(it["qty"])
         rate    = float(it["rate"])
         gst_p   = float(it["gst"])
-        tax_p   = round(qty * rate * 100)   # paise
+        tax_p   = round(qty * rate * 100)   # taxable paise
 
         if interstate:
             igst    = round(tax_p * gst_p / 100)
             total_p = tax_p + igst
-            t_cells = [nw(f"{gst_p:g}%", CTR, col_ws[6]),
-                       nw(_fmt(igst),     RGT, col_ws[7])]
         else:
             half    = gst_p / 2
             cgst    = round(tax_p * half / 100)
-            sgst    = cgst
-            total_p = tax_p + cgst + sgst
-            t_cells = [nw(f"{half:g}%", CTR, col_ws[6]),
-                       nw(_fmt(cgst),   RGT, col_ws[7]),
-                       nw(f"{half:g}%", CTR, col_ws[8]),
-                       nw(_fmt(sgst),   RGT, col_ws[9])]
+            total_p = tax_p + cgst * 2
 
-        rows_data.append(
-            [nw(str(idx),               CTR, col_ws[0]),
-             nw(hsn_val,                CTR, col_ws[1]),
-             nw(desc,                   NRM, col_ws[2]),
-             nw(f"{qty:g}",             CTR, col_ws[3]),
-             nw(_fmt(round(rate*100)),  RGT, col_ws[4]),
-             nw(_fmt(tax_p),            RGT, col_ws[5])]
-            + t_cells
-            + [nw(_fmt(total_p),        RGT, col_ws[-1])]
-        )
+        rows_data.append([
+            nw(str(idx),              CTR, col_ws[0]),
+            nw(hsn_val,               CTR, col_ws[1]),
+            nw(desc,                  NRM, col_ws[2]),
+            nw(f"{qty:g}",            CTR, col_ws[3]),
+            nw(_fmt(round(rate*100)), RGT, col_ws[4]),
+            nw(f"{gst_p:g}%",         CTR, col_ws[5]),
+            nw(_fmt(total_p),         RGT, col_ws[6]),
+        ])
 
-    if interstate:
-        total_cells = [nw("", NRM, col_ws[0]), nw("", NRM, col_ws[1]),
-                       nw("Total", BLD, col_ws[2]),
-                       nw("", NRM, col_ws[3]), nw("", NRM, col_ws[4]),
-                       nw(_fmt(tax["taxable"]), BRGT, col_ws[5]),
-                       nw("", NRM, col_ws[6]),
-                       nw(_fmt(tax["igst"]),    BRGT, col_ws[7]),
-                       nw(_fmt(tax["total"]),   BRGT, col_ws[8])]
-    else:
-        total_cells = [nw("", NRM, col_ws[0]), nw("", NRM, col_ws[1]),
-                       nw("Total", BLD, col_ws[2]),
-                       nw("", NRM, col_ws[3]), nw("", NRM, col_ws[4]),
-                       nw(_fmt(tax["taxable"]), BRGT, col_ws[5]),
-                       nw("", NRM, col_ws[6]),
-                       nw(_fmt(tax["cgst"]),    BRGT, col_ws[7]),
-                       nw("", NRM, col_ws[8]),
-                       nw(_fmt(tax["sgst"]),    BRGT, col_ws[9]),
-                       nw(_fmt(tax["total"]),   BRGT, col_ws[10])]
+    # Totals row
+    total_cells = [
+        nw("", NRM, col_ws[0]),
+        nw("", NRM, col_ws[1]),
+        nw("Total", BLD, col_ws[2]),
+        nw("", NRM, col_ws[3]),
+        nw("", NRM, col_ws[4]),
+        nw("", NRM, col_ws[5]),
+        nw(_fmt(tax["total"]), BRGT, col_ws[6]),
+    ]
     rows_data.append(total_cells)
 
     n = len(rows_data)
@@ -293,8 +276,9 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
         rate  = float(it["rate"])
         tax_p = round(qty * rate * 100)
         if key not in hsn_groups:
-            hsn_groups[key] = {"taxable": 0, "gst": gst_p}
+            hsn_groups[key] = {"taxable": 0, "gst": gst_p, "qty": 0}
         hsn_groups[key]["taxable"] += tax_p
+        hsn_groups[key]["qty"]     += qty
 
     if any(it.get("hsn") for it in items):
         HSML = S("HSML", fontSize=7, textColor=WHITE, fontName="Helvetica-Bold", leading=10, alignment=TA_CENTER)
@@ -303,27 +287,30 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
         HNBD = S("HNBD", fontSize=8, textColor=BLACK, fontName="Helvetica-Bold", leading=11, alignment=TA_RIGHT)
 
         if interstate:
-            hw        = [55, 80, 55, 80, 80]
-            hsn_hdr   = [_p("HSN/SAC", HSML), _p("Taxable", HSML), _p("IGST%", HSML),
-                         _p("IGST Amt", HSML), _p("Total Tax", HSML)]
+            hw      = [60, 90, 40, 55, 85, 85]
+            hsn_hdr = [_p("HSN/SAC", HSML), _p("Taxable Amt", HSML), _p("Qty", HSML),
+                       _p("IGST%", HSML), _p("IGST Amt", HSML), _p("Total Tax", HSML)]
         else:
-            hw        = [55, 75, 50, 70, 50, 70, 75]
-            hsn_hdr   = [_p("HSN/SAC", HSML), _p("Taxable", HSML), _p("CGST%", HSML),
-                         _p("CGST Amt", HSML), _p("SGST%", HSML), _p("SGST Amt", HSML),
-                         _p("Total Tax", HSML)]
+            hw      = [60, 85, 40, 50, 75, 50, 75, 80]
+            hsn_hdr = [_p("HSN/SAC", HSML), _p("Taxable Amt", HSML), _p("Qty", HSML),
+                       _p("CGST%", HSML), _p("CGST Amt", HSML),
+                       _p("SGST%", HSML), _p("SGST Amt", HSML),
+                       _p("Total Tax", HSML)]
 
         hsn_rows = [hsn_hdr]
         for code, grp in hsn_groups.items():
             taxable = grp["taxable"]
             gst_p   = grp["gst"]
+            qty_tot = grp["qty"]
             if interstate:
                 igst = round(taxable * gst_p / 100)
                 hsn_rows.append([
-                    _p(code,          HNRM),
-                    _p(_fmt(taxable), HNRT),
-                    _p(f"{gst_p:g}%", HNRM),
-                    _p(_fmt(igst),    HNRT),
-                    _p(_fmt(igst),    HNBD),
+                    _p(code,           HNRM),
+                    _p(_fmt(taxable),  HNRT),
+                    _p(f"{qty_tot:g}", HNRM),
+                    _p(f"{gst_p:g}%",  HNRM),
+                    _p(_fmt(igst),     HNRT),
+                    _p(_fmt(igst),     HNBD),
                 ])
             else:
                 half = gst_p / 2
@@ -332,6 +319,7 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
                 hsn_rows.append([
                     _p(code,              HNRM),
                     _p(_fmt(taxable),     HNRT),
+                    _p(f"{qty_tot:g}",    HNRM),
                     _p(f"{half:g}%",      HNRM),
                     _p(_fmt(cgst),        HNRT),
                     _p(f"{half:g}%",      HNRM),
