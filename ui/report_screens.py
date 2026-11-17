@@ -95,7 +95,6 @@ class LedgerFrame(ReportBase):
         if not accounts:
             T.button(self.bar, "Show", self.refresh, width=70).pack(side="right", padx=(10, 0))
 
-        # Date range filter — shown for Cash Book, hidden for Ledger View
         if self._is_cashbook:
             today = date.today()
             self.d2 = T.entry(self.bar, width=120)
@@ -121,8 +120,8 @@ class LedgerFrame(ReportBase):
                 from utils.fmt import parse_date as pd
                 d1 = pd(self.d1.get())
                 d2 = pd(self.d2.get())
-                led = r.ledger_view(self.con, self.acct.get().strip(), self.fy.get(),
-                                    date_from=d1, date_to=d2)
+                led = r.ledger_view(self.con, self.acct.get().strip(),
+                                    self.fy.get(), date_from=d1, date_to=d2)
             else:
                 led = r.ledger_view(self.con, self.acct.get().strip(), self.fy.get())
         except ValueError as e:
@@ -139,7 +138,8 @@ class LedgerFrame(ReportBase):
         self.summary.configure(
             text=f"{led['account']}   |   Closing balance: Rs {inr(led['closing'])} {led['closing_side']}",
             text_color=T.TEXT)
-    def export_data(self):
+        
+        def export_data(self):
         try:
             d1 = parse_date(self.d1.get())
             d2 = parse_date(self.d2.get())
