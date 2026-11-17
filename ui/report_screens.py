@@ -135,14 +135,14 @@ class LedgerFrame(ReportBase):
         self.summary.configure(
             text=f"{led['account']}   |   Closing balance: Rs {inr(led['closing'])} {led['closing_side']}",
             text_color=T.TEXT)        
-        def export_data(self):
+    def export_data(self):
         try:
             d1 = parse_date(self.d1.get())
             d2 = parse_date(self.d2.get())
             led = r.ledger_view(self.con, self.acct.get().strip(),
                                 self.fy.get(), date_from=d1, date_to=d2)
         except ValueError:
-            return "Ledger", ["Date","Voucher","Narration","Debit","Credit","Balance"], []
+            return "Ledger", ["Date","Voucher","Narration","Debit (Rs)","Credit (Rs)","Balance"], []
         headers = ["Date","Voucher","Narration","Debit (Rs)","Credit (Rs)","Balance"]
         rows = [[disp_date(x["date"]), f"{x['vtype']} #{x['vno']}", x["narration"],
                  x["dr"], x["cr"], x["balance"]] for x in led["rows"]]
