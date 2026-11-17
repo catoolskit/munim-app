@@ -156,7 +156,9 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
         return out
 
     seller_cell = addr_paras("SELLER", company, gstin, address, phone)
-    buyer_cell  = addr_paras("BUYER",  cust_name, party_gstin)
+    row_addr = con.execute("SELECT address FROM parties WHERE name=?", (party,)).fetchone()
+    party_addr = row_addr["address"] if row_addr else ""
+    buyer_cell  = addr_paras("BUYER",  cust_name, party_gstin, party_addr)
 
     info_tbl = Table(
         [[seller_cell, buyer_cell]],
