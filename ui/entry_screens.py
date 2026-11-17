@@ -561,20 +561,23 @@ class SummaryFrame(EntryBase):
                 "Sales", res["vno"], d)
         focus_later(self.rows[0][1], 50)
 
-
 # ── PaymentFrame ──────────────────────────────────────────────────────────────
 
 class PaymentFrame(EntryBase):
-    """Money received from a customer, or paid to a supplier, matched to their oldest bills."""
+    """Money received from a customer, or paid to a supplier.
+    User types amount against each bill (Agst Ref style)."""
     KINDS = {"Receipt from customer": ("Receipt", "Customer"), "Payment to supplier": ("Payment", "Supplier")}
 
     def __init__(self, master, con, username="", opener=None):
         super().__init__(master, fg_color="transparent")
         self._init_base(con, username, opener)
+        self._open_bills   = []
+        self._bill_entries = []
+
         T.title(self, "Receipt / Payment",
-                "Record money received from a customer or paid to a supplier. It is matched to their "
-                "oldest unpaid bills first."
+                "Type amount in 'Now Paying' against each bill to settle it. Leave blank to skip."
                 ).pack(anchor="w", padx=28, pady=(24, 12))
+
         card = T.card(self)
         card.pack(fill="x", padx=28)
         self.kind = T.option_menu(card, list(self.KINDS), width=220, command=lambda _v: self.kind_changed())
@@ -586,23 +589,44 @@ class PaymentFrame(EntryBase):
         self.date = T.entry(card, width=130)
         self.date.insert(0, today_str())
         self.mode = T.option_menu(card, ["Cash", "Bank"], width=100)
-        self.amount = T.entry(card, "0.00", width=160)
         self.narr = T.entry(card, "Narration (optional)", width=300)
-        heads = ("Type", "Party", "Date", "Paid by / into", "Amount (Rs)", "Narration")
-        widgets = (self.kind, pw, self.date, self.mode, self.amount, self.narr)
+        heads   = ("Type", "Party", "Date", "Paid by / into", "Narration")
+        widgets = (self.kind, pw, self.date, self.mode, self.narr)
         for c, (h, w) in enumerate(zip(heads, widgets)):
             _lbl(card, h, row=0, column=c, sticky="w", padx=(20 if c == 0 else 8, 8), pady=(14, 2))
             w.grid(row=1, column=c, padx=(20 if c == 0 else 8, 8), pady=(0, 14))
-        ctk.CTkLabel(self, text="Unpaid bills of this party", font=T.f(14, "bold"), text_color=T.TEXT).pack(
-            anchor="w", padx=28, pady=(14, 6))
-        self.table = DataTable(self, [("d", "Date", 100, "w"), ("n", "Bill", 100, "w"), ("t", "Bill total", 140, "e"),
-                                      ("s", "Settled", 140, "e"), ("b", "Balance", 140, "e")], height=6)
-        self.table.pack(fill="both", expand=True, padx=28)
+
+        ctk.CTkLabel(self, text="Unpaid bills — type amount to settle against each",
+                     font=T.f(14, "bold"), text_color=T.TEXT).pack(anchor="w", padx=28, pady=(14, 4))
+
+        # Header row
+        hdr = ctk.CTkFrame(self, fg_color="#E8EDF5", corner_radius=0, height=28)
+        hdr.pack(fill="x", padx=28)
+        hdr.pack_propagate(False)
+        for txt, w in (("Date", 110), ("Bill", 120), ("Bill Total", 160), ("Balance", 160), ("Now Paying", 160)):
+            ctk.CTkLabel(hdr, text=txt, font=T.f(11, "bold"), text_color=T.MUTED,
+                         width=w, anchor="w").pack(side="left", padx=(12, 4))
+
+        # Scrollable bills area
+        self.bills_frame = ctk.CTkScrollableFrame(self, fg_color="white",
+                                                   border_width=1, border_color="#D1D5DB",
+                                                   corner_radius=0, height=180)
+        self.bills_frame.pack(fill="x", padx=28)
+
+        # Total bar
+        tot_bar = ctk.CTkFrame(self, fg_color="#EEF2FF", corner_radius=0, height=32)
+        tot_bar.pack(fill="x", padx=28)
+        tot_bar.pack_propagate(False)
+        ctk.CTkLabel(tot_bar, text="Total being paid:", font=T.f(12, "bold"),
+                     text_color=T.TEXT).pack(side="left", padx=12)
+        self.total_lbl = ctk.CTkLabel(tot_bar, text="0.00", font=T.f(13, "bold"),
+                                       text_color=T.ACCENT)
+        self.total_lbl.pack(side="right", padx=12)
+
         foot = ctk.CTkFrame(self, fg_color="transparent")
         foot.pack(fill="x", padx=28, pady=14)
         T.button(foot, "Save", self.save, width=150).pack(side="left")
         self._make_msg(foot)
-        chain_enter([self.party, self.date, self.amount, self.narr], self.save)
         self.kind_changed()
         focus_later(self.party)
 
@@ -622,18 +646,62 @@ class PaymentFrame(EntryBase):
         self.kind_changed()
         self.party.set(name)
         self.show_bills()
-        focus_later(self.amount, 50)
+        focus_later(self._bill_entries[0] if self._bill_entries else self.narr, 50)
 
     def show_bills(self):
-        pkind, ptype = self._ctx()
+        for w in self.bills_frame.winfo_children():
+            w.destroy()
+        self._bill_entries = []
+
+        pkind, _pt = self._ctx()
         inv_kind = "Sales" if pkind == "Receipt" else "Purchase"
-        rows = [(disp_date(o["vdate"]), f"{inv_kind} #{o['vno']}", inr(o["total"] / 100),
-                 inr(o["settled"] / 100), inr(o["balance"] / 100))
-                for o in b.open_invoices(self.con, self.party.get().strip(), inv_kind)]
-        self.table.set_rows(rows)
+        self._open_bills = b.open_invoices(self.con, self.party.get().strip(), inv_kind)
+
+        for i, o in enumerate(self._open_bills):
+            bg = "white" if i % 2 == 0 else "#F8FAFD"
+            row = ctk.CTkFrame(self.bills_frame, fg_color=bg, corner_radius=0, height=34)
+            row.pack(fill="x")
+            row.pack_propagate(False)
+            ctk.CTkLabel(row, text=disp_date(o["vdate"]), font=T.f(12),
+                         text_color=T.TEXT, width=110, anchor="w").pack(side="left", padx=(12, 4))
+            ctk.CTkLabel(row, text=f"{inv_kind} #{o['vno']}", font=T.f(12),
+                         text_color=T.TEXT, width=120, anchor="w").pack(side="left", padx=4)
+            ctk.CTkLabel(row, text=inr(o["total"] / 100), font=T.f(12),
+                         text_color=T.MUTED, width=160, anchor="e").pack(side="left", padx=4)
+            ctk.CTkLabel(row, text=inr(o["balance"] / 100), font=T.f(12, "bold"),
+                         text_color=T.TEXT, width=160, anchor="e").pack(side="left", padx=4)
+            entry = T.entry(row, "0.00", width=140)
+            entry.pack(side="left", padx=(8, 12))
+            entry.bind("<KeyRelease>", self._update_total)
+            self._bill_entries.append(entry)
+
+        self._update_total()
+
+    def _update_total(self, _e=None):
+        total = 0.0
+        for e in self._bill_entries:
+            try:
+                v = parse_amount(e.get())
+                if v > 0:
+                    total += v
+            except ValueError:
+                pass
+        self.total_lbl.configure(text=inr(total))
+
+    def _get_allocations(self):
+        allocs = []
+        for o, e in zip(self._open_bills, self._bill_entries):
+            try:
+                amt = parse_amount(e.get())
+            except ValueError:
+                amt = 0
+            if amt > 0:
+                allocs.append((o["id"], amt))
+        return allocs
 
     def is_dirty(self):
-        return bool(self.amount.get().strip() or self.narr.get().strip())
+        return any(e.get().strip() and e.get().strip() != "0.00"
+                   for e in self._bill_entries) or bool(self.narr.get().strip())
 
     def save(self):
         try:
@@ -642,17 +710,23 @@ class PaymentFrame(EntryBase):
                 ac.commit()
             pkind, _pt = self._ctx()
             d = parse_date(self.date.get())
-            res = b.record_payment(self.con, pkind, self.party.get().strip(), d, parse_amount(self.amount.get()),
-                                   self.mode.get(), self.narr.get().strip(), self.username)
+            party = self.party.get().strip()
+            allocs = self._get_allocations()
+            if not allocs:
+                raise ValueError("Enter amount against at least one bill")
+            total_amt = sum(a for _, a in allocs)
+            res = b.record_payment(self.con, pkind, party, d, total_amt,
+                                   self.mode.get(), self.narr.get().strip(),
+                                   self.username, allocations=allocs)
         except ValueError as e:
             self.err(str(e))
             return
         inv_kind = "Sales" if pkind == "Receipt" else "Purchase"
         parts = [f"{inv_kind} #{n} Rs {inr(a)}" for n, a in res["settled_bills"]]
-        text = f"{pkind} no. {res['vno']} saved. " + ("Settled " + ", ".join(parts) if parts else "No open bill to settle")
+        text = f"{pkind} no. {res['vno']} saved. Settled " + ", ".join(parts)
         if res["on_account"]:
-            text += f". Rs {inr(res['on_account'])} kept on account"
-        self.amount.delete(0, "end"); self.narr.delete(0, "end")
+            text += f". Rs {inr(res['on_account'])} on account"
+        self.narr.delete(0, "end")
         self.show_bills()
         self.ok(text, pkind, res["vno"], d)
         focus_later(self.party, 50)
