@@ -22,7 +22,7 @@ PAGES = {
     "party":       ("Party Master",        lambda sh: PartyFrame(sh.body, sh.con)),
     "company":     ("Company Details",     lambda sh: CompanyFrame(sh.body, sh.refresh_company)),
     "password":    ("Change Password",     lambda sh: PasswordFrame(sh.body, sh.con, sh.username)),
-    "reset":       ("Reset All Data",      lambda sh: ResetDataFrame(sh.body, sh.con)),
+    "reset":       ("Reset All Data",      lambda sh: ResetDataFrame(sh.body, sh.con, on_done=sh._go_to_gateway)),
     "renew":       ("Renew Licence",       lambda sh: RenewLicenceFrame(sh.body)),
     "journal":     ("Voucher Entry",       lambda sh: JournalFrame(sh.body, sh.con, sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
     "sales":       ("Sales Invoice",       lambda sh: TradeFrame(sh.body, sh.con, "Sales", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
@@ -159,7 +159,11 @@ class Shell(ctk.CTkFrame):
                     return
             self.stack.pop()
             self.render()
-
+          
+    def _go_to_gateway(self):
+        self.stack.clear()
+        self.push(("menu", "gateway"))
+      
     def render(self):
         if self.current is not None:
             self.current.destroy()
