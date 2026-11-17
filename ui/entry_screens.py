@@ -373,7 +373,7 @@ class TradeFrame(EntryBase):
     def is_dirty(self):
         if self.edit_id:
             return False
-         return any(d.get().strip() or q.get().strip() or r.get().strip() for d, _h, q, r, _g, _a in self.rows) or bool(self.bill_name.get().strip())
+        return any(d.get().strip() or q.get().strip() or r.get().strip() for d, _h, q, r, _g, _a in self.rows) or bool(self.bill_name.get().strip())
 
     def party_chosen(self, name):
         row = self.con.execute("SELECT gstin FROM parties WHERE name=?", (name,)).fetchone()
@@ -403,7 +403,9 @@ class TradeFrame(EntryBase):
             except ValueError:
                 amt.configure(text="")
         try:
-            t = b.compute_tax(self._collect(), bool(self.inter.get()))
+        items = self._collect()
+        tax_items = [(d, q, r, g) for d, _h, q, r, g in items]
+        t = b.compute_tax(tax_items, bool(self.inter.get()))
         except ValueError:
             self.summary.configure(text="")
             return
