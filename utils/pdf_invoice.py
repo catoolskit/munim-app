@@ -30,8 +30,28 @@ RULE    = colors.HexColor("#D1D5DB")
 
 
 def _fmt(paise) -> str:
-    """Format paise as rupees with commas, no wrapping — always one line."""
-    return f"{paise / 100:,.2f}"
+    """Format paise as rupees with Indian comma style (2,00,000.00), no wrapping."""
+    rupees = paise / 100
+    int_part = int(abs(rupees))
+    dec_str = f"{abs(rupees) % 1:.2f}"[1:]   # ".xx"
+    sign = "-" if rupees < 0 else ""
+
+    s = str(int_part)
+    if len(s) <= 3:
+        formatted = s
+    else:
+        last3 = s[-3:]
+        rest = s[:-3]
+        pairs = []
+        while len(rest) > 2:
+            pairs.append(rest[-2:])
+            rest = rest[:-2]
+        if rest:
+            pairs.append(rest)
+        pairs.reverse()
+        formatted = ",".join(pairs) + "," + last3
+
+    return f"{sign}{formatted}{dec_str}"
 
 
 def _p(text, style):
@@ -102,21 +122,6 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
     story = []
 
     # ── HEADER: dark navy band with icon placeholder + title + invoice meta ───
-    # Left cell: icon box + "TAX INVOICE"
-    # Right cell: Invoice No. / Date
-
-    icon_cell = [
-        _p("TAX INVOICE", HDR),
-    ]
-    meta_cell = [
-        _p("Invoice No.", SML),
-        _p(inv_no, MVAL),
-        _p("Date", SML),
-        _p(vdate, S("VD", fontSize=10, textColor=WHITE,
-                    fontName="Helvetica", leading=13)),
-    ]
-
-    # Override meta colours for dark background
     MVAL_W = S("MVAL_W", fontSize=10, textColor=WHITE, fontName="Helvetica-Bold", leading=12)
     SML_W  = S("SML_W",  fontSize=7,  textColor=LBLUE, fontName="Helvetica",      leading=9)
     VD_W   = S("VD_W",   fontSize=9,  textColor=WHITE, fontName="Helvetica",      leading=11)
@@ -169,25 +174,19 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
     story.append(HRFlowable(width="100%", thickness=1, color=NAVY, spaceAfter=4))
 
     # ── ITEMS TABLE ───────────────────────────────────────────────────────────
-    # Allocate enough room to Description while keeping every heading/value on
-    # one line.  Amount columns are compact but still sized for normal invoices.
     IDX = 16
     QTY = 30
     PCT = 32
     MON = 58
     if interstate:
-        # #, Description, Qty, Rate, Taxable, IGST%, IGST Amt, Total
         col_ws = [IDX, W - IDX - QTY - MON * 4 - PCT, QTY, MON, MON, PCT, MON, MON]
         hdr_labels = ["#", "Description", "Qty", "Rate", "Taxable", "IGST%", "IGST Amt", "Total"]
         hdr_aligns = ["CTR", "HLFT", "CTR", "HRGT", "HRGT", "HCTR", "HRGT", "HRGT"]
     else:
-        # #, Description, Qty, Rate, Taxable, CGST%, CGST Amt, SGST%, SGST Amt, Total
         col_ws = [IDX, W - IDX - QTY - MON * 5 - PCT * 2, QTY, MON, MON, PCT, MON, PCT, MON, MON]
         hdr_labels = ["#", "Description", "Qty", "Rate", "Taxable", "CGST%", "CGST Amt", "SGST%", "SGST Amt", "Total"]
         hdr_aligns = ["CTR", "HLFT", "CTR", "HRGT", "HRGT", "HCTR", "HRGT", "HCTR", "HRGT", "HRGT"]
 
-    # A no-wrap paragraph shrinks slightly when necessary instead of breaking
-    # long descriptions or numeric values into multiple lines.
     def nw(text, base_style, width, min_size=6.2):
         raw = str(text or "")
         font_name = base_style.fontName
@@ -233,13 +232,6 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
             + t_cells + [nw(_fmt(total_p), RGT, col_ws[-1])]
         )
 
-    # totals row
-    if interstate:
-        tot_cells = [_p("", NRM), _m(tax["igst"], BRGT)]
-    else:
-        tot_cells = [_p("", NRM), _m(tax["cgst"], BRGT),
-                     _p("", NRM), _m(tax["sgst"], BRGT)]
-
     if interstate:
         total_cells = [nw("", NRM, col_ws[0]), nw("Total", BLD, col_ws[1]),
                        nw("", NRM, col_ws[2]), nw("", NRM, col_ws[3]),
@@ -258,21 +250,17 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
     n = len(rows_data)
     item_tbl = Table(rows_data, colWidths=col_ws, repeatRows=1)
     item_tbl.setStyle(TableStyle([
-        # header row
         ("BACKGROUND",    (0, 0),     (-1, 0),     NAVY),
         ("FONTSIZE",      (0, 0),     (-1, 0),     8),
         ("TOPPADDING",    (0, 0),     (-1, 0),     5),
         ("BOTTOMPADDING", (0, 0),     (-1, 0),     5),
-        # body
         ("FONTSIZE",      (0, 1),     (-1, -1),    8),
         ("TOPPADDING",    (0, 1),     (-1, -1),    4),
         ("BOTTOMPADDING", (0, 1),     (-1, -1),    4),
         ("ROWBACKGROUNDS",(0, 1),     (-1, -2),    [WHITE, LIGHT]),
-        # totals
         ("BACKGROUND",    (0, n - 1), (-1, n - 1), LBLUE),
         ("LINEABOVE",     (0, n - 1), (-1, n - 1), 1,   NAVY),
         ("FONTNAME",      (0, n - 1), (-1, n - 1), "Helvetica-Bold"),
-        # grid
         ("LINEBELOW",     (0, 0),     (-1, 0),     0.5, BLUE),
         ("GRID",          (0, 0),     (-1, -1),    0.3, RULE),
         ("VALIGN",        (0, 0),     (-1, -1),    "MIDDLE"),
@@ -334,7 +322,6 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
     ]))
     story.append(foot_tbl)
 
-    # ── blue wave bar at very bottom ──────────────────────────────────────────
     wave = Table(
         [[_p("Thank you for your business!", S("TY", fontSize=10, textColor=WHITE,
               fontName="Helvetica-Oblique", leading=13, alignment=TA_CENTER))]],
