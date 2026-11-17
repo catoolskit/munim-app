@@ -705,13 +705,13 @@ class PaymentFrame(EntryBase):
 
     def save(self):
         try:
+            allocs = self._get_allocations()
             ac = getattr(self.party, "_ac", None)
             if ac:
                 ac.commit()
             pkind, _pt = self._ctx()
             d = parse_date(self.date.get())
             party = self.party.get().strip()
-            allocs = self._get_allocations()
             if not allocs:
                 raise ValueError("Enter amount against at least one bill")
             total_amt = sum(a for _, a in allocs)
