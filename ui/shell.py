@@ -9,6 +9,7 @@ from ui.party import PartyFrame
 from ui.entry_screens import JournalFrame, TradeFrame, SummaryFrame, PaymentFrame, SalesReturnFrame, PurchaseReturnFrame
 from ui.help import HelpFrame
 from ui.account_master import AccountMasterFrame
+from ui.stock_items import StockItemsFrame
 from ui.report_screens import (TrialBalanceFrame, LedgerFrame, DayBookFrame, OutstandingFrame,
                                ProfitLossFrame, BalanceSheetFrame, InvoiceRegisterFrame,
                                ReturnsRegisterFrame, StockSummaryFrame)
