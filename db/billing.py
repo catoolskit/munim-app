@@ -84,8 +84,9 @@ def _store_invoice(con, vid, kind, party, interstate, items, t, bill_name=""):
     for seq, item in enumerate(items):
         desc, hsn, qty, rate, gst = item if len(item) == 5 else (item[0], "", item[1], item[2], item[3])
         amt = int((Decimal(str(qty)) * Decimal(str(rate)) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
-        con.execute("""INSERT INTO invoice_items(invoice_id,seq,description,hsn,qty,rate,gst,amount)
-                       VALUES(?,?,?,?,?,?,?,?)""", (cur.lastrowid, seq, desc, hsn or "", str(qty), str(rate), str(gst), amt))
+        sid = item[5] if len(item) > 5 else None
+        con.execute("""INSERT INTO invoice_items(invoice_id,seq,description,hsn,qty,rate,gst,amount,stock_item_id)
+                       VALUES(?,?,?,?,?,?,?,?,?)""", (cur.lastrowid, seq, desc, hsn or "", str(qty), str(rate), str(gst), amt, sid))
 
 
 def _result(vno, t):
@@ -141,8 +142,7 @@ def _alloc(con, pvid, ivid, amt):
 def _post(con, kind, vdate, party, items, interstate, narration, username, received, mode, bill_name=""):
     check_party(con, kind, party)
     _clean_name(party, bill_name)
-    tax_items = [(d, q, r, g) for d, _h, q, r, g in items] if items and len(items[0]) == 5 \
-                else [(d, q, r, g) for d, q, r, g in items]
+    tax_items = [(item[0], item[2], item[3], item[4]) for item in items]
     t = compute_tax(tax_items, interstate)
     rec = s.to_paise(received or 0)
     if rec < 0:
