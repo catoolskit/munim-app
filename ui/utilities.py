@@ -430,3 +430,97 @@ class RenewLicenceFrame(ctk.CTkFrame):
             text=f"✓  Licence activated for {username}. Valid until {expiry.strftime('%d-%m-%Y')}.",
             text_color=T.OK)
         self.key_entry.delete(0, "end")
+
+class DataLocationFrame(ctk.CTkFrame):
+    """Move MUNIM data folder to a new location."""
+
+    def __init__(self, master):
+        super().__init__(master, fg_color="transparent")
+        from db.setup import data_dir
+        import os
+        self._current = data_dir()
+        self._default = r"C:\MUNIM" if os.name == "nt" else os.path.join(os.path.expanduser("~"), "MUNIM")
+        self._pointer = os.path.join(self._default, "data_location.txt")
+
+        head = ctk.CTkFrame(self, fg_color="transparent")
+        head.pack(fill="x", padx=28, pady=(24, 12))
+        T.title(head, "Data Location", "Move your MUNIM data folder to a new drive or folder.").pack(side="left")
+
+        card = T.card(self)
+        card.pack(fill="x", padx=28, pady=(0, 16))
+
+        ctk.CTkLabel(card, text="Current data location", font=T.f(12), text_color=T.MUTED).pack(
+            anchor="w", padx=24, pady=(18, 2))
+        self.current_lbl = ctk.CTkLabel(card, text=self._current, font=T.f(13, "bold"),
+                                         text_color=T.TEXT, wraplength=700, justify="left")
+        self.current_lbl.pack(anchor="w", padx=24, pady=(0, 16))
+
+        ctk.CTkLabel(card, text="New location (choose a folder — a MUNIM subfolder will be created inside it)",
+                     font=T.f(12), text_color=T.MUTED).pack(anchor="w", padx=24, pady=(0, 4))
+
+        row = ctk.CTkFrame(card, fg_color="transparent")
+        row.pack(fill="x", padx=24, pady=(0, 18))
+        self.path_entry = T.entry(row, width=500)
+        self.path_entry.pack(side="left", padx=(0, 10))
+        T.button(row, "Browse…", self._browse, width=100).pack(side="left")
+
+        self.msg = ctk.CTkLabel(card, text="", font=T.f(12), text_color=T.DANGER, wraplength=700)
+        self.msg.pack(anchor="w", padx=24, pady=(0, 4))
+
+        T.button(card, "Move Data", self._move, width=140).pack(anchor="w", padx=24, pady=(0, 18))
+
+    def _browse(self):
+        from tkinter import filedialog
+        folder = filedialog.askdirectory(title="Choose a parent folder for MUNIM data")
+        if folder:
+            self.path_entry.delete(0, "end")
+            self.path_entry.insert(0, folder)
+
+    def _move(self):
+        import shutil, os
+        from tkinter import messagebox
+        from db.setup import data_dir, db_path
+        from utils.settings import load_settings, save_settings
+
+        dest_parent = self.path_entry.get().strip()
+        if not dest_parent:
+            self.msg.configure(text="Please choose a destination folder first.", text_color=T.DANGER)
+            return
+        if not os.path.isdir(dest_parent):
+            self.msg.configure(text="That folder does not exist. Please choose an existing folder.", text_color=T.DANGER)
+            return
+
+        dest = os.path.join(dest_parent, "MUNIM")
+        current = self._current
+
+        if os.path.normcase(dest) == os.path.normcase(current):
+            self.msg.configure(text="Data is already at that location.", text_color=T.MUTED)
+            return
+
+        if not messagebox.askyesno("Move Data", f"MUNIM will copy all data to:\n\n{dest}\n\n"
+                                   "Then delete the old location.\n\n"
+                                   "Make sure you have a backup first! Continue?"):
+            return
+
+        try:
+            # 1. Copy entire current data folder to new location
+            if os.path.exists(dest):
+                messagebox.showerror("MUNIM", f"Folder already exists:\n{dest}\n\nChoose a different location or rename it.")
+                return
+            shutil.copytree(current, dest)
+
+            # 2. Write the pointer file at default location
+            os.makedirs(self._default, exist_ok=True)
+            with open(self._pointer, "w", encoding="utf-8") as f:
+                f.write(dest)
+
+            # 3. Delete old data (only if it's not the default location)
+            if os.path.normcase(current) != os.path.normcase(self._default):
+                shutil.rmtree(current, ignore_errors=True)
+
+            messagebox.showinfo("MUNIM", f"Data moved to:\n{dest}\n\nRestart MUNIM to use the new location.")
+            self.current_lbl.configure(text=dest)
+            self.msg.configure(text="Done! Please restart MUNIM.", text_color=T.OK if hasattr(T, 'OK') else "green")
+
+        except Exception as e:
+            self.msg.configure(text=f"Error: {e}", text_color=T.DANGER)
