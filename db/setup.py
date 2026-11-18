@@ -6,7 +6,6 @@ from datetime import date
 def data_dir():
     default = r"C:\MUNIM" if os.name == "nt" else os.path.join(os.path.expanduser("~"), "MUNIM")
     os.makedirs(default, exist_ok=True)
-    # Check for a pointer file that redirects to a custom location
     pointer = os.path.join(default, "data_location.txt")
     if os.path.exists(pointer):
         try:
@@ -22,13 +21,11 @@ def db_path():
     return os.path.join(data_dir(), "munim.db")
 
 def companies_dir():
-    """Folder that holds one .db file per company."""
     d = os.path.join(data_dir(), "companies")
     os.makedirs(d, exist_ok=True)
     return d
 
 def _safe_filename(name):
-    """Strip characters not safe for filenames."""
     import re
     safe = re.sub(r'[\\/*?:"<>|]', "", name).strip()
     return safe or "Company"
@@ -40,7 +37,6 @@ def company_settings_path(name):
     return os.path.join(companies_dir(), _safe_filename(name) + ".settings.json")
 
 def list_companies():
-    """Returns list of dicts: {name, path} sorted by name. Auto-migrates legacy munim.db."""
     import json, shutil
     cdir = companies_dir()
     legacy = os.path.join(data_dir(), "munim.db")
@@ -65,7 +61,6 @@ def list_companies():
     return [{"name": os.path.splitext(f)[0], "path": os.path.join(cdir, f)} for f in files]
 
 def create_company(name):
-    """Create a new company DB. Raises ValueError if name taken."""
     name = (name or "").strip()
     if not name:
         raise ValueError("Company name is required")
@@ -105,7 +100,7 @@ def rename_company(old_name, new_name):
     new_sp = company_settings_path(new_name)
     if os.path.exists(old_sp):
         os.rename(old_sp, new_sp)
-        
+
 def connect(path=None):
     con = sqlite3.connect(path or db_path())
     con.row_factory = sqlite3.Row
@@ -167,7 +162,15 @@ CREATE TABLE IF NOT EXISTS invoice_items(
   invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
   seq INTEGER NOT NULL, description TEXT NOT NULL,
   hsn TEXT NOT NULL DEFAULT '',
-  qty TEXT NOT NULL, rate TEXT NOT NULL, gst TEXT NOT NULL, amount INTEGER NOT NULL);
+  qty TEXT NOT NULL, rate TEXT NOT NULL, gst TEXT NOT NULL, amount INTEGER NOT NULL,
+  stock_item_id INTEGER REFERENCES stock_items(id));
+CREATE TABLE IF NOT EXISTS stock_items(
+  id INTEGER PRIMARY KEY,
+  name TEXT UNIQUE NOT NULL,
+  hsn TEXT NOT NULL DEFAULT '',
+  unit TEXT NOT NULL DEFAULT 'pcs',
+  gst_rate TEXT NOT NULL DEFAULT '18',
+  opening_qty TEXT NOT NULL DEFAULT '0');
 CREATE TABLE IF NOT EXISTS allocations(
   id INTEGER PRIMARY KEY,
   payment_voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
@@ -251,6 +254,8 @@ def init_db(path=None):
         con.execute("ALTER TABLE parties ADD COLUMN credit_days INTEGER NOT NULL DEFAULT 0")
     if "hsn" not in [r["name"] for r in con.execute("PRAGMA table_info(invoice_items)")]:
         con.execute("ALTER TABLE invoice_items ADD COLUMN hsn TEXT NOT NULL DEFAULT ''")
+    if "stock_item_id" not in [r["name"] for r in con.execute("PRAGMA table_info(invoice_items)")]:
+        con.execute("ALTER TABLE invoice_items ADD COLUMN stock_item_id INTEGER REFERENCES stock_items(id)")
     if not con.execute("SELECT 1 FROM accounts LIMIT 1").fetchone():
         for n, g, nat in DEFAULT_ACCOUNTS:
             con.execute("INSERT INTO accounts(name,grp,nature) VALUES(?,?,?)", (n, g, nat))
@@ -262,7 +267,6 @@ def init_db(path=None):
     return con
 
 def reset_all_data(con, admin_password):
-    """Wipe all business data. Keeps user logins. Requires admin password."""
     admin = con.execute("SELECT * FROM users WHERE role='admin' LIMIT 1").fetchone()
     if not admin:
         raise ValueError("No admin account found")
@@ -277,6 +281,7 @@ def reset_all_data(con, admin_password):
         DELETE FROM parties;
         DELETE FROM audit_log;
         DELETE FROM stock_manual;
+        DELETE FROM stock_items;
         DELETE FROM accounts;
     """)
     for n, g, nat in DEFAULT_ACCOUNTS:
@@ -653,3 +658,87 @@ def prior_stock_effect(con, fy):
         o, c = get_stock(con, r["fy"])
         total += c - o
     return total
+
+# ---------- Stock Items Master ----------
+
+def list_stock_items(con):
+    return con.execute(
+        "SELECT id, name, hsn, unit, gst_rate, opening_qty FROM stock_items ORDER BY name COLLATE NOCASE"
+    ).fetchall()
+
+def add_stock_item(con, name, hsn="", unit="pcs", gst_rate="18", opening_qty="0"):
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("Item name is required")
+    if con.execute("SELECT 1 FROM stock_items WHERE name=? COLLATE NOCASE", (name,)).fetchone():
+        raise ValueError("An item with this name already exists")
+    con.execute(
+        "INSERT INTO stock_items(name,hsn,unit,gst_rate,opening_qty) VALUES(?,?,?,?,?)",
+        (name, (hsn or "").strip(), (unit or "pcs").strip(), str(gst_rate), str(opening_qty or "0")))
+    con.commit()
+
+def update_stock_item(con, item_id, name, hsn="", unit="pcs", gst_rate="18", opening_qty="0"):
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("Item name is required")
+    if con.execute("SELECT id FROM stock_items WHERE name=? COLLATE NOCASE AND id!=?",
+                   (name, item_id)).fetchone():
+        raise ValueError("Another item with this name already exists")
+    con.execute(
+        "UPDATE stock_items SET name=?,hsn=?,unit=?,gst_rate=?,opening_qty=? WHERE id=?",
+        (name, (hsn or "").strip(), (unit or "pcs").strip(), str(gst_rate), str(opening_qty or "0"), item_id))
+    con.commit()
+
+def delete_stock_item(con, item_id):
+    if con.execute("SELECT 1 FROM invoice_items WHERE stock_item_id=?", (item_id,)).fetchone():
+        raise ValueError("This item is used in invoices and cannot be deleted")
+    con.execute("DELETE FROM stock_items WHERE id=?", (item_id,))
+    con.commit()
+
+def stock_summary(con, fy):
+    """Item-wise stock: opening + purchased - sold = closing."""
+    from decimal import Decimal
+    start, end = fy_range(fy)
+    items = list_stock_items(con)
+    out = []
+    for item in items:
+        opening = Decimal(str(item["opening_qty"] or "0"))
+        purchased = Decimal(str(con.execute(
+            """SELECT COALESCE(SUM(CAST(ii.qty AS REAL)), 0)
+               FROM invoice_items ii
+               JOIN invoices inv ON inv.id = ii.invoice_id
+               JOIN vouchers v ON v.id = inv.voucher_id
+               WHERE ii.stock_item_id=? AND inv.kind='Purchase'
+               AND v.vdate BETWEEN ? AND ?""",
+            (item["id"], start, end)).fetchone()[0]))
+        sold = Decimal(str(con.execute(
+            """SELECT COALESCE(SUM(CAST(ii.qty AS REAL)), 0)
+               FROM invoice_items ii
+               JOIN invoices inv ON inv.id = ii.invoice_id
+               JOIN vouchers v ON v.id = inv.voucher_id
+               WHERE ii.stock_item_id=? AND inv.kind='Sales'
+               AND v.vdate BETWEEN ? AND ?""",
+            (item["id"], start, end)).fetchone()[0]))
+        sales_return = Decimal(str(con.execute(
+            """SELECT COALESCE(SUM(CAST(ii.qty AS REAL)), 0)
+               FROM invoice_items ii
+               JOIN invoices inv ON inv.id = ii.invoice_id
+               JOIN vouchers v ON v.id = inv.voucher_id
+               WHERE ii.stock_item_id=? AND v.vtype='Sales Return'
+               AND v.vdate BETWEEN ? AND ?""",
+            (item["id"], start, end)).fetchone()[0]))
+        purchase_return = Decimal(str(con.execute(
+            """SELECT COALESCE(SUM(CAST(ii.qty AS REAL)), 0)
+               FROM invoice_items ii
+               JOIN invoices inv ON inv.id = ii.invoice_id
+               JOIN vouchers v ON v.id = inv.voucher_id
+               WHERE ii.stock_item_id=? AND v.vtype='Purchase Return'
+               AND v.vdate BETWEEN ? AND ?""",
+            (item["id"], start, end)).fetchone()[0]))
+        closing = opening + purchased + sales_return - sold - purchase_return
+        out.append({
+            "name": item["name"], "hsn": item["hsn"], "unit": item["unit"],
+            "opening": float(opening), "purchased": float(purchased),
+            "sold": float(sold), "closing": float(closing)
+        })
+    return out
