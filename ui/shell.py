@@ -14,7 +14,7 @@ from ui.report_screens import (TrialBalanceFrame, LedgerFrame, DayBookFrame, Out
                                ReturnsRegisterFrame)
 from ui.voucher_dialog import VoucherDialog
 from ui.widgets import ErrorPanel
-from ui.utilities import CompanyFrame, PasswordFrame, AuditFrame, ResetDataFrame, RenewLicenceFrame, DataLocationFrame
+from ui.utilities import CompanyFrame, PasswordFrame, AuditFrame, ResetDataFrame, RenewLicenceFrame, DataLocationFrame, ManageCompaniesFrame
 from utils import errlog
 from utils import settings
 from utils.fmt import inr, disp_date
@@ -26,6 +26,7 @@ PAGES = {
     "reset":          ("Reset All Data",      lambda sh: ResetDataFrame(sh.body, sh.con, on_done=sh._go_to_gateway)),
     "renew":          ("Renew Licence",       lambda sh: RenewLicenceFrame(sh.body)),
     "datalocation":   ("Data Location",       lambda sh: DataLocationFrame(sh.body)),
+    "companies":      ("Manage Companies",    lambda sh: ManageCompaniesFrame(sh.body)),
     "journal":        ("Voucher Entry",       lambda sh: JournalFrame(sh.body, sh.con, sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
     "sales":          ("Sales Invoice",       lambda sh: TradeFrame(sh.body, sh.con, "Sales", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
     "purchase":       ("Purchase Bill",       lambda sh: TradeFrame(sh.body, sh.con, "Purchase", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
