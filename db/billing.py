@@ -82,11 +82,10 @@ def _store_invoice(con, vid, kind, party, interstate, items, t, bill_name=""):
         (vid, kind, party, int(bool(interstate)), t["taxable"], t["cgst"], t["sgst"], t["igst"], t["total"],
          _clean_name(party, bill_name)))
     for seq, item in enumerate(items):
-        
-    if len(item) >= 5:
-        desc, hsn, qty, rate, gst = item[0], item[1], item[2], item[3], item[4]
-    else:
-        desc, hsn, qty, rate, gst = item[0], "", item[1], item[2], item[3]
+        if len(item) >= 5:
+            desc, hsn, qty, rate, gst = item[0], item[1], item[2], item[3], item[4]
+        else:
+            desc, hsn, qty, rate, gst = item[0], "", item[1], item[2], item[3]
         amt = int((Decimal(str(qty)) * Decimal(str(rate)) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
         sid = item[5] if len(item) > 5 else None
         con.execute("""INSERT INTO invoice_items(invoice_id,seq,description,hsn,qty,rate,gst,amount,stock_item_id)
