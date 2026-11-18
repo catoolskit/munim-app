@@ -270,3 +270,28 @@ def receivable_payable(con, as_of=None):
         elif p["ptype"] == "Supplier" and net < 0:
             pay += -net
     return to_rupees(rec), to_rupees(pay)
+
+def returns_register(con, fy, kind):
+    """Sales Return (Credit Note) or Purchase Return (Debit Note) register for a FY.
+    kind = 'Sales Return' or 'Purchase Return'."""
+    start, end = fy_range(fy)
+    out = []
+    q = """SELECT v.id, v.vdate, v.vno, v.narration, i.party, i.taxable, i.cgst, i.sgst, i.igst, i.total,
+                  i.customer_name
+           FROM vouchers v LEFT JOIN invoices i ON i.voucher_id=v.id
+           WHERE v.vtype=? AND v.vdate BETWEEN ? AND ? ORDER BY v.vdate, v.vno"""
+    for r in con.execute(q, (kind, start, end)):
+        has = r["party"] is not None
+        out.append({
+            "id":      r["id"],
+            "date":    r["vdate"],
+            "vno":     r["vno"],
+            "party":   ((f"{r['party']} ({r['customer_name']})" if r["customer_name"] else r["party"])
+                        if has else "(details not stored)"),
+            "taxable": to_rupees(r["taxable"]) if has else 0,
+            "cgst":    to_rupees(r["cgst"])    if has else 0,
+            "sgst":    to_rupees(r["sgst"])    if has else 0,
+            "igst":    to_rupees(r["igst"])    if has else 0,
+            "total":   to_rupees(r["total"])   if has else 0,
+        })
+    return out
