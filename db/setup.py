@@ -21,6 +21,91 @@ def data_dir():
 def db_path():
     return os.path.join(data_dir(), "munim.db")
 
+def companies_dir():
+    """Folder that holds one .db file per company."""
+    d = os.path.join(data_dir(), "companies")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+def _safe_filename(name):
+    """Strip characters not safe for filenames."""
+    import re
+    safe = re.sub(r'[\\/*?:"<>|]', "", name).strip()
+    return safe or "Company"
+
+def company_db_path(name):
+    return os.path.join(companies_dir(), _safe_filename(name) + ".db")
+
+def company_settings_path(name):
+    return os.path.join(companies_dir(), _safe_filename(name) + ".settings.json")
+
+def list_companies():
+    """Returns list of dicts: {name, path} sorted by name. Auto-migrates legacy munim.db."""
+    import json, shutil
+    cdir = companies_dir()
+    legacy = os.path.join(data_dir(), "munim.db")
+    legacy_settings = os.path.join(data_dir(), "settings.json")
+    if os.path.exists(legacy):
+        try:
+            name = "My Company"
+            if os.path.exists(legacy_settings):
+                with open(legacy_settings, encoding="utf-8") as f:
+                    name = json.load(f).get("company_name") or "My Company"
+        except Exception:
+            name = "My Company"
+        safe = _safe_filename(name)
+        dest = os.path.join(cdir, safe + ".db")
+        if not os.path.exists(dest):
+            shutil.copy2(legacy, dest)
+            dest_st = os.path.join(cdir, safe + ".settings.json")
+            if os.path.exists(legacy_settings) and not os.path.exists(dest_st):
+                shutil.copy2(legacy_settings, dest_st)
+        os.rename(legacy, legacy + ".migrated")
+    files = sorted(f for f in os.listdir(cdir) if f.endswith(".db"))
+    return [{"name": os.path.splitext(f)[0], "path": os.path.join(cdir, f)} for f in files]
+
+def create_company(name):
+    """Create a new company DB. Raises ValueError if name taken."""
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("Company name is required")
+    path = company_db_path(name)
+    if os.path.exists(path):
+        raise ValueError(f"A company named '{name}' already exists")
+    con = connect(path)
+    con.executescript(SCHEMA)
+    for n, g, nat in DEFAULT_ACCOUNTS:
+        con.execute("INSERT INTO accounts(name,grp,nature) VALUES(?,?,?)", (n, g, nat))
+    add_user(con, "admin", "admin123", "admin", must_change=1)
+    con.commit()
+    con.close()
+    return path
+
+def delete_company(name):
+    path = company_db_path(name)
+    sp = company_settings_path(name)
+    if not os.path.exists(path):
+        raise ValueError("Company not found")
+    os.remove(path)
+    if os.path.exists(sp):
+        os.remove(sp)
+
+def rename_company(old_name, new_name):
+    new_name = (new_name or "").strip()
+    if not new_name:
+        raise ValueError("Name cannot be empty")
+    old_path = company_db_path(old_name)
+    new_path = company_db_path(new_name)
+    if not os.path.exists(old_path):
+        raise ValueError("Company not found")
+    if os.path.exists(new_path):
+        raise ValueError(f"A company named '{new_name}' already exists")
+    os.rename(old_path, new_path)
+    old_sp = company_settings_path(old_name)
+    new_sp = company_settings_path(new_name)
+    if os.path.exists(old_sp):
+        os.rename(old_sp, new_sp)
+        
 def connect(path=None):
     con = sqlite3.connect(path or db_path())
     con.row_factory = sqlite3.Row
