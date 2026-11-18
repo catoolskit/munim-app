@@ -10,7 +10,8 @@ from ui.entry_screens import JournalFrame, TradeFrame, SummaryFrame, PaymentFram
 from ui.help import HelpFrame
 from ui.account_master import AccountMasterFrame
 from ui.report_screens import (TrialBalanceFrame, LedgerFrame, DayBookFrame, OutstandingFrame,
-                               ProfitLossFrame, BalanceSheetFrame, InvoiceRegisterFrame)
+                               ProfitLossFrame, BalanceSheetFrame, InvoiceRegisterFrame,
+                               ReturnsRegisterFrame)
 from ui.voucher_dialog import VoucherDialog
 from ui.widgets import ErrorPanel
 from ui.utilities import CompanyFrame, PasswordFrame, AuditFrame, ResetDataFrame, RenewLicenceFrame
@@ -36,6 +37,8 @@ PAGES = {
     "accounts":       ("Ledger Accounts",     lambda sh: AccountMasterFrame(sh.body, sh.con)),
     "salesreg":       ("Sales Register",      lambda sh: InvoiceRegisterFrame(sh.body, sh.con, "Sales", sh.open_voucher)),
     "purchasereg":    ("Purchase Register",   lambda sh: InvoiceRegisterFrame(sh.body, sh.con, "Purchase", sh.open_voucher)),
+    "salesreturnreg":    ("Sales Return Register",   lambda sh: ReturnsRegisterFrame(sh.body, sh.con, "Sales Return",    sh.open_voucher)),
+    "purchasereturnreg": ("Purchase Return Register", lambda sh: ReturnsRegisterFrame(sh.body, sh.con, "Purchase Return", sh.open_voucher)),
     "audit":          ("Audit Log",           lambda sh: AuditFrame(sh.body, sh.con, sh.open_voucher)),
     "trial":          ("Trial Balance",       lambda sh: TrialBalanceFrame(sh.body, sh.con)),
     "ledger":         ("Ledger View",         lambda sh: LedgerFrame(sh.body, sh.con)),
