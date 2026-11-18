@@ -561,3 +561,111 @@ class OutstandingFrame(ReportBase):
                                  "", "", "", "", p["on_account"], "", ""])
             rows.append(["Total","","","","","",rep["total"],"",""])
         return title, headers, rows
+
+class ReturnsRegisterFrame(ReportBase):
+    """Sales Return or Purchase Return register with date filter and Excel export."""
+
+    def __init__(self, master, con, kind, opener=None):
+        # kind = 'Sales Return' or 'Purchase Return'
+        self.kind, self.opener = kind, opener
+        label = "Sales Return" if kind == "Sales Return" else "Purchase Return"
+        self.title_text = f"{label} Register"
+        self.sub_text = ("Credit Notes issued to customers." if kind == "Sales Return"
+                         else "Debit Notes raised on suppliers.")
+        self.with_fy = False
+        super().__init__(master, con)
+
+        # date filter controls in the bar
+        today = date.today()
+        self.d1 = T.entry(self.bar, width=120)
+        self.d1.insert(0, today.replace(day=1).strftime("%d-%m-%Y"))
+        self.d2 = T.entry(self.bar, width=120)
+        self.d2.insert(0, today.strftime("%d-%m-%Y"))
+        T.button(self.bar, "Show", self.refresh, width=70).pack(side="right")
+        self.d2.pack(side="right", padx=6)
+        ctk.CTkLabel(self.bar, text="to", text_color=T.MUTED).pack(side="right")
+        self.d1.pack(side="right", padx=6)
+        T.button(self.bar, "Export Excel", self.export, width=120,
+                 fg_color="#E7ECF5", text_color=T.TEXT,
+                 hover_color="#DCE3F0").pack(side="right", padx=(10, 0))
+
+        self.msg = ctk.CTkLabel(self, text="", font=T.f(13), text_color=T.DANGER)
+        self.msg.pack(anchor="w", padx=28)
+
+        cols = [("dt", "Date",        90,  L),
+                ("no", "No.",         50,  L),
+                ("p",  "Party",      190,  L),
+                ("tx", "Taxable",    110,  R),
+                ("cg", "CGST",        85,  R),
+                ("sg", "SGST",        85,  R),
+                ("ig", "IGST",        85,  R),
+                ("t",  "Total",      110,  R)]
+        self.table = DataTable(self, cols, height=14)
+        self.table.pack(fill="both", expand=True, padx=28, pady=(4, 24))
+        if opener:
+            self.table.on_open(lambda vid: self.opener(vid, self.refresh))
+        self.refresh()
+
+    def _get_rows(self):
+        """Fetch filtered rows from DB. Returns list of dicts."""
+        try:
+            d1 = parse_date(self.d1.get())
+            d2 = parse_date(self.d2.get())
+        except ValueError as e:
+            self.msg.configure(text=str(e))
+            return None, None, None
+        self.msg.configure(text="")
+        # pull all rows for the full FY range, then filter by date
+        # (reuse the same query pattern as invoice_register but with date params)
+        from db.setup import fy_range, to_rupees
+        q = """SELECT v.id, v.vdate, v.vno, v.narration, i.party, i.taxable, i.cgst, i.sgst, i.igst, i.total,
+                      i.customer_name
+               FROM vouchers v LEFT JOIN invoices i ON i.voucher_id=v.id
+               WHERE v.vtype=? AND v.vdate BETWEEN ? AND ? ORDER BY v.vdate, v.vno"""
+        rows = self.con.execute(q, (self.kind, d1.isoformat(), d2.isoformat())).fetchall()
+        return rows, d1, d2
+
+    def refresh(self):
+        rows, d1, d2 = self._get_rows()
+        if rows is None:
+            return
+        from db.setup import to_rupees
+        out, tot = [], [0] * 6
+        for x in rows:
+            has = x["party"] is not None
+            party = ((f"{x['party']} ({x['customer_name']})" if x["customer_name"] else x["party"])
+                     if has else "(details not stored)")
+            vals = [to_rupees(x["taxable"]) if has else 0,
+                    to_rupees(x["cgst"])    if has else 0,
+                    to_rupees(x["sgst"])    if has else 0,
+                    to_rupees(x["igst"])    if has else 0,
+                    to_rupees(x["total"])   if has else 0]
+            tot[0] += vals[0]; tot[1] += vals[1]; tot[2] += vals[2]
+            tot[3] += vals[3]; tot[4] += vals[4]
+            out.append(((disp_date(x["vdate"]), x["vno"], party,
+                         *[_amt(v) for v in vals]), None, x["id"]))
+        label = "Sales Return" if self.kind == "Sales Return" else "Purchase Return"
+        out.append((("", "", f"Total ({len(rows)} vouchers)",
+                     inr(tot[0]), inr(tot[1]), inr(tot[2]), inr(tot[3]), inr(tot[4])), "total"))
+        self.table.set_rows(out)
+
+    def export_data(self):
+        rows, d1, d2 = self._get_rows()
+        if rows is None:
+            return f"{self.title_text}", [], []
+        from db.setup import to_rupees
+        label = "Sales Return" if self.kind == "Sales Return" else "Purchase Return"
+        title = f"{label} Register {disp_date(d1.isoformat())} to {disp_date(d2.isoformat())}"
+        headers = ["Date", "No.", "Party", "Taxable", "CGST", "SGST", "IGST", "Total"]
+        out = []
+        for x in rows:
+            has = x["party"] is not None
+            party = ((f"{x['party']} ({x['customer_name']})" if x["customer_name"] else x["party"])
+                     if has else "(details not stored)")
+            out.append([disp_date(x["vdate"]), x["vno"], party,
+                        to_rupees(x["taxable"]) if has else 0,
+                        to_rupees(x["cgst"])    if has else 0,
+                        to_rupees(x["sgst"])    if has else 0,
+                        to_rupees(x["igst"])    if has else 0,
+                        to_rupees(x["total"])   if has else 0])
+        return title, headers, out
