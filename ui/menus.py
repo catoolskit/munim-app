@@ -37,6 +37,7 @@ MENUS = {
     "utilities": ("Utilities", [
         M("Company Details",  "C", ("page", "company")),
         M("Backup Data",      "B", ("fn",   "backup")),
+        M("Data Location", "D", ("page", "datalocation")),
         M("Audit Log",        "A", ("page", "audit")),
         M("Help & Shortcuts", "H", ("page", "help")),
         M("Change Password",  "P", ("page", "password")),
