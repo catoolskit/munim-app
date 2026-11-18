@@ -249,6 +249,10 @@ class TradeFrame(EntryBase):
         self.ptype = "Customer" if self.sales else "Supplier"
         self.parties = self._party_names()
         self.company_gstin = settings.load_settings().get("gstin", "")
+        # load stock items for autocomplete
+        self._stock_map = self._load_stock_map()
+        self._stock_names = list(self._stock_map.keys())
+
         T.title(self, ("Edit " if edit_id else "") + ("Sales Invoice" if self.sales else "Purchase Bill"),
                 "GST is added per rate. Enter moves to the next box, Ctrl+S saves."
                 ).pack(anchor="w", padx=28, pady=(24, 12))
@@ -279,10 +283,11 @@ class TradeFrame(EntryBase):
             _lbl(items, h, row=0, column=c, sticky="w", padx=(20 if c == 0 else 6, 6), pady=(12, 0))
         order = [self.date, self.party, self.narr]
         for r in range(self.ROWS):
-            desc = T.entry(items, "Description", width=260)
-            hsn  = T.entry(items, "HSN/SAC",     width=90)
-            qty  = T.entry(items, "1",            width=80)
-            rate = T.entry(items, "0.00",         width=120)
+            desc = T.combo(items, self._stock_names, width=260)
+            desc.set("")
+            hsn  = T.entry(items, "HSN/SAC", width=90)
+            qty  = T.entry(items, "1",       width=80)
+            rate = T.entry(items, "0.00",    width=120)
             gst  = T.option_menu(items, self.GST_RATES, width=90, command=lambda _v: self.calc())
             gst.set("18")
             amt  = ctk.CTkLabel(items, text="", width=110, anchor="e", font=T.f(13), text_color=T.TEXT)
@@ -294,6 +299,10 @@ class TradeFrame(EntryBase):
             amt.grid( row=r + 1, column=6, padx=6,       pady=4)
             for e in (qty, rate):
                 e.bind("<KeyRelease>", self.calc)
+            # attach autocomplete with auto-fill callback
+            _r = r
+            Autocomplete(desc, self._stock_names,
+                         on_pick=lambda name, idx=_r: self._on_item_pick(idx, name))
             self.rows.append((desc, hsn, qty, rate, gst, amt))
             order += [desc, hsn, qty, rate]
         self.summary = ctk.CTkLabel(items, text="", font=T.f(13, "bold"), text_color=T.TEXT)
@@ -323,6 +332,26 @@ class TradeFrame(EntryBase):
             self.party_chosen(self.party.get())
             focus_later(self.rows[0][0])
         self._cash_mode()
+
+    def _load_stock_map(self):
+        """Returns dict of {name: {id, hsn, unit, gst_rate}} from stock_items table."""
+        try:
+            rows = self.con.execute(
+                "SELECT id, name, hsn, unit, gst_rate FROM stock_items ORDER BY name COLLATE NOCASE"
+            ).fetchall()
+            return {r["name"]: dict(r) for r in rows}
+        except Exception:
+            return {}
+
+    def _on_item_pick(self, row_idx, name):
+        """Auto-fill HSN and GST when a stock item is selected from dropdown."""
+        if name in self._stock_map:
+            it = self._stock_map[name]
+            _desc, hsn, _qty, _rate, gst, _amt = self.rows[row_idx]
+            hsn.delete(0, "end")
+            hsn.insert(0, it["hsn"] or "")
+            gst.set(str(it["gst_rate"] or "18"))
+            self.calc()
 
     def _is_cash(self):
         return self.party.get().strip() in ("Cash", "Bank")
@@ -391,7 +420,9 @@ class TradeFrame(EntryBase):
                 continue
             if not q or not r:
                 raise ValueError("Every item needs a quantity and a rate")
-            items.append((d or "Item", h, parse_amount(q), parse_amount(r), float(gst.get())))
+            # look up stock_item_id if name matches master
+            sid = self._stock_map[d]["id"] if d in self._stock_map else None
+            items.append((d or "Item", h, parse_amount(q), parse_amount(r), float(gst.get()), sid))
         return items
 
     def calc(self, _e=None):
@@ -403,7 +434,7 @@ class TradeFrame(EntryBase):
                 amt.configure(text="")
         try:
             items = self._collect()
-            tax_items = [(d, q, r, g) for d, _h, q, r, g in items]
+            tax_items = [(d, q, r, g) for d, _h, q, r, g, _sid in items]
             t = b.compute_tax(tax_items, bool(self.inter.get()))
         except ValueError:
             self.summary.configure(text="")
@@ -561,6 +592,7 @@ class SummaryFrame(EntryBase):
                 "Sales", res["vno"], d)
         focus_later(self.rows[0][1], 50)
 
+
 # ── PaymentFrame ──────────────────────────────────────────────────────────────
 
 class PaymentFrame(EntryBase):
@@ -599,7 +631,6 @@ class PaymentFrame(EntryBase):
         ctk.CTkLabel(self, text="Unpaid bills — type amount to settle against each",
                      font=T.f(14, "bold"), text_color=T.TEXT).pack(anchor="w", padx=28, pady=(14, 4))
 
-        # Header row
         hdr = ctk.CTkFrame(self, fg_color="#E8EDF5", corner_radius=0, height=28)
         hdr.pack(fill="x", padx=28)
         hdr.pack_propagate(False)
@@ -607,13 +638,11 @@ class PaymentFrame(EntryBase):
             ctk.CTkLabel(hdr, text=txt, font=T.f(11, "bold"), text_color=T.MUTED,
                          width=w, anchor="w").pack(side="left", padx=(12, 4))
 
-        # Scrollable bills area
         self.bills_frame = ctk.CTkScrollableFrame(self, fg_color="white",
                                                    border_width=1, border_color="#D1D5DB",
                                                    corner_radius=0, height=180)
         self.bills_frame.pack(fill="x", padx=28)
 
-        # Total bar
         tot_bar = ctk.CTkFrame(self, fg_color="#EEF2FF", corner_radius=0, height=32)
         tot_bar.pack(fill="x", padx=28)
         tot_bar.pack_propagate(False)
@@ -730,6 +759,7 @@ class PaymentFrame(EntryBase):
         self.show_bills()
         self.ok(text, pkind, res["vno"], d)
         focus_later(self.party, 50)
+
 
 # ── SalesReturnFrame ──────────────────────────────────────────────────────────
 
