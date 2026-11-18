@@ -669,3 +669,45 @@ class ReturnsRegisterFrame(ReportBase):
                         to_rupees(x["igst"])    if has else 0,
                         to_rupees(x["total"])   if has else 0])
         return title, headers, out
+
+class StockSummaryFrame(ReportBase):
+    """Item-wise stock: opening + purchased - sold = closing."""
+    title_text = "Stock Summary"
+    sub_text = "Item-wise stock position for the financial year."
+
+    def __init__(self, master, con):
+        super().__init__(master, con)
+        self.table = DataTable(self, [
+            ("n", "Item", 220, L), ("h", "HSN", 90, L), ("u", "Unit", 70, L),
+            ("o", "Opening", 100, "e"), ("p", "Purchased", 110, "e"),
+            ("s", "Sold", 100, "e"), ("c", "Closing", 110, "e")], height=14)
+        self.table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
+        self.refresh()
+
+    def _fmt(self, v):
+        return f"{v:,.3f}".rstrip("0").rstrip(".")
+
+    def refresh(self):
+        from db.setup import stock_summary
+        rows = stock_summary(self.con, self.fy.get())
+        out = []
+        totals = [0.0] * 4
+        for it in rows:
+            vals = [it["opening"], it["purchased"], it["sold"], it["closing"]]
+            for i, v in enumerate(vals):
+                totals[i] += v
+            out.append((it["name"], it["hsn"] or "-", it["unit"],
+                        self._fmt(it["opening"]), self._fmt(it["purchased"]),
+                        self._fmt(it["sold"]), self._fmt(it["closing"])))
+        out.append((("", "", "Total",
+                     self._fmt(totals[0]), self._fmt(totals[1]),
+                     self._fmt(totals[2]), self._fmt(totals[3])), "total"))
+        self.table.set_rows(out)
+
+    def export_data(self):
+        from db.setup import stock_summary
+        rows = stock_summary(self.con, self.fy.get())
+        headers = ["Item", "HSN", "Unit", "Opening", "Purchased", "Sold", "Closing"]
+        data = [[it["name"], it["hsn"], it["unit"], it["opening"],
+                 it["purchased"], it["sold"], it["closing"]] for it in rows]
+        return f"Stock Summary {self.fy.get()}", headers, data
