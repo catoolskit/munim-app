@@ -563,6 +563,8 @@ class OutstandingFrame(ReportBase):
         return title, headers, rows
 
 class ReturnsRegisterFrame(ReportBase):
+    own_controls = True
+    
     """Sales Return or Purchase Return register with date filter and Excel export."""
 
     def __init__(self, master, con, kind, opener=None):
