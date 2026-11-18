@@ -430,6 +430,73 @@ class RenewLicenceFrame(ctk.CTkFrame):
             text=f"✓  Licence activated for {username}. Valid until {expiry.strftime('%d-%m-%Y')}.",
             text_color=T.OK)
         self.key_entry.delete(0, "end")
+class ManageCompaniesFrame(ctk.CTkFrame):
+    """Rename or delete companies."""
+    def __init__(self, master):
+        super().__init__(master, fg_color="transparent")
+        from db.setup import list_companies, delete_company, rename_company
+        from utils.settings import get_active_company
+        self._active = get_active_company()
+        T.title(self, "Manage Companies",
+                "Rename or delete companies. The currently open company cannot be deleted.").pack(
+            anchor="w", padx=28, pady=(24, 12))
+        self.card = T.card(self)
+        self.card.pack(fill="x", padx=28)
+        self.msg = ctk.CTkLabel(self, text="", font=T.f(12), text_color=T.DANGER)
+        self.msg.pack(anchor="w", padx=28, pady=(8, 0))
+        self._refresh()
+
+    def _refresh(self):
+        from db.setup import list_companies
+        for w in self.card.winfo_children():
+            w.destroy()
+        companies = list_companies()
+        if not companies:
+            ctk.CTkLabel(self.card, text="No companies found.", font=T.f(13),
+                         text_color=T.MUTED).pack(padx=24, pady=16)
+            return
+        for co in companies:
+            row = ctk.CTkFrame(self.card, fg_color="#EEF2FA", corner_radius=8)
+            row.pack(fill="x", padx=16, pady=4)
+            is_active = co["name"] == self._active
+            ctk.CTkLabel(row, text=co["name"] + (" (current)" if is_active else ""),
+                         font=T.f(13, "bold" if is_active else "normal"),
+                         text_color=T.ACCENT if is_active else T.TEXT,
+                         anchor="w").pack(side="left", padx=14, pady=10)
+            if not is_active:
+                T.button(row, "Delete", lambda n=co["name"]: self._delete(n),
+                         width=70, height=28,
+                         fg_color="#FDECEA", text_color=T.DANGER,
+                         hover_color="#FAD7D3").pack(side="right", padx=6, pady=6)
+            T.button(row, "Rename", lambda n=co["name"]: self._rename(n),
+                     width=70, height=28).pack(side="right", padx=6, pady=6)
+
+    def _rename(self, name):
+        from tkinter import simpledialog
+        from db.setup import rename_company
+        new = simpledialog.askstring("Rename Company", f"New name for '{name}':",
+                                     initialvalue=name, parent=self.winfo_toplevel())
+        if not new or new.strip() == name:
+            return
+        try:
+            rename_company(name, new.strip())
+            self.msg.configure(text=f"Renamed to '{new.strip()}'", text_color=T.OK)
+            self._refresh()
+        except ValueError as e:
+            self.msg.configure(text=str(e), text_color=T.DANGER)
+
+    def _delete(self, name):
+        from tkinter import messagebox
+        from db.setup import delete_company
+        if not messagebox.askyesno("Delete Company",
+                                   f"Permanently delete '{name}' and all its data?\n\nThis cannot be undone."):
+            return
+        try:
+            delete_company(name)
+            self.msg.configure(text=f"'{name}' deleted.", text_color=T.OK)
+            self._refresh()
+        except ValueError as e:
+            self.msg.configure(text=str(e), text_color=T.DANGER)
 
 class DataLocationFrame(ctk.CTkFrame):
     """Move MUNIM data folder to a new location."""
