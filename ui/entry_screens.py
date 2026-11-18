@@ -477,7 +477,8 @@ class TradeFrame(EntryBase):
                 self.after(60, self.on_done)
             return
         for desc, hsn, qty, rate, _g, amt in self.rows:
-            for e in (desc, hsn, qty, rate):
+            desc.set("")
+            for e in (hsn, qty, rate):
                 e.delete(0, "end")
             amt.configure(text="")
         self.narr.delete(0, "end")
