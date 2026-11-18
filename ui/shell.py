@@ -11,7 +11,7 @@ from ui.help import HelpFrame
 from ui.account_master import AccountMasterFrame
 from ui.report_screens import (TrialBalanceFrame, LedgerFrame, DayBookFrame, OutstandingFrame,
                                ProfitLossFrame, BalanceSheetFrame, InvoiceRegisterFrame,
-                               ReturnsRegisterFrame)
+                               ReturnsRegisterFrame, StockSummaryFrame)
 from ui.voucher_dialog import VoucherDialog
 from ui.widgets import ErrorPanel
 from ui.utilities import CompanyFrame, PasswordFrame, AuditFrame, ResetDataFrame, RenewLicenceFrame, DataLocationFrame, ManageCompaniesFrame
