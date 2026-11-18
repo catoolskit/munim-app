@@ -142,7 +142,10 @@ def _alloc(con, pvid, ivid, amt):
 def _post(con, kind, vdate, party, items, interstate, narration, username, received, mode, bill_name=""):
     check_party(con, kind, party)
     _clean_name(party, bill_name)
-    tax_items = [(item[0], item[2], item[3], item[4]) for item in items]
+    if items and len(items[0]) >= 5:
+        tax_items = [(item[0], item[2], item[3], item[4]) for item in items]
+    else:
+        tax_items = [(item[0], item[1], item[2], item[3]) for item in items]
     t = compute_tax(tax_items, interstate)
     rec = s.to_paise(received or 0)
     if rec < 0:
@@ -240,8 +243,10 @@ def update_invoice(con, vid, vdate, party, items, interstate=False, narration=""
     kind = v["vtype"]
     check_party(con, kind, party)
     _clean_name(party, bill_name)
-    tax_items = [(d, q, r, g) for d, _h, q, r, g in items] if items and len(items[0]) == 5 \
-                else [(d, q, r, g) for d, q, r, g in items]
+    if items and len(items[0]) >= 5:
+        tax_items = [(item[0], item[2], item[3], item[4]) for item in items]
+    else:
+        tax_items = [(item[0], item[1], item[2], item[3]) for item in items]
     t = compute_tax(tax_items, interstate)
     done = settled_paise(con, vid)
     if done:
