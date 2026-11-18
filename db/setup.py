@@ -4,9 +4,19 @@ import os, sqlite3, hashlib, secrets
 from datetime import date
 
 def data_dir():
-    base = r"C:\MUNIM" if os.name == "nt" else os.path.join(os.path.expanduser("~"), "MUNIM")
-    os.makedirs(base, exist_ok=True)
-    return base
+    default = r"C:\MUNIM" if os.name == "nt" else os.path.join(os.path.expanduser("~"), "MUNIM")
+    os.makedirs(default, exist_ok=True)
+    # Check for a pointer file that redirects to a custom location
+    pointer = os.path.join(default, "data_location.txt")
+    if os.path.exists(pointer):
+        try:
+            with open(pointer, encoding="utf-8") as f:
+                custom = f.read().strip()
+            if custom and os.path.isdir(custom):
+                return custom
+        except OSError:
+            pass
+    return default
 
 def db_path():
     return os.path.join(data_dir(), "munim.db")
