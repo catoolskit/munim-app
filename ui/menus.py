@@ -13,7 +13,7 @@ MENUS = {
     "masters": ("Masters", [
         M("Party Master",    "P", ("page", "party")),
         M("Ledger Accounts", "L", ("page", "accounts")),
-        M("Stock Items",     "S"),
+        M("Stock Items", "I", ("page", "stockitems")),
     ]),
     "transactions": ("Transactions", [
         M("Sales Invoice",               "S", ("page", "sales")),
@@ -32,7 +32,7 @@ MENUS = {
     M("Sales Return Register", "E", ("page", "salesreturnreg")),
     M("Purchase Return Register", "N", ("page", "purchasereturnreg")),
     M("Balance Sheet", "B", ("page", "bs")), M("Trading & P&L", "P", ("page", "pl")),
-    M("Stock Summary", "K"),
+    M("Stock Summary", "K", ("page", "stocksummary")),
     ]),
     "utilities": ("Utilities", [
         M("Company Details",  "C", ("page", "company")),
