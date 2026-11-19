@@ -889,3 +889,149 @@ def item_wise_profit(con, fy):
             "profit": profit, "margin": margin,
         })
     return out
+
+def _month_range(fy, month_num):
+    """Return (start_iso, end_iso) for a month within the FY.
+    month_num: 1=April, 2=May, ..., 12=March."""
+    from calendar import monthrange
+    y = int(fy[:4])
+    if month_num <= 9:  # Apr-Dec of starting year
+        year, mon = y, month_num + 3
+    else:               # Jan-Mar of next year
+        year, mon = y + 1, month_num - 9
+    last = monthrange(year, mon)[1]
+    return date(year, mon, 1).isoformat(), date(year, mon, last).isoformat()
+
+
+def gstr1_report(con, fy, month_num):
+    """GSTR-1: outward supplies. Returns summary (by rate, B2B/B2C) + invoice detail."""
+    start, end = _month_range(fy, month_num)
+
+    # Invoice-wise detail (outward only — Sales + Sales Return)
+    detail = con.execute(
+        """SELECT v.id, v.vdate, v.vno, v.vtype, inv.party, inv.customer_name,
+                  inv.interstate, inv.taxable, inv.cgst, inv.sgst, inv.igst, inv.total,
+                  COALESCE(p.gstin, '') AS gstin
+           FROM vouchers v
+           JOIN invoices inv ON inv.voucher_id = v.id
+           LEFT JOIN parties p ON p.name = inv.party
+           WHERE v.vtype IN ('Sales', 'Sales Return')
+             AND v.vdate BETWEEN ? AND ?
+           ORDER BY v.vdate, v.vno""",
+        (start, end)).fetchall()
+
+    invoices = []
+    for r in detail:
+        sign = -1 if r["vtype"] == "Sales Return" else 1
+        invoices.append({
+            "id": r["id"], "date": r["vdate"], "vno": r["vno"], "vtype": r["vtype"],
+            "party": r["party"], "customer_name": r["customer_name"] or "",
+            "gstin": r["gstin"],
+            "supply": "Inter" if r["interstate"] else "Intra",
+            "b2b": bool(r["gstin"]),
+            "taxable": to_rupees(r["taxable"]) * sign,
+            "cgst": to_rupees(r["cgst"]) * sign,
+            "sgst": to_rupees(r["sgst"]) * sign,
+            "igst": to_rupees(r["igst"]) * sign,
+            "total": to_rupees(r["total"]) * sign,
+        })
+
+    # Rate-wise summary (group by item gst rate, B2B vs B2C)
+    rate_rows = con.execute(
+        """SELECT ii.gst AS rate, COALESCE(p.gstin, '') AS gstin, v.vtype,
+                  SUM(ii.amount) AS taxable_paise,
+                  SUM(CASE WHEN inv.interstate=0 THEN ii.amount ELSE 0 END) AS intra_taxable,
+                  SUM(CASE WHEN inv.interstate=1 THEN ii.amount ELSE 0 END) AS inter_taxable
+           FROM invoice_items ii
+           JOIN invoices inv ON inv.id = ii.invoice_id
+           JOIN vouchers v ON v.id = inv.voucher_id
+           LEFT JOIN parties p ON p.name = inv.party
+           WHERE v.vtype IN ('Sales', 'Sales Return')
+             AND v.vdate BETWEEN ? AND ?
+           GROUP BY ii.gst, (CASE WHEN COALESCE(p.gstin,'')='' THEN 'B2C' ELSE 'B2B' END), v.vtype""",
+        (start, end)).fetchall()
+
+    summary = {}  # key = (rate, "B2B"/"B2C"), value = dict of amounts
+    for r in rate_rows:
+        rate = str(r["rate"] or "0")
+        kind = "B2B" if r["gstin"] else "B2C"
+        key = (rate, kind)
+        sign = -1 if r["vtype"] == "Sales Return" else 1
+        try:
+            rate_f = float(rate) / 100.0
+        except (ValueError, TypeError):
+            rate_f = 0.0
+        intra = to_rupees(r["intra_taxable"] or 0) * sign
+        inter = to_rupees(r["inter_taxable"] or 0) * sign
+        s = summary.setdefault(key, {"rate": rate, "kind": kind,
+                                     "taxable": 0.0, "cgst": 0.0, "sgst": 0.0, "igst": 0.0})
+        s["taxable"] += intra + inter
+        s["cgst"] += intra * rate_f / 2
+        s["sgst"] += intra * rate_f / 2
+        s["igst"] += inter * rate_f
+
+    summary_rows = sorted(summary.values(), key=lambda x: (x["kind"], float(x["rate"] or 0)))
+    for s in summary_rows:
+        s["total"] = s["taxable"] + s["cgst"] + s["sgst"] + s["igst"]
+
+    totals = {"taxable": sum(s["taxable"] for s in summary_rows),
+              "cgst":    sum(s["cgst"] for s in summary_rows),
+              "sgst":    sum(s["sgst"] for s in summary_rows),
+              "igst":    sum(s["igst"] for s in summary_rows),
+              "total":   sum(s["total"] for s in summary_rows)}
+
+    return {"summary": summary_rows, "invoices": invoices, "totals": totals,
+            "period_from": start, "period_to": end}
+
+
+def gstr3b_report(con, fy, month_num):
+    """GSTR-3B: summary of outward tax liability, ITC, net payable, with closing stock reference."""
+    start, end = _month_range(fy, month_num)
+
+    # Outward (Sales - Sales Return)
+    out_row = con.execute(
+        """SELECT SUM(CASE WHEN v.vtype='Sales' THEN inv.taxable ELSE -inv.taxable END) AS taxable,
+                  SUM(CASE WHEN v.vtype='Sales' THEN inv.cgst    ELSE -inv.cgst    END) AS cgst,
+                  SUM(CASE WHEN v.vtype='Sales' THEN inv.sgst    ELSE -inv.sgst    END) AS sgst,
+                  SUM(CASE WHEN v.vtype='Sales' THEN inv.igst    ELSE -inv.igst    END) AS igst
+           FROM invoices inv
+           JOIN vouchers v ON v.id = inv.voucher_id
+           WHERE v.vtype IN ('Sales', 'Sales Return')
+             AND v.vdate BETWEEN ? AND ?""",
+        (start, end)).fetchone()
+
+    # ITC (Purchase - Purchase Return)
+    itc_row = con.execute(
+        """SELECT SUM(CASE WHEN v.vtype='Purchase' THEN inv.cgst ELSE -inv.cgst END) AS cgst,
+                  SUM(CASE WHEN v.vtype='Purchase' THEN inv.sgst ELSE -inv.sgst END) AS sgst,
+                  SUM(CASE WHEN v.vtype='Purchase' THEN inv.igst ELSE -inv.igst END) AS igst
+           FROM invoices inv
+           JOIN vouchers v ON v.id = inv.voucher_id
+           WHERE v.vtype IN ('Purchase', 'Purchase Return')
+             AND v.vdate BETWEEN ? AND ?""",
+        (start, end)).fetchone()
+
+    outward = {
+        "taxable": to_rupees(out_row["taxable"] or 0),
+        "cgst":    to_rupees(out_row["cgst"] or 0),
+        "sgst":    to_rupees(out_row["sgst"] or 0),
+        "igst":    to_rupees(out_row["igst"] or 0),
+    }
+    itc = {
+        "cgst": to_rupees(itc_row["cgst"] or 0),
+        "sgst": to_rupees(itc_row["sgst"] or 0),
+        "igst": to_rupees(itc_row["igst"] or 0),
+    }
+    net = {
+        "cgst": outward["cgst"] - itc["cgst"],
+        "sgst": outward["sgst"] - itc["sgst"],
+        "igst": outward["igst"] - itc["igst"],
+    }
+    net["total"] = net["cgst"] + net["sgst"] + net["igst"]
+
+    # Closing stock value reference (from stock_summary)
+    stock = stock_summary(con, fy)
+    stock_value = sum(it.get("stock_value", 0.0) for it in stock)
+
+    return {"outward": outward, "itc": itc, "net": net,
+            "stock_value": stock_value, "period_from": start, "period_to": end}
