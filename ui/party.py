@@ -73,6 +73,7 @@ class PartyFrame(ctk.CTkFrame):
         sb.pack(side="right", fill="y", pady=2)
         chain_enter([self.name, self.gstin, self.phone, self.address, self.opening, self.credit], self.save)
         self.tree.bind("<Double-1>", self.edit_party)
+        self.tree.bind("<Return>", self.edit_party)
         focus_later(self.name)
         self.refresh()
 
