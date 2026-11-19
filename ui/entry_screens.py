@@ -11,6 +11,11 @@ from utils.fmt import inr, parse_amount, parse_date, today_str, disp_date
 
 GHOST = dict(fg_color="#E7ECF5", text_color=T.TEXT, hover_color="#DCE3F0")
 
+# Grid rows reserved for the footer inside item cards, so item rows can grow
+# underneath without re-gridding anything.
+ADDBAR_ROW = 998
+SUMMARY_ROW = 999
+
 
 def _lbl(parent, text, **grid):
     w = ctk.CTkLabel(parent, text=text, font=T.f(12), text_color=T.MUTED)
@@ -277,36 +282,28 @@ class TradeFrame(EntryBase):
         self.inter.grid(row=1, column=2, padx=12, pady=(0, 14))
         self.narr.grid(row=1, column=3, padx=8, pady=(0, 14))
 
-        items = T.card(self)
-        items.pack(fill="x", padx=28, pady=14)
+        # Item rows live in a scrollable area so a long bill stays usable.
+        items_wrap = T.card(self)
+        items_wrap.pack(fill="both", expand=True, padx=28, pady=14)
+        items_wrap.grid_columnconfigure(0, weight=1)
+        items_wrap.grid_rowconfigure(0, weight=1)
+        self.items_card = ctk.CTkScrollableFrame(items_wrap, fg_color="transparent", height=260)
+        self.items_card.grid(row=0, column=0, sticky="nsew", padx=8, pady=(10, 4))
+        items = self.items_card
         for c, h in enumerate(("Item", "HSN/SAC", "Qty", "Rate (Rs)", "GST %", "", "Amount")):
-            _lbl(items, h, row=0, column=c, sticky="w", padx=(20 if c == 0 else 6, 6), pady=(12, 0))
-        order = [self.date, self.party, self.narr]
-        for r in range(self.ROWS):
-            desc = T.combo(items, self._stock_names, width=260)
-            desc.set("")
-            hsn  = T.entry(items, "HSN/SAC", width=90)
-            qty  = T.entry(items, "1",       width=80)
-            rate = T.entry(items, "0.00",    width=120)
-            gst  = T.option_menu(items, self.GST_RATES, width=90, command=lambda _v: self.calc())
-            gst.set("18")
-            amt  = ctk.CTkLabel(items, text="", width=110, anchor="e", font=T.f(13), text_color=T.TEXT)
-            desc.grid(row=r + 1, column=0, padx=(20, 6), pady=4)
-            hsn.grid( row=r + 1, column=1, padx=6,       pady=4)
-            qty.grid( row=r + 1, column=2, padx=6,       pady=4)
-            rate.grid(row=r + 1, column=3, padx=6,       pady=4)
-            gst.grid( row=r + 1, column=4, columnspan=2, padx=6, pady=4, sticky="w")
-            amt.grid( row=r + 1, column=6, padx=6,       pady=4)
-            for e in (qty, rate):
-                e.bind("<KeyRelease>", self.calc)
-            # attach autocomplete with auto-fill callback
-            _r = r
-            Autocomplete(desc, self._stock_names,
-                         on_pick=lambda name, idx=_r: self._on_item_pick(idx, name))
-            self.rows.append((desc, hsn, qty, rate, gst, amt))
-            order += [desc, hsn, qty, rate]
+            _lbl(items, h, row=0, column=c, sticky="w", padx=(20 if c == 0 else 6, 6), pady=(2, 0))
+
+        for _ in range(self.ROWS):
+            self._add_row(rechain=False)
+
+        addbar = ctk.CTkFrame(items, fg_color="transparent")
+        addbar.grid(row=ADDBAR_ROW, column=0, columnspan=7, sticky="w", padx=20, pady=(8, 0))
+        T.button(addbar, "+ Add item", self.add_row_and_focus, width=110, **GHOST).pack(side="left")
+        self.row_count_lbl = ctk.CTkLabel(addbar, text="", font=T.f(11), text_color=T.MUTED)
+        self.row_count_lbl.pack(side="left", padx=10)
+
         self.summary = ctk.CTkLabel(items, text="", font=T.f(13, "bold"), text_color=T.TEXT)
-        self.summary.grid(row=self.ROWS + 1, column=0, columnspan=6, sticky="e", padx=20, pady=(8, 14))
+        self.summary.grid(row=SUMMARY_ROW, column=0, columnspan=7, sticky="e", padx=20, pady=(8, 14))
 
         foot = ctk.CTkFrame(self, fg_color="transparent")
         foot.pack(fill="x", padx=28)
@@ -324,14 +321,66 @@ class TradeFrame(EntryBase):
                                  self.save, width=160)
         self.save_btn.pack(side="left")
         self._make_msg(foot)
-        order += [self.bill_name] + ([self.paid] if self.paid is not None else [])
-        chain_enter(order, self.save if not edit_id else None)
+        self._rechain()
+        self._update_row_count()
         if edit_id:
             self._prefill()
         else:
             self.party_chosen(self.party.get())
             focus_later(self.rows[0][0])
         self._cash_mode()
+
+    # ---- row management -----------------------------------------------------
+
+    def _add_row(self, rechain=True):
+        """Append one item row. Grid row = position, footer sits at fixed rows below."""
+        items = self.items_card
+        idx = len(self.rows)
+        r = idx + 1
+        desc = T.combo(items, self._stock_names, width=260)
+        desc.set("")
+        hsn  = T.entry(items, "HSN/SAC", width=90)
+        qty  = T.entry(items, "1",       width=80)
+        rate = T.entry(items, "0.00",    width=120)
+        gst  = T.option_menu(items, self.GST_RATES, width=90, command=lambda _v: self.calc())
+        gst.set("18")
+        amt  = ctk.CTkLabel(items, text="", width=110, anchor="e", font=T.f(13), text_color=T.TEXT)
+        desc.grid(row=r, column=0, padx=(20, 6), pady=4)
+        hsn.grid( row=r, column=1, padx=6,       pady=4)
+        qty.grid( row=r, column=2, padx=6,       pady=4)
+        rate.grid(row=r, column=3, padx=6,       pady=4)
+        gst.grid( row=r, column=4, columnspan=2, padx=6, pady=4, sticky="w")
+        amt.grid( row=r, column=6, padx=6,       pady=4)
+        for e in (qty, rate):
+            e.bind("<KeyRelease>", self.calc)
+        Autocomplete(desc, self._stock_names,
+                     on_pick=lambda name, i=idx: self._on_item_pick(i, name))
+        self.rows.append((desc, hsn, qty, rate, gst, amt))
+        if rechain:
+            self._rechain()
+            self._update_row_count()
+        return self.rows[-1]
+
+    def add_row_and_focus(self):
+        row = self._add_row()
+        focus_later(row[0], 50)
+
+    def _update_row_count(self):
+        if getattr(self, "row_count_lbl", None) is not None:
+            self.row_count_lbl.configure(text=f"{len(self.rows)} rows")
+
+    def _rechain(self):
+        if not hasattr(self, "bill_name"):
+            return
+        order = [self.date, self.party, self.narr]
+        for desc, hsn, qty, rate, _g, _a in self.rows:
+            order += [desc, hsn, qty, rate]
+        order += [self.bill_name]
+        if self.paid is not None:
+            order.append(self.paid)
+        chain_enter(order, self.save if not self.edit_id else None)
+
+    # ---- stock master -------------------------------------------------------
 
     def _load_stock_map(self):
         """Returns dict of {name: {id, hsn, unit, gst_rate}} from stock_items table."""
@@ -345,6 +394,8 @@ class TradeFrame(EntryBase):
 
     def _on_item_pick(self, row_idx, name):
         """Auto-fill HSN and GST when a stock item is selected from dropdown."""
+        if row_idx >= len(self.rows):
+            return
         if name in self._stock_map:
             it = self._stock_map[name]
             _desc, hsn, _qty, _rate, gst, _amt = self.rows[row_idx]
@@ -352,6 +403,8 @@ class TradeFrame(EntryBase):
             hsn.insert(0, it["hsn"] or "")
             gst.set(str(it["gst_rate"] or "18"))
             self.calc()
+
+    # ---- party / mode -------------------------------------------------------
 
     def _is_cash(self):
         return self.party.get().strip() in ("Cash", "Bank")
@@ -389,12 +442,18 @@ class TradeFrame(EntryBase):
         (self.inter.select if inv["interstate"] else self.inter.deselect)()
         self.narr.insert(0, snap["narration"] or "")
         self.bill_name.insert(0, inv.get("customer_name", ""))
-        for (desc, hsn, qty, rate, gst, _a), it in zip(self.rows, inv["items"]):
-            desc.insert(0, it["description"])
-            hsn.insert(0, it.get("hsn", ""))
-            qty.insert(0, _num(it["qty"]))
-            rate.insert(0, _num(it["rate"]))
+        # Grow the form if the saved bill has more items than the default rows
+        for i, it in enumerate(inv["items"]):
+            while len(self.rows) <= i:
+                self._add_row(rechain=False)
+            desc, hsn, qty, rate, gst, _a = self.rows[i]
+            desc.set(it["description"])          # combo box: set(), not insert()
+            hsn.delete(0, "end");  hsn.insert(0, it.get("hsn", "") or "")
+            qty.delete(0, "end");  qty.insert(0, _num(it["qty"]))
+            rate.delete(0, "end"); rate.insert(0, _num(it["rate"]))
             gst.set(_num(it["gst"]))
+        self._rechain()
+        self._update_row_count()
         self.calc()
 
     def is_dirty(self):
@@ -762,9 +821,73 @@ class PaymentFrame(EntryBase):
         focus_later(self.party, 50)
 
 
+# ── ReturnBase (shared by Sales Return and Purchase Return) ───────────────────
+
+class _ReturnRowsMixin:
+    """Dynamic item rows for the credit / debit note screens."""
+
+    def _add_row(self, rechain=True):
+        items = self.items_card
+        r = len(self.rows) + 1
+        desc = T.entry(items, "Description", width=260)
+        hsn  = T.entry(items, "HSN/SAC",     width=90)
+        qty  = T.entry(items, "1",            width=80)
+        rate = T.entry(items, "0.00",         width=120)
+        gst  = T.option_menu(items, self.GST_RATES, width=90,
+                             command=lambda _v: self.calc())
+        gst.set("18")
+        amt  = ctk.CTkLabel(items, text="", width=110, anchor="e",
+                            font=T.f(13), text_color=T.TEXT)
+        desc.grid(row=r, column=0, padx=(20, 6), pady=4)
+        hsn.grid( row=r, column=1, padx=6,       pady=4)
+        qty.grid( row=r, column=2, padx=6,       pady=4)
+        rate.grid(row=r, column=3, padx=6,       pady=4)
+        gst.grid( row=r, column=4, columnspan=2, padx=6, pady=4, sticky="w")
+        amt.grid( row=r, column=6, padx=6,       pady=4)
+        for e in (qty, rate):
+            e.bind("<KeyRelease>", self.calc)
+        self.rows.append((desc, hsn, qty, rate, gst, amt))
+        if rechain:
+            self._update_row_count()
+        return self.rows[-1]
+
+    def add_row_and_focus(self):
+        row = self._add_row()
+        focus_later(row[0], 50)
+
+    def _update_row_count(self):
+        if getattr(self, "row_count_lbl", None) is not None:
+            self.row_count_lbl.configure(text=f"{len(self.rows)} rows")
+
+    def _build_rows_area(self, parent):
+        """Item header, rows, add button and summary. Returns the scrollable card."""
+        wrap = T.card(parent)
+        wrap.pack(fill="both", expand=True, padx=28, pady=(6, 14))
+        wrap.grid_columnconfigure(0, weight=1)
+        wrap.grid_rowconfigure(0, weight=1)
+        self.items_card = ctk.CTkScrollableFrame(wrap, fg_color="transparent", height=220)
+        self.items_card.grid(row=0, column=0, sticky="nsew", padx=8, pady=(10, 4))
+        items = self.items_card
+        for c, h in enumerate(("Item", "HSN/SAC", "Qty", "Rate (Rs)", "GST %", "", "Amount")):
+            _lbl(items, h, row=0, column=c, sticky="w",
+                 padx=(20 if c == 0 else 6, 6), pady=(2, 0))
+        for _ in range(self.ROWS):
+            self._add_row(rechain=False)
+        addbar = ctk.CTkFrame(items, fg_color="transparent")
+        addbar.grid(row=ADDBAR_ROW, column=0, columnspan=7, sticky="w", padx=20, pady=(8, 0))
+        T.button(addbar, "+ Add item", self.add_row_and_focus, width=110, **GHOST).pack(side="left")
+        self.row_count_lbl = ctk.CTkLabel(addbar, text="", font=T.f(11), text_color=T.MUTED)
+        self.row_count_lbl.pack(side="left", padx=10)
+        self.summary = ctk.CTkLabel(items, text="", font=T.f(13, "bold"), text_color=T.TEXT)
+        self.summary.grid(row=SUMMARY_ROW, column=0, columnspan=7,
+                          sticky="e", padx=20, pady=(8, 14))
+        self._update_row_count()
+        return items
+
+
 # ── SalesReturnFrame ──────────────────────────────────────────────────────────
 
-class SalesReturnFrame(EntryBase):
+class SalesReturnFrame(_ReturnRowsMixin, EntryBase):
     """Credit note against a specific sales invoice."""
     GST_RATES = ["0", "0.25", "1.5", "3", "5", "12", "18", "28", "40"]
     ROWS = 3
@@ -832,35 +955,7 @@ class SalesReturnFrame(EntryBase):
         T.button(foot, "Save Credit Note", self.save, width=180).pack(side="left")
         self._make_msg(foot)
 
-        items_card = T.card(scroll)
-        items_card.pack(fill="x", padx=28, pady=(6, 0))
-        for c, h in enumerate(("Item", "HSN/SAC", "Qty", "Rate (Rs)", "GST %", "", "Amount")):
-            _lbl(items_card, h, row=0, column=c, sticky="w",
-                 padx=(20 if c == 0 else 6, 6), pady=(12, 0))
-
-        for r in range(self.ROWS):
-            desc = T.entry(items_card, "Description", width=260)
-            hsn  = T.entry(items_card, "HSN/SAC",     width=90)
-            qty  = T.entry(items_card, "1",            width=80)
-            rate = T.entry(items_card, "0.00",         width=120)
-            gst  = T.option_menu(items_card, self.GST_RATES, width=90,
-                                 command=lambda _v: self.calc())
-            gst.set("18")
-            amt  = ctk.CTkLabel(items_card, text="", width=110, anchor="e",
-                                font=T.f(13), text_color=T.TEXT)
-            desc.grid(row=r + 1, column=0, padx=(20, 6), pady=4)
-            hsn.grid( row=r + 1, column=1, padx=6,       pady=4)
-            qty.grid( row=r + 1, column=2, padx=6,       pady=4)
-            rate.grid(row=r + 1, column=3, padx=6,       pady=4)
-            gst.grid( row=r + 1, column=4, columnspan=2, padx=6, pady=4, sticky="w")
-            amt.grid( row=r + 1, column=6, padx=6,       pady=4)
-            for e in (qty, rate):
-                e.bind("<KeyRelease>", self.calc)
-            self.rows.append((desc, hsn, qty, rate, gst, amt))
-
-        self.summary = ctk.CTkLabel(items_card, text="", font=T.f(13, "bold"), text_color=T.TEXT)
-        self.summary.grid(row=self.ROWS + 1, column=0, columnspan=7,
-                          sticky="e", padx=20, pady=(8, 14))
+        self._build_rows_area(scroll)
 
         self._party_changed(self.party.get())
         focus_later(self.rows[0][0])
@@ -970,7 +1065,7 @@ class SalesReturnFrame(EntryBase):
 
 # ── PurchaseReturnFrame ───────────────────────────────────────────────────────
 
-class PurchaseReturnFrame(EntryBase):
+class PurchaseReturnFrame(_ReturnRowsMixin, EntryBase):
     """Debit note against a specific purchase bill."""
     GST_RATES = ["0", "0.25", "1.5", "3", "5", "12", "18", "28", "40"]
     ROWS = 3
@@ -1038,35 +1133,7 @@ class PurchaseReturnFrame(EntryBase):
         T.button(foot, "Save Debit Note", self.save, width=180).pack(side="left")
         self._make_msg(foot)
 
-        items_card = T.card(scroll)
-        items_card.pack(fill="x", padx=28, pady=(6, 14))
-        for c, h in enumerate(("Item", "HSN/SAC", "Qty", "Rate (Rs)", "GST %", "", "Amount")):
-            _lbl(items_card, h, row=0, column=c, sticky="w",
-                 padx=(20 if c == 0 else 6, 6), pady=(12, 0))
-
-        for r in range(self.ROWS):
-            desc = T.entry(items_card, "Description", width=260)
-            hsn  = T.entry(items_card, "HSN/SAC",     width=90)
-            qty  = T.entry(items_card, "1",            width=80)
-            rate = T.entry(items_card, "0.00",         width=120)
-            gst  = T.option_menu(items_card, self.GST_RATES, width=90,
-                                 command=lambda _v: self.calc())
-            gst.set("18")
-            amt  = ctk.CTkLabel(items_card, text="", width=110, anchor="e",
-                                font=T.f(13), text_color=T.TEXT)
-            desc.grid(row=r + 1, column=0, padx=(20, 6), pady=4)
-            hsn.grid( row=r + 1, column=1, padx=6,       pady=4)
-            qty.grid( row=r + 1, column=2, padx=6,       pady=4)
-            rate.grid(row=r + 1, column=3, padx=6,       pady=4)
-            gst.grid( row=r + 1, column=4, columnspan=2, padx=6, pady=4, sticky="w")
-            amt.grid( row=r + 1, column=6, padx=6,       pady=4)
-            for e in (qty, rate):
-                e.bind("<KeyRelease>", self.calc)
-            self.rows.append((desc, hsn, qty, rate, gst, amt))
-
-        self.summary = ctk.CTkLabel(items_card, text="", font=T.f(13, "bold"), text_color=T.TEXT)
-        self.summary.grid(row=self.ROWS + 1, column=0, columnspan=7,
-                          sticky="e", padx=20, pady=(8, 14))
+        self._build_rows_area(scroll)
 
         self._party_changed(self.party.get())
         focus_later(self.rows[0][0])
