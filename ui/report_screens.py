@@ -769,3 +769,57 @@ class StockSummaryFrame(ReportBase):
                  it.get("avg_rate", 0.0), it.get("stock_value", 0.0)]
                 for it in rows]
         return f"Stock Summary {self.fy.get()}", headers, data
+
+class ItemWiseProfitFrame(ReportBase):
+    """Item-wise profit: sale value minus weighted-avg cost of goods sold."""
+    title_text = "Item-wise Profit"
+    sub_text = "Profit per item based on weighted-average cost of goods sold."
+
+    def __init__(self, master, con):
+        super().__init__(master, con)
+        self.table = DataTable(self, [
+            ("n", "Item",          200, L),
+            ("u", "Unit",           60, L),
+            ("q", "Sold Qty",      100, "e"),
+            ("s", "Sale Value",    140, R),
+            ("a", "Avg Cost",      120, R),
+            ("c", "Cost of Sold",  140, R),
+            ("p", "Profit",        140, R),
+            ("m", "Margin %",       90, R)], height=14)
+        self.table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
+        self.refresh()
+
+    def _fmt_qty(self, v):
+        return f"{v:,.3f}".rstrip("0").rstrip(".")
+
+    def refresh(self):
+        from db.setup import item_wise_profit
+        rows = item_wise_profit(self.con, self.fy.get())
+        out = []
+        tot_sale = tot_cost = tot_profit = 0.0
+        for it in rows:
+            tot_sale   += it["sale_value"]
+            tot_cost   += it["cost_of_sold"]
+            tot_profit += it["profit"]
+            out.append((it["name"], it["unit"],
+                        self._fmt_qty(it["sold_qty"]),
+                        inr(it["sale_value"]),
+                        inr(it["avg_cost"]) if it["avg_cost"] else "",
+                        inr(it["cost_of_sold"]),
+                        inr(it["profit"]),
+                        f"{it['margin']:.2f}"))
+        tot_margin = (tot_profit / tot_sale * 100) if tot_sale > 0 else 0.0
+        out.append((("", "", "Total",
+                     inr(tot_sale), "", inr(tot_cost),
+                     inr(tot_profit), f"{tot_margin:.2f}"), "total"))
+        self.table.set_rows(out)
+
+    def export_data(self):
+        from db.setup import item_wise_profit
+        rows = item_wise_profit(self.con, self.fy.get())
+        headers = ["Item", "Unit", "Sold Qty", "Sale Value",
+                   "Avg Cost", "Cost of Sold", "Profit", "Margin %"]
+        data = [[it["name"], it["unit"], it["sold_qty"], it["sale_value"],
+                 it["avg_cost"], it["cost_of_sold"], it["profit"],
+                 round(it["margin"], 2)] for it in rows]
+        return f"Item-wise Profit {self.fy.get()}", headers, data
