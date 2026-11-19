@@ -1,17 +1,20 @@
 """A4 GST tax invoice PDF generator for MUNIM.
 Saves to C:\\MUNIM\\Invoices\\  (creates folder if needed).
 Returns the full path of the saved file.
+Supports multi-page invoices: the item table splits across pages,
+the header row repeats, and each page is numbered.
 """
 import os
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfbase.pdfmetrics import stringWidth
+from reportlab.pdfgen import canvas as _canvas
 from xml.sax.saxutils import escape
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.enums import TA_RIGHT, TA_CENTER, TA_LEFT
 from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
-                                Paragraph, Spacer, HRFlowable)
+                                Paragraph, Spacer, HRFlowable, KeepTogether)
 from db import setup as s, billing as b
 from utils import settings
 from utils.fmt import disp_date
@@ -94,11 +97,42 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
     filename = f"{inv_no}_{vdate.replace('-', '')}.pdf"
     filepath = os.path.join(INVOICE_DIR, filename)
 
+    # ── page numbering canvas ─────────────────────────────────────────────────
+    class _NumberedCanvas(_canvas.Canvas):
+        """Two-pass canvas so every page can print 'Page X of Y'."""
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._saved_states = []
+
+        def showPage(self):
+            self._saved_states.append(dict(self.__dict__))
+            self._startPage()
+
+        def save(self):
+            total = len(self._saved_states)
+            for state in self._saved_states:
+                self.__dict__.update(state)
+                self._stamp(total)
+                super().showPage()
+            super().save()
+
+        def _stamp(self, total):
+            self.setFont("Helvetica", 7.5)
+            self.setFillColor(MUTED)
+            self.drawRightString(A4[0] - 12 * mm, 7 * mm,
+                                 f"Page {self._pageNumber} of {total}")
+            left = f"{inv_no}"
+            if self._pageNumber < total:
+                left += "   •   continued on next page"
+            self.drawString(12 * mm, 7 * mm, left)
+
     # ── page setup ────────────────────────────────────────────────────────────
     doc = SimpleDocTemplate(
         filepath, pagesize=A4,
         leftMargin=12*mm, rightMargin=12*mm,
-        topMargin=10*mm,  bottomMargin=10*mm,
+        topMargin=10*mm,  bottomMargin=14*mm,   # room for the page-number line
+        title=f"Tax Invoice {inv_no}", author=company or "MUNIM",
     )
     W = A4[0] - 24*mm   # usable width ≈ 537 pt
 
@@ -249,7 +283,10 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
 
     n = len(rows_data)
     item_tbl = Table(rows_data, colWidths=col_ws, repeatRows=1)
-    item_tbl.setStyle(TableStyle([
+
+    # Base style. NOSPLIT is applied per row below, never to the whole table,
+    # so a long invoice can break across pages while no single row is cut in half.
+    item_style = [
         ("BACKGROUND",    (0, 0),     (-1, 0),     NAVY),
         ("FONTSIZE",      (0, 0),     (-1, 0),     8),
         ("TOPPADDING",    (0, 0),     (-1, 0),     5),
@@ -264,8 +301,11 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
         ("LINEBELOW",     (0, 0),     (-1, 0),     0.5, BLUE),
         ("GRID",          (0, 0),     (-1, -1),    0.3, RULE),
         ("VALIGN",        (0, 0),     (-1, -1),    "MIDDLE"),
-        ("NOSPLIT",       (0, 0),     (-1, -1)),
-    ]))
+    ]
+    for r in range(n):
+        item_style.append(("NOSPLIT", (0, r), (-1, r)))
+    item_tbl.setStyle(TableStyle(item_style))
+
     story.append(item_tbl)
     story.append(Spacer(1, 4*mm))
 
@@ -281,6 +321,8 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
             hsn_groups[key] = {"taxable": 0, "gst": gst_p, "qty": 0}
         hsn_groups[key]["taxable"] += tax_p
         hsn_groups[key]["qty"]     += qty
+
+    tail = []   # HSN summary + totals + footer, kept together where possible
 
     if any(it.get("hsn") for it in items):
         HSML = S("HSML", fontSize=7, textColor=WHITE, fontName="Helvetica-Bold", leading=10, alignment=TA_CENTER)
@@ -329,7 +371,7 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
                     _p(_fmt(cgst + sgst), HNBD),
                 ])
 
-        hsn_tbl = Table(hsn_rows, colWidths=hw, hAlign="RIGHT")
+        hsn_tbl = Table(hsn_rows, colWidths=hw, hAlign="RIGHT", repeatRows=1)
         hsn_tbl.setStyle(TableStyle([
             ("BACKGROUND",    (0, 0), (-1, 0),  NAVY),
             ("FONTSIZE",      (0, 0), (-1, 0),  7),
@@ -341,9 +383,9 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
             ("ROWBACKGROUNDS",(0, 1), (-1, -1), [WHITE, LIGHT]),
             ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
         ]))
-        story.append(Spacer(1, 2*mm))
-        story.append(hsn_tbl)
-        story.append(Spacer(1, 3*mm))
+        tail.append(Spacer(1, 2*mm))
+        tail.append(hsn_tbl)
+        tail.append(Spacer(1, 3*mm))
 
     # ── SUMMARY BOX ───────────────────────────────────────────────────────────
     grand = tax["total"]
@@ -378,8 +420,8 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
         ("RIGHTPADDING",  (0, 0),      (-1, -1),      8),
         ("FONTNAME",      (0, SL - 1), (-1, SL - 1), "Helvetica-Bold"),
     ]))
-    story.append(summ_tbl)
-    story.append(Spacer(1, 8*mm))
+    tail.append(summ_tbl)
+    tail.append(Spacer(1, 8*mm))
 
     # ── FOOTER ────────────────────────────────────────────────────────────────
     FOOT_L = S("FL", fontSize=9, textColor=MUTED,  fontName="Helvetica-Oblique", leading=12)
@@ -396,7 +438,7 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
         ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
         ("VALIGN",        (0, 0), (-1, 0), "MIDDLE"),
     ]))
-    story.append(foot_tbl)
+    tail.append(foot_tbl)
 
     wave = Table(
         [[_p("Thank you for your business!", S("TY", fontSize=10, textColor=WHITE,
@@ -408,8 +450,12 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
         ("TOPPADDING",    (0, 0), (-1, -1), 8),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
     ]))
-    story.append(Spacer(1, 4*mm))
-    story.append(wave)
+    tail.append(Spacer(1, 4*mm))
+    tail.append(wave)
 
-    doc.build(story)
+    # Keep the closing block on one page when it fits; fall back to a plain
+    # flow if it is too tall (very many HSN groups) so nothing is ever lost.
+    story.append(KeepTogether(tail))
+
+    doc.build(story, canvasmaker=_NumberedCanvas)
     return filepath
