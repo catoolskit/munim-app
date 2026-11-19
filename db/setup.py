@@ -170,7 +170,8 @@ CREATE TABLE IF NOT EXISTS stock_items(
   hsn TEXT NOT NULL DEFAULT '',
   unit TEXT NOT NULL DEFAULT 'pcs',
   gst_rate TEXT NOT NULL DEFAULT '18',
-  opening_qty TEXT NOT NULL DEFAULT '0');
+  opening_qty TEXT NOT NULL DEFAULT '0',
+  opening_rate TEXT NOT NULL DEFAULT '0');
 CREATE TABLE IF NOT EXISTS allocations(
   id INTEGER PRIMARY KEY,
   payment_voucher_id INTEGER NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
@@ -256,6 +257,8 @@ def init_db(path=None):
         con.execute("ALTER TABLE invoice_items ADD COLUMN hsn TEXT NOT NULL DEFAULT ''")
     if "stock_item_id" not in [r["name"] for r in con.execute("PRAGMA table_info(invoice_items)")]:
         con.execute("ALTER TABLE invoice_items ADD COLUMN stock_item_id INTEGER REFERENCES stock_items(id)")
+    if "opening_rate" not in [r["name"] for r in con.execute("PRAGMA table_info(stock_items)")]:
+        con.execute("ALTER TABLE stock_items ADD COLUMN opening_rate TEXT NOT NULL DEFAULT '0'")
     if not con.execute("SELECT 1 FROM accounts LIMIT 1").fetchone():
         for n, g, nat in DEFAULT_ACCOUNTS:
             con.execute("INSERT INTO accounts(name,grp,nature) VALUES(?,?,?)", (n, g, nat))
@@ -709,30 +712,45 @@ def prior_stock_effect(con, fy):
 
 def list_stock_items(con):
     return con.execute(
-        "SELECT id, name, hsn, unit, gst_rate, opening_qty FROM stock_items ORDER BY name COLLATE NOCASE"
+        "SELECT id, name, hsn, unit, gst_rate, opening_qty, opening_rate "
+        "FROM stock_items ORDER BY name COLLATE NOCASE"
     ).fetchall()
 
-def add_stock_item(con, name, hsn="", unit="pcs", gst_rate="18", opening_qty="0"):
+def _check_rate(value):
+    try:
+        v = float(str(value if value not in (None, "") else 0).strip())
+    except ValueError:
+        raise ValueError("Opening rate must be a number")
+    if v < 0:
+        raise ValueError("Opening rate cannot be negative")
+    return v
+
+def add_stock_item(con, name, hsn="", unit="pcs", gst_rate="18", opening_qty="0", opening_rate="0"):
     name = (name or "").strip()
     if not name:
         raise ValueError("Item name is required")
     if con.execute("SELECT 1 FROM stock_items WHERE name=? COLLATE NOCASE", (name,)).fetchone():
         raise ValueError("An item with this name already exists")
+    _check_rate(opening_rate)
     con.execute(
-        "INSERT INTO stock_items(name,hsn,unit,gst_rate,opening_qty) VALUES(?,?,?,?,?)",
-        (name, (hsn or "").strip(), (unit or "pcs").strip(), str(gst_rate), str(opening_qty or "0")))
+        "INSERT INTO stock_items(name,hsn,unit,gst_rate,opening_qty,opening_rate) VALUES(?,?,?,?,?,?)",
+        (name, (hsn or "").strip(), (unit or "pcs").strip(), str(gst_rate),
+         str(opening_qty or "0"), str(opening_rate or "0")))
     con.commit()
 
-def update_stock_item(con, item_id, name, hsn="", unit="pcs", gst_rate="18", opening_qty="0"):
+def update_stock_item(con, item_id, name, hsn="", unit="pcs", gst_rate="18",
+                      opening_qty="0", opening_rate="0"):
     name = (name or "").strip()
     if not name:
         raise ValueError("Item name is required")
     if con.execute("SELECT id FROM stock_items WHERE name=? COLLATE NOCASE AND id!=?",
                    (name, item_id)).fetchone():
         raise ValueError("Another item with this name already exists")
+    _check_rate(opening_rate)
     con.execute(
-        "UPDATE stock_items SET name=?,hsn=?,unit=?,gst_rate=?,opening_qty=? WHERE id=?",
-        (name, (hsn or "").strip(), (unit or "pcs").strip(), str(gst_rate), str(opening_qty or "0"), item_id))
+        "UPDATE stock_items SET name=?,hsn=?,unit=?,gst_rate=?,opening_qty=?,opening_rate=? WHERE id=?",
+        (name, (hsn or "").strip(), (unit or "pcs").strip(), str(gst_rate),
+         str(opening_qty or "0"), str(opening_rate or "0"), item_id))
     con.commit()
 
 def delete_stock_item(con, item_id):
@@ -740,6 +758,70 @@ def delete_stock_item(con, item_id):
         raise ValueError("This item is used in invoices and cannot be deleted")
     con.execute("DELETE FROM stock_items WHERE id=?", (item_id,))
     con.commit()
+
+def _row_get(row, key, default=None):
+    """Safe column read from an sqlite3.Row (older DBs may lack a column)."""
+    try:
+        v = row[key]
+    except (IndexError, KeyError):
+        return default
+    return default if v is None else v
+
+def _pur_pool(con, item_id, vtype, kind_filter, start, end):
+    """Sum of qty*rate and qty for one voucher type in a date range."""
+    q = """SELECT COALESCE(SUM(CAST(ii.qty AS REAL) * CAST(ii.rate AS REAL)), 0) AS val,
+                  COALESCE(SUM(CAST(ii.qty AS REAL)), 0) AS qty
+           FROM invoice_items ii
+           JOIN invoices inv ON inv.id = ii.invoice_id
+           JOIN vouchers v ON v.id = inv.voucher_id
+           WHERE ii.stock_item_id=? AND v.vtype=?"""
+    if kind_filter:
+        q += " AND inv.kind=?"
+        args = (item_id, vtype, kind_filter, start, end)
+    else:
+        args = (item_id, vtype, start, end)
+    q += " AND v.vdate BETWEEN ? AND ?"
+    r = con.execute(q, args).fetchone()
+    return float(r["val"]), float(r["qty"])
+
+def _avg_cost(con, item, fy):
+    """Weighted-average cost for one item.
+
+    Pool = opening stock (only when an opening rate is set)
+           + this FY's purchases, net of purchase returns.
+    Falls back to the previous FY's purchase average when the pool is empty.
+    Returns 0.0 when no cost basis exists at all.
+    """
+    start, end = fy_range(fy)
+
+    pur_val, pur_qty = _pur_pool(con, item["id"], "Purchase", "Purchase", start, end)
+    pret_val, pret_qty = _pur_pool(con, item["id"], "Purchase Return", None, start, end)
+
+    try:
+        open_qty = float(_row_get(item, "opening_qty", 0) or 0)
+    except (ValueError, TypeError):
+        open_qty = 0.0
+    try:
+        open_rate = float(_row_get(item, "opening_rate", 0) or 0)
+    except (ValueError, TypeError):
+        open_rate = 0.0
+
+    # Opening joins the pool only when it has been given a rate
+    use_open = open_qty > 0 and open_rate > 0
+    pool_val = (open_qty * open_rate if use_open else 0.0) + pur_val - pret_val
+    pool_qty = (open_qty if use_open else 0.0) + pur_qty - pret_qty
+
+    if pool_qty > 0 and pool_val > 0:
+        return pool_val / pool_qty
+
+    # Fallback: previous FY's purchase average
+    p_start, p_end = fy_range(prev_fy(fy))
+    prev_val, prev_qty = _pur_pool(con, item["id"], "Purchase", "Purchase", p_start, p_end)
+    if prev_qty > 0:
+        return prev_val / prev_qty
+
+    # Last resort: the opening rate on its own
+    return open_rate if open_rate > 0 else 0.0
 
 def stock_summary(con, fy):
     """Item-wise stock: opening + purchased - sold = closing,
@@ -791,50 +873,7 @@ def stock_summary(con, fy):
 
         closing = opening + purchased + sales_return - sold - purchase_return
 
-        # ---------- Weighted Avg Rate ----------
-        # SUM(qty * rate) and SUM(qty) from Purchase invoices in this FY
-        pur_row = con.execute(
-            """SELECT COALESCE(SUM(CAST(ii.qty AS REAL) * CAST(ii.rate AS REAL)), 0) AS val,
-                      COALESCE(SUM(CAST(ii.qty AS REAL)), 0) AS qty
-               FROM invoice_items ii
-               JOIN invoices inv ON inv.id = ii.invoice_id
-               JOIN vouchers v ON v.id = inv.voucher_id
-               WHERE ii.stock_item_id=? AND inv.kind='Purchase'
-               AND v.vtype='Purchase'
-               AND v.vdate BETWEEN ? AND ?""",
-            (item["id"], start, end)).fetchone()
-        pret_row = con.execute(
-            """SELECT COALESCE(SUM(CAST(ii.qty AS REAL) * CAST(ii.rate AS REAL)), 0) AS val,
-                      COALESCE(SUM(CAST(ii.qty AS REAL)), 0) AS qty
-               FROM invoice_items ii
-               JOIN invoices inv ON inv.id = ii.invoice_id
-               JOIN vouchers v ON v.id = inv.voucher_id
-               WHERE ii.stock_item_id=? AND v.vtype='Purchase Return'
-               AND v.vdate BETWEEN ? AND ?""",
-            (item["id"], start, end)).fetchone()
-
-        net_val = float(pur_row["val"]) - float(pret_row["val"])
-        net_qty = float(pur_row["qty"]) - float(pret_row["qty"])
-        avg_rate = (net_val / net_qty) if net_qty > 0 else 0.0
-
-        # Fallback: no purchases this FY → try last FY's avg rate
-        if avg_rate == 0.0 and float(opening) > 0:
-            prev = prev_fy(fy)
-            p_start, p_end = fy_range(prev)
-            prev_pur = con.execute(
-                """SELECT COALESCE(SUM(CAST(ii.qty AS REAL) * CAST(ii.rate AS REAL)), 0) AS val,
-                          COALESCE(SUM(CAST(ii.qty AS REAL)), 0) AS qty
-                   FROM invoice_items ii
-                   JOIN invoices inv ON inv.id = ii.invoice_id
-                   JOIN vouchers v ON v.id = inv.voucher_id
-                   WHERE ii.stock_item_id=? AND inv.kind='Purchase'
-                   AND v.vtype='Purchase'
-                   AND v.vdate BETWEEN ? AND ?""",
-                (item["id"], p_start, p_end)).fetchone()
-            prev_qty = float(prev_pur["qty"])
-            if prev_qty > 0:
-                avg_rate = float(prev_pur["val"]) / prev_qty
-
+        avg_rate = _avg_cost(con, item, fy)
         stock_value = float(closing) * avg_rate if avg_rate > 0 else 0.0
 
         out.append({
@@ -847,7 +886,6 @@ def stock_summary(con, fy):
 
 def item_wise_profit(con, fy):
     """Item-wise profit: sale value - (sold qty × weighted-avg cost)."""
-    from decimal import Decimal
     start, end = fy_range(fy)
     items = list_stock_items(con)
     out = []
@@ -881,48 +919,7 @@ def item_wise_profit(con, fy):
         if sold_qty <= 0:
             continue  # skip items with no net sales
 
-        # Weighted-avg cost (same logic as stock_summary)
-        pur_row = con.execute(
-            """SELECT COALESCE(SUM(CAST(ii.qty AS REAL) * CAST(ii.rate AS REAL)), 0) AS val,
-                      COALESCE(SUM(CAST(ii.qty AS REAL)), 0) AS qty
-               FROM invoice_items ii
-               JOIN invoices inv ON inv.id = ii.invoice_id
-               JOIN vouchers v ON v.id = inv.voucher_id
-               WHERE ii.stock_item_id=? AND inv.kind='Purchase'
-               AND v.vtype='Purchase'
-               AND v.vdate BETWEEN ? AND ?""",
-            (item["id"], start, end)).fetchone()
-        pret_row = con.execute(
-            """SELECT COALESCE(SUM(CAST(ii.qty AS REAL) * CAST(ii.rate AS REAL)), 0) AS val,
-                      COALESCE(SUM(CAST(ii.qty AS REAL)), 0) AS qty
-               FROM invoice_items ii
-               JOIN invoices inv ON inv.id = ii.invoice_id
-               JOIN vouchers v ON v.id = inv.voucher_id
-               WHERE ii.stock_item_id=? AND v.vtype='Purchase Return'
-               AND v.vdate BETWEEN ? AND ?""",
-            (item["id"], start, end)).fetchone()
-
-        net_val = float(pur_row["val"]) - float(pret_row["val"])
-        net_qty = float(pur_row["qty"]) - float(pret_row["qty"])
-        avg_rate = (net_val / net_qty) if net_qty > 0 else 0.0
-
-        # Previous FY fallback
-        if avg_rate == 0.0:
-            prev = prev_fy(fy)
-            p_start, p_end = fy_range(prev)
-            prev_pur = con.execute(
-                """SELECT COALESCE(SUM(CAST(ii.qty AS REAL) * CAST(ii.rate AS REAL)), 0) AS val,
-                          COALESCE(SUM(CAST(ii.qty AS REAL)), 0) AS qty
-                   FROM invoice_items ii
-                   JOIN invoices inv ON inv.id = ii.invoice_id
-                   JOIN vouchers v ON v.id = inv.voucher_id
-                   WHERE ii.stock_item_id=? AND inv.kind='Purchase'
-                   AND v.vtype='Purchase'
-                   AND v.vdate BETWEEN ? AND ?""",
-                (item["id"], p_start, p_end)).fetchone()
-            prev_qty = float(prev_pur["qty"])
-            if prev_qty > 0:
-                avg_rate = float(prev_pur["val"]) / prev_qty
+        avg_rate = _avg_cost(con, item, fy)
 
         cost_of_sold = sold_qty * avg_rate
         profit = sale_value - cost_of_sold
