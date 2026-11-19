@@ -12,7 +12,7 @@ from ui.account_master import AccountMasterFrame
 from ui.stock_items import StockItemsFrame
 from ui.report_screens import (TrialBalanceFrame, LedgerFrame, DayBookFrame, OutstandingFrame,
                                ProfitLossFrame, BalanceSheetFrame, InvoiceRegisterFrame,
-                               ReturnsRegisterFrame, StockSummaryFrame)
+                               ReturnsRegisterFrame, StockSummaryFrame, ItemWiseProfitFrame)
 from ui.voucher_dialog import VoucherDialog
 from ui.widgets import ErrorPanel
 from ui.utilities import CompanyFrame, PasswordFrame, AuditFrame, ResetDataFrame, RenewLicenceFrame, DataLocationFrame, ManageCompaniesFrame
@@ -44,6 +44,7 @@ PAGES = {
     "salesreturnreg":    ("Sales Return Register",   lambda sh: ReturnsRegisterFrame(sh.body, sh.con, "Sales Return",    sh.open_voucher)),
     "purchasereturnreg": ("Purchase Return Register", lambda sh: ReturnsRegisterFrame(sh.body, sh.con, "Purchase Return", sh.open_voucher)),
     "stocksummary":   ("Stock Summary",       lambda sh: StockSummaryFrame(sh.body, sh.con)),
+    "itemprofit":     ("Item-wise Profit",    lambda sh: ItemWiseProfitFrame(sh.body, sh.con)),
     "audit":          ("Audit Log",           lambda sh: AuditFrame(sh.body, sh.con, sh.open_voucher)),
     "trial":          ("Trial Balance",       lambda sh: TrialBalanceFrame(sh.body, sh.con)),
     "ledger":         ("Ledger View",         lambda sh: LedgerFrame(sh.body, sh.con)),
