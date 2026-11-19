@@ -45,7 +45,7 @@ class PartyFrame(ctk.CTkFrame):
         top = ctk.CTkFrame(self, fg_color="transparent")
         top.pack(fill="x", padx=28, pady=(18, 8))
         ctk.CTkLabel(top, text="All parties", font=T.f(16, "bold"), text_color=T.TEXT).pack(side="left")
-        ctk.CTkLabel(top, text="(double-click a party to change its credit days)", font=T.f(11), text_color=T.MUTED).pack(side="left", padx=10)
+        ctk.CTkLabel(top, text="(double-click a party to edit)", font=T.f(11), text_color=T.MUTED).pack(side="left", padx=10)
         self.count = ctk.CTkLabel(top, text="", font=T.f(12), text_color=T.MUTED)
         self.count.pack(side="left", padx=10)
         self.filter = ctk.CTkSegmentedButton(
@@ -72,15 +72,19 @@ class PartyFrame(ctk.CTkFrame):
         self.tree.pack(side="left", fill="both", expand=True, padx=(2, 0), pady=2)
         sb.pack(side="right", fill="y", pady=2)
         chain_enter([self.name, self.gstin, self.phone, self.address, self.opening, self.credit], self.save)
-        self.tree.bind("<Double-1>", self.edit_credit)
+        self.tree.bind("<Double-1>", self.edit_party)
         focus_later(self.name)
         self.refresh()
 
-    def edit_credit(self, _e=None):
+    def edit_party(self, _e=None):
         sel = self.tree.selection()
-        if sel:
-            v = self.tree.item(sel[0])["values"]
-            CreditDaysDialog(self.winfo_toplevel(), self.con, str(v[0]), v[6], self.refresh)
+        if not sel:
+            return
+        v = self.tree.item(sel[0])["values"]
+        EditPartyDialog(self.winfo_toplevel(), self.con,
+                        old_name=str(v[0]), ptype=str(v[1]), gstin=str(v[2]),
+                        phone=str(v[3]), address=str(v[4]), credit_days=str(v[6]),
+                        on_saved=self.refresh)
 
     def is_dirty(self):
         return any(w.get().strip() for w in (self.name, self.gstin, self.phone, self.address, self.opening))
@@ -107,3 +111,76 @@ class PartyFrame(ctk.CTkFrame):
             self.tree.insert("", "end", tags=("odd",) if i % 2 else (),
                              values=(p["name"], p["ptype"], p["gstin"], p["phone"], p["address"], amt, p["credit_days"]))
         self.count.configure(text=f"{len(rows)} shown")
+
+
+class EditPartyDialog(ctk.CTkToplevel):
+    """Edit an existing party's details (name, type, GSTIN, phone, address, credit days)."""
+
+    def __init__(self, master, con, old_name, ptype, gstin, phone, address, credit_days, on_saved):
+        super().__init__(master)
+        self.title(f"Edit {old_name}")
+        self.con = con
+        self.old_name = old_name
+        self.on_saved = on_saved
+        self.geometry("460x480")
+        self.transient(master)
+        self.grab_set()
+        self.configure(fg_color=T.BG if hasattr(T, "BG") else "#F5F7FB")
+
+        ctk.CTkLabel(self, text=old_name, font=T.f(18, "bold"),
+                     text_color=T.TEXT).pack(anchor="w", padx=22, pady=(20, 4))
+        ctk.CTkLabel(self, text="Edit the party's details below.",
+                     font=T.f(12), text_color=T.MUTED).pack(anchor="w", padx=22, pady=(0, 14))
+
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=22)
+
+        self.name = T.entry(body, "")
+        self.name.insert(0, old_name)
+        self.ptype = T.option_menu(body, ["Customer", "Supplier"])
+        self.ptype.set(ptype if ptype in ("Customer", "Supplier") else "Customer")
+        self.gstin = T.entry(body, "03ABCDE1234F1Z5 (optional)")
+        if gstin:
+            self.gstin.insert(0, gstin)
+        self.phone = T.entry(body, "Mobile number")
+        if phone:
+            self.phone.insert(0, phone)
+        self.address = T.entry(body, "City / address")
+        if address:
+            self.address.insert(0, address)
+        self.credit = T.entry(body, "0")
+        if credit_days:
+            self.credit.insert(0, str(credit_days))
+
+        fields = [("Party name *", self.name), ("Type", self.ptype),
+                  ("GSTIN", self.gstin), ("Phone", self.phone),
+                  ("Address", self.address), ("Credit days", self.credit)]
+        for i, (label, w) in enumerate(fields):
+            ctk.CTkLabel(body, text=label, font=T.f(12), text_color=T.MUTED).grid(
+                row=i * 2, column=0, sticky="w", pady=(8, 2))
+            w.grid(row=i * 2 + 1, column=0, sticky="ew")
+        body.grid_columnconfigure(0, weight=1)
+
+        self.msg = ctk.CTkLabel(self, text="", font=T.f(13))
+        self.msg.pack(anchor="w", padx=22, pady=(10, 0))
+
+        bar = ctk.CTkFrame(self, fg_color="transparent")
+        bar.pack(fill="x", padx=22, pady=(10, 20))
+        T.button(bar, "Save changes", self.save, width=150).pack(side="left")
+        T.button(bar, "Cancel", self.destroy, width=110,
+                 fg_color="#E7ECF5", text_color=T.TEXT,
+                 hover_color="#DCE3F0").pack(side="left", padx=10)
+
+        chain_enter([self.name, self.gstin, self.phone, self.address, self.credit], self.save)
+        focus_later(self.name)
+
+    def save(self):
+        try:
+            s.update_party(self.con, self.old_name,
+                           self.name.get(), self.ptype.get(), self.gstin.get(),
+                           self.phone.get(), self.address.get(), self.credit.get() or 0)
+        except ValueError as e:
+            self.msg.configure(text=str(e), text_color=T.DANGER)
+            return
+        self.on_saved()
+        self.destroy()
