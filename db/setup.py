@@ -520,6 +520,52 @@ def add_party(con, name, ptype, gstin="", phone="", address="", opening=0, credi
         raise
     return cur.lastrowid
 
+def update_party(con, old_name, name, ptype, gstin="", phone="", address="", credit_days=0):
+    """Update an existing party's details. Renames the linked ledger account too."""
+    name = (name or "").strip()
+    gstin = (gstin or "").strip().upper()
+    if not name:
+        raise ValueError("Party name is required")
+    if ptype not in ("Customer", "Supplier"):
+        raise ValueError("Type must be Customer or Supplier")
+    if gstin and not GSTIN_RE.match(gstin):
+        raise ValueError("GSTIN format is invalid (15 characters, e.g. 03ABCDE1234F1Z5)")
+    days = _credit_days(credit_days)
+
+    row = con.execute("SELECT id, account_id, ptype FROM parties WHERE name=?",
+                      (old_name,)).fetchone()
+    if not row:
+        raise ValueError("Party not found")
+
+    if name != old_name:
+        if con.execute("SELECT 1 FROM parties WHERE name=? COLLATE NOCASE AND id!=?",
+                       (name, row["id"])).fetchone():
+            raise ValueError("Another party with this name already exists")
+        if con.execute("SELECT 1 FROM accounts WHERE name=? COLLATE NOCASE AND id!=?",
+                       (name, row["account_id"])).fetchone():
+            raise ValueError("A ledger account with this name already exists")
+
+    try:
+        if ptype != row["ptype"]:
+            grp, nature, side = (("Sundry Debtors", "Asset", "Dr") if ptype == "Customer"
+                                 else ("Sundry Creditors", "Liability", "Cr"))
+            con.execute("UPDATE accounts SET name=?, grp=?, nature=?, opening_side=? WHERE id=?",
+                        (name, grp, nature, side, row["account_id"]))
+        else:
+            con.execute("UPDATE accounts SET name=? WHERE id=?", (name, row["account_id"]))
+
+        con.execute(
+            "UPDATE parties SET name=?, ptype=?, gstin=?, phone=?, address=?, credit_days=? WHERE id=?",
+            (name, ptype, gstin, (phone or "").strip(), (address or "").strip(), days, row["id"]))
+
+        if name != old_name:
+            con.execute("UPDATE invoices SET party=? WHERE party=?", (name, old_name))
+
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+
 def list_parties(con, ptype=None):
     q = """SELECT p.name, p.ptype, p.gstin, p.phone, p.address, a.opening, a.opening_side, p.credit_days
            FROM parties p JOIN accounts a ON a.id=p.account_id"""
