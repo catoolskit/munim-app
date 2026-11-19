@@ -823,3 +823,149 @@ class ItemWiseProfitFrame(ReportBase):
                  it["avg_cost"], it["cost_of_sold"], it["profit"],
                  round(it["margin"], 2)] for it in rows]
         return f"Item-wise Profit {self.fy.get()}", headers, data
+
+# ---- GST Reports ----
+
+_MONTHS = ["April","May","June","July","August","September",
+           "October","November","December","January","February","March"]
+
+
+class GSTR1Frame(ReportBase):
+    """GSTR-1: outward supplies summary + invoice-wise detail."""
+    title_text = "GSTR-1 (Outward)"
+    sub_text = "Monthly outward supply summary and invoice-wise detail."
+
+    def __init__(self, master, con):
+        super().__init__(master, con)
+        from datetime import date as _d
+        today = _d.today()
+        default_month = (today.month - 3) % 12 or 12
+        self.month = T.option_menu(self.bar, _MONTHS, width=130,
+                                   command=lambda _v: self.refresh())
+        self.month.set(_MONTHS[default_month - 1])
+        self.month.pack(side="right", padx=(10, 0))
+
+        self.summary_lbl = ctk.CTkLabel(self, text="SUMMARY (by GST rate)",
+                                        font=T.f(12, "bold"), text_color=T.MUTED)
+        self.summary_lbl.pack(anchor="w", padx=28, pady=(4, 4))
+        self.summary_tbl = DataTable(self, [
+            ("k",  "Type",          70, L), ("r",  "Rate %",       70, R),
+            ("tx", "Taxable",      140, R), ("cg", "CGST",         110, R),
+            ("sg", "SGST",         110, R), ("ig", "IGST",         110, R),
+            ("t",  "Total",        140, R)], height=6)
+        self.summary_tbl.pack(fill="x", padx=28, pady=(0, 10))
+
+        self.detail_lbl = ctk.CTkLabel(self, text="INVOICE DETAIL",
+                                       font=T.f(12, "bold"), text_color=T.MUTED)
+        self.detail_lbl.pack(anchor="w", padx=28, pady=(4, 4))
+        self.detail_tbl = DataTable(self, [
+            ("dt", "Date",         90,  L), ("no", "No.",          50,  L),
+            ("p",  "Party",       170,  L), ("g",  "GSTIN",       140,  L),
+            ("s",  "Supply",       70,  L), ("tx", "Taxable",     110,  R),
+            ("cg", "CGST",         90,  R), ("sg", "SGST",         90,  R),
+            ("ig", "IGST",         90,  R), ("t",  "Total",       110,  R)], height=10)
+        self.detail_tbl.pack(fill="both", expand=True, padx=28, pady=(0, 24))
+        self.refresh()
+
+    def _mnum(self):
+        return _MONTHS.index(self.month.get()) + 1
+
+    def refresh(self):
+        from db.setup import gstr1_report
+        rep = gstr1_report(self.con, self.fy.get(), self._mnum())
+        srows = [(s["kind"], s["rate"], inr(s["taxable"]), inr(s["cgst"]),
+                  inr(s["sgst"]), inr(s["igst"]), inr(s["total"]))
+                 for s in rep["summary"]]
+        t = rep["totals"]
+        srows.append((("", "Total", inr(t["taxable"]), inr(t["cgst"]),
+                       inr(t["sgst"]), inr(t["igst"]), inr(t["total"])), "total"))
+        self.summary_tbl.set_rows(srows)
+        drows = [(disp_date(i["date"]), i["vno"],
+                  (i["party"] + (" (CN)" if i["vtype"] == "Sales Return" else "")),
+                  i["gstin"] or "-", i["supply"],
+                  inr(i["taxable"]), _amt(i["cgst"]), _amt(i["sgst"]),
+                  _amt(i["igst"]), inr(i["total"])) for i in rep["invoices"]]
+        drows.append((("", "", f"Total ({len(rep['invoices'])} invoices)", "", "",
+                       inr(t["taxable"]), inr(t["cgst"]), inr(t["sgst"]),
+                       inr(t["igst"]), inr(t["total"])), "total"))
+        self.detail_tbl.set_rows(drows)
+
+    def export_data(self):
+        from db.setup import gstr1_report
+        rep = gstr1_report(self.con, self.fy.get(), self._mnum())
+        rows = [["SUMMARY", "", "", "", "", "", ""]]
+        rows.append(["Type", "Rate %", "Taxable", "CGST", "SGST", "IGST", "Total"])
+        for s in rep["summary"]:
+            rows.append([s["kind"], s["rate"], s["taxable"], s["cgst"],
+                         s["sgst"], s["igst"], s["total"]])
+        t = rep["totals"]
+        rows.append(["", "Total", t["taxable"], t["cgst"], t["sgst"], t["igst"], t["total"]])
+        rows.append(["", "", "", "", "", "", ""])
+        rows.append(["INVOICE DETAIL", "", "", "", "", "", ""])
+        rows.append(["Date", "No.", "Party", "GSTIN", "Supply", "Taxable", "Total"])
+        for i in rep["invoices"]:
+            rows.append([disp_date(i["date"]), i["vno"], i["party"], i["gstin"] or "",
+                         i["supply"], i["taxable"], i["total"]])
+        title = f"GSTR-1 {self.month.get()} {self.fy.get()}"
+        return title, ["Col1","Col2","Col3","Col4","Col5","Col6","Col7"], rows
+
+
+class GSTR3BFrame(ReportBase):
+    """GSTR-3B: summary of tax liability, ITC, and net payable."""
+    title_text = "GSTR-3B (Summary)"
+    sub_text = "Monthly summary: outward tax, ITC, and net GST payable."
+
+    def __init__(self, master, con):
+        super().__init__(master, con)
+        from datetime import date as _d
+        today = _d.today()
+        default_month = (today.month - 3) % 12 or 12
+        self.month = T.option_menu(self.bar, _MONTHS, width=130,
+                                   command=lambda _v: self.refresh())
+        self.month.set(_MONTHS[default_month - 1])
+        self.month.pack(side="right", padx=(10, 0))
+
+        self.table = DataTable(self, [
+            ("s",  "Section",                 320, L),
+            ("tx", "Taxable / Amount (Rs)",   180, R),
+            ("cg", "CGST (Rs)",               140, R),
+            ("sg", "SGST (Rs)",               140, R),
+            ("ig", "IGST (Rs)",               140, R)], height=14)
+        self.table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
+        self.refresh()
+
+    def _mnum(self):
+        return _MONTHS.index(self.month.get()) + 1
+
+    def refresh(self):
+        from db.setup import gstr3b_report
+        rep = gstr3b_report(self.con, self.fy.get(), self._mnum())
+        o, i, n = rep["outward"], rep["itc"], rep["net"]
+        rows = [
+            (("3.1  Outward taxable supplies", inr(o["taxable"]),
+              inr(o["cgst"]), inr(o["sgst"]), inr(o["igst"])), "head"),
+            (("4    Eligible ITC (from purchases)", "",
+              inr(i["cgst"]), inr(i["sgst"]), inr(i["igst"])), "head"),
+            (("     Net GST payable (Output − ITC)", "",
+              inr(n["cgst"]), inr(n["sgst"]), inr(n["igst"])), "total"),
+            (("     Total net payable", inr(n["total"]), "", "", ""), "total"),
+            (("", "", "", "", ""), None),
+            (("Closing stock value (reference, from Stock Summary)",
+              inr(rep["stock_value"]), "", "", ""), "head"),
+        ]
+        self.table.set_rows(rows)
+
+    def export_data(self):
+        from db.setup import gstr3b_report
+        rep = gstr3b_report(self.con, self.fy.get(), self._mnum())
+        o, i, n = rep["outward"], rep["itc"], rep["net"]
+        rows = [
+            ["3.1  Outward taxable supplies", o["taxable"], o["cgst"], o["sgst"], o["igst"]],
+            ["4    Eligible ITC", "", i["cgst"], i["sgst"], i["igst"]],
+            ["Net GST payable", "", n["cgst"], n["sgst"], n["igst"]],
+            ["Total net payable", n["total"], "", "", ""],
+            ["Closing stock value (reference)", rep["stock_value"], "", "", ""],
+        ]
+        headers = ["Section", "Amount (Rs)", "CGST", "SGST", "IGST"]
+        title = f"GSTR-3B {self.month.get()} {self.fy.get()}"
+        return title, headers, rows
