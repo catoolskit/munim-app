@@ -798,3 +798,94 @@ def stock_summary(con, fy):
             "avg_rate": avg_rate, "stock_value": stock_value,
         })
     return out
+
+def item_wise_profit(con, fy):
+    """Item-wise profit: sale value - (sold qty × weighted-avg cost)."""
+    from decimal import Decimal
+    start, end = fy_range(fy)
+    items = list_stock_items(con)
+    out = []
+    for item in items:
+        # Sales this FY (qty + value)
+        sale_row = con.execute(
+            """SELECT COALESCE(SUM(CAST(ii.qty AS REAL)), 0) AS qty,
+                      COALESCE(SUM(ii.amount), 0) AS val
+               FROM invoice_items ii
+               JOIN invoices inv ON inv.id = ii.invoice_id
+               JOIN vouchers v ON v.id = inv.voucher_id
+               WHERE ii.stock_item_id=? AND inv.kind='Sales'
+               AND v.vtype='Sales'
+               AND v.vdate BETWEEN ? AND ?""",
+            (item["id"], start, end)).fetchone()
+
+        # Sales Returns (net out)
+        sret_row = con.execute(
+            """SELECT COALESCE(SUM(CAST(ii.qty AS REAL)), 0) AS qty,
+                      COALESCE(SUM(ii.amount), 0) AS val
+               FROM invoice_items ii
+               JOIN invoices inv ON inv.id = ii.invoice_id
+               JOIN vouchers v ON v.id = inv.voucher_id
+               WHERE ii.stock_item_id=? AND v.vtype='Sales Return'
+               AND v.vdate BETWEEN ? AND ?""",
+            (item["id"], start, end)).fetchone()
+
+        sold_qty = float(sale_row["qty"]) - float(sret_row["qty"])
+        sale_value = (float(sale_row["val"]) - float(sret_row["val"])) / 100.0  # paise → rupees
+
+        if sold_qty <= 0:
+            continue  # skip items with no net sales
+
+        # Weighted-avg cost (same logic as stock_summary)
+        pur_row = con.execute(
+            """SELECT COALESCE(SUM(CAST(ii.qty AS REAL) * CAST(ii.rate AS REAL)), 0) AS val,
+                      COALESCE(SUM(CAST(ii.qty AS REAL)), 0) AS qty
+               FROM invoice_items ii
+               JOIN invoices inv ON inv.id = ii.invoice_id
+               JOIN vouchers v ON v.id = inv.voucher_id
+               WHERE ii.stock_item_id=? AND inv.kind='Purchase'
+               AND v.vtype='Purchase'
+               AND v.vdate BETWEEN ? AND ?""",
+            (item["id"], start, end)).fetchone()
+        pret_row = con.execute(
+            """SELECT COALESCE(SUM(CAST(ii.qty AS REAL) * CAST(ii.rate AS REAL)), 0) AS val,
+                      COALESCE(SUM(CAST(ii.qty AS REAL)), 0) AS qty
+               FROM invoice_items ii
+               JOIN invoices inv ON inv.id = ii.invoice_id
+               JOIN vouchers v ON v.id = inv.voucher_id
+               WHERE ii.stock_item_id=? AND v.vtype='Purchase Return'
+               AND v.vdate BETWEEN ? AND ?""",
+            (item["id"], start, end)).fetchone()
+
+        net_val = float(pur_row["val"]) - float(pret_row["val"])
+        net_qty = float(pur_row["qty"]) - float(pret_row["qty"])
+        avg_rate = (net_val / net_qty) if net_qty > 0 else 0.0
+
+        # Previous FY fallback
+        if avg_rate == 0.0:
+            prev = prev_fy(fy)
+            p_start, p_end = fy_range(prev)
+            prev_pur = con.execute(
+                """SELECT COALESCE(SUM(CAST(ii.qty AS REAL) * CAST(ii.rate AS REAL)), 0) AS val,
+                          COALESCE(SUM(CAST(ii.qty AS REAL)), 0) AS qty
+                   FROM invoice_items ii
+                   JOIN invoices inv ON inv.id = ii.invoice_id
+                   JOIN vouchers v ON v.id = inv.voucher_id
+                   WHERE ii.stock_item_id=? AND inv.kind='Purchase'
+                   AND v.vtype='Purchase'
+                   AND v.vdate BETWEEN ? AND ?""",
+                (item["id"], p_start, p_end)).fetchone()
+            prev_qty = float(prev_pur["qty"])
+            if prev_qty > 0:
+                avg_rate = float(prev_pur["val"]) / prev_qty
+
+        cost_of_sold = sold_qty * avg_rate
+        profit = sale_value - cost_of_sold
+        margin = (profit / sale_value * 100) if sale_value > 0 else 0.0
+
+        out.append({
+            "name": item["name"], "unit": item["unit"],
+            "sold_qty": sold_qty, "sale_value": sale_value,
+            "avg_cost": avg_rate, "cost_of_sold": cost_of_sold,
+            "profit": profit, "margin": margin,
+        })
+    return out
