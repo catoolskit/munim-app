@@ -911,9 +911,9 @@ class GSTR1Frame(ReportBase):
 
 
 class GSTR3BFrame(ReportBase):
-    """GSTR-3B: summary of tax liability, ITC, and net payable."""
+    """GSTR-3B: full summary of tax liability, ITC, payment plan, and stock reference."""
     title_text = "GSTR-3B (Summary)"
-    sub_text = "Monthly summary: outward tax, ITC, and net GST payable."
+    sub_text = "Monthly GST: outward tax, ITC, net payable, and suggested payment breakdown."
 
     def __init__(self, master, con):
         super().__init__(master, con)
@@ -926,11 +926,11 @@ class GSTR3BFrame(ReportBase):
         self.month.pack(side="right", padx=(10, 0))
 
         self.table = DataTable(self, [
-            ("s",  "Section",                 320, L),
+            ("s",  "Section",                 380, L),
             ("tx", "Taxable / Amount (Rs)",   180, R),
             ("cg", "CGST (Rs)",               140, R),
             ("sg", "SGST (Rs)",               140, R),
-            ("ig", "IGST (Rs)",               140, R)], height=14)
+            ("ig", "IGST (Rs)",               140, R)], height=22)
         self.table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
         self.refresh()
 
@@ -941,14 +941,42 @@ class GSTR3BFrame(ReportBase):
         from db.setup import gstr3b_report
         rep = gstr3b_report(self.con, self.fy.get(), self._mnum())
         o, i, n = rep["outward"], rep["itc"], rep["net"]
+        itc_used, cash, bal = rep["paid_by_itc"], rep["paid_by_cash"], rep["itc_balance"]
         rows = [
-            (("3.1  Outward taxable supplies", inr(o["taxable"]),
-              inr(o["cgst"]), inr(o["sgst"]), inr(o["igst"])), "head"),
-            (("4    Eligible ITC (from purchases)", "",
-              inr(i["cgst"]), inr(i["sgst"]), inr(i["igst"])), "head"),
-            (("     Net GST payable (Output − ITC)", "",
-              inr(n["cgst"]), inr(n["sgst"]), inr(n["igst"])), "total"),
+            # 3.1 OUTWARD
+            (("3.1  OUTWARD SUPPLIES", "", "", "", ""), "head"),
+            (("     (a) Outward taxable supplies (other than zero-rated, nil, exempted)",
+              inr(o["taxable"]), inr(o["cgst"]), inr(o["sgst"]), inr(o["igst"])), None),
+            (("     (c) Other outward supplies (nil-rated, exempt)",
+              inr(rep["nil_exempt"]), "", "", ""), None),
+
+            # 3.2 INTER-STATE B2C
+            (("3.2  INTER-STATE SUPPLIES TO UNREGISTERED PERSONS",
+              inr(rep["b2c_inter"]["taxable"]), "", "", inr(rep["b2c_inter"]["igst"])), "head"),
+
+            # 4 ITC
+            (("4    ELIGIBLE ITC", "", "", "", ""), "head"),
+            (("     (A) ITC available (from purchases)",
+              "", inr(i["cgst"]), inr(i["sgst"]), inr(i["igst"])), None),
+            (("     (C) Net ITC available (A − B)",
+              "", inr(i["cgst"]), inr(i["sgst"]), inr(i["igst"])), None),
+
+            # NET PAYABLE
+            (("     Net GST payable (Output − ITC)",
+              "", inr(n["cgst"]), inr(n["sgst"]), inr(n["igst"])), "total"),
             (("     Total net payable", inr(n["total"]), "", "", ""), "total"),
+
+            # 6.1 SUGGESTED PAYMENT
+            (("", "", "", "", ""), None),
+            (("6.1  SUGGESTED PAYMENT BREAKDOWN", "", "", "", ""), "head"),
+            (("     Paid through ITC",
+              "", inr(itc_used["cgst"]), inr(itc_used["sgst"]), inr(itc_used["igst"])), None),
+            (("     Paid in cash",
+              "", inr(cash["cgst"]), inr(cash["sgst"]), inr(cash["igst"])), None),
+            (("     Unused ITC balance (c/f)",
+              "", inr(bal["cgst"]), inr(bal["sgst"]), inr(bal["igst"])), None),
+
+            # REFERENCE
             (("", "", "", "", ""), None),
             (("Closing stock value (reference, from Stock Summary)",
               inr(rep["stock_value"]), "", "", ""), "head"),
@@ -959,11 +987,22 @@ class GSTR3BFrame(ReportBase):
         from db.setup import gstr3b_report
         rep = gstr3b_report(self.con, self.fy.get(), self._mnum())
         o, i, n = rep["outward"], rep["itc"], rep["net"]
+        itc_used, cash, bal = rep["paid_by_itc"], rep["paid_by_cash"], rep["itc_balance"]
         rows = [
-            ["3.1  Outward taxable supplies", o["taxable"], o["cgst"], o["sgst"], o["igst"]],
-            ["4    Eligible ITC", "", i["cgst"], i["sgst"], i["igst"]],
+            ["3.1  OUTWARD SUPPLIES", "", "", "", ""],
+            ["(a) Outward taxable supplies", o["taxable"], o["cgst"], o["sgst"], o["igst"]],
+            ["(c) Nil-rated, exempt", rep["nil_exempt"], "", "", ""],
+            ["3.2  Inter-state supplies to unregistered",
+             rep["b2c_inter"]["taxable"], "", "", rep["b2c_inter"]["igst"]],
+            ["4    ELIGIBLE ITC", "", "", "", ""],
+            ["(A) ITC available", "", i["cgst"], i["sgst"], i["igst"]],
+            ["(C) Net ITC available", "", i["cgst"], i["sgst"], i["igst"]],
             ["Net GST payable", "", n["cgst"], n["sgst"], n["igst"]],
             ["Total net payable", n["total"], "", "", ""],
+            ["6.1  SUGGESTED PAYMENT", "", "", "", ""],
+            ["Paid through ITC", "", itc_used["cgst"], itc_used["sgst"], itc_used["igst"]],
+            ["Paid in cash", "", cash["cgst"], cash["sgst"], cash["igst"]],
+            ["Unused ITC balance (c/f)", "", bal["cgst"], bal["sgst"], bal["igst"]],
             ["Closing stock value (reference)", rep["stock_value"], "", "", ""],
         ]
         headers = ["Section", "Amount (Rs)", "CGST", "SGST", "IGST"]
