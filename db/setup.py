@@ -985,22 +985,67 @@ def gstr1_report(con, fy, month_num):
 
 
 def gstr3b_report(con, fy, month_num):
-    """GSTR-3B: summary of outward tax liability, ITC, net payable, with closing stock reference."""
+    """GSTR-3B: full summary of outward tax, interstate B2C, ITC, net payable,
+    suggested payment breakdown, and closing stock reference."""
     start, end = _month_range(fy, month_num)
 
-    # Outward (Sales - Sales Return)
+    # 3.1(a) Outward taxable (non-zero rated)
     out_row = con.execute(
+        """SELECT SUM(CASE WHEN v.vtype='Sales' THEN ii.amount ELSE -ii.amount END) AS taxable,
+                  SUM(CASE WHEN v.vtype='Sales' THEN
+                           CAST(ii.amount AS REAL)*CAST(ii.gst AS REAL)/100.0*
+                           (CASE WHEN inv.interstate=0 THEN 0.5 ELSE 0 END)
+                      ELSE
+                           -CAST(ii.amount AS REAL)*CAST(ii.gst AS REAL)/100.0*
+                           (CASE WHEN inv.interstate=0 THEN 0.5 ELSE 0 END)
+                      END) AS cgst,
+                  SUM(CASE WHEN v.vtype='Sales' THEN
+                           CAST(ii.amount AS REAL)*CAST(ii.gst AS REAL)/100.0*
+                           (CASE WHEN inv.interstate=0 THEN 0.5 ELSE 0 END)
+                      ELSE
+                           -CAST(ii.amount AS REAL)*CAST(ii.gst AS REAL)/100.0*
+                           (CASE WHEN inv.interstate=0 THEN 0.5 ELSE 0 END)
+                      END) AS sgst,
+                  SUM(CASE WHEN v.vtype='Sales' THEN
+                           CAST(ii.amount AS REAL)*CAST(ii.gst AS REAL)/100.0*
+                           (CASE WHEN inv.interstate=1 THEN 1 ELSE 0 END)
+                      ELSE
+                           -CAST(ii.amount AS REAL)*CAST(ii.gst AS REAL)/100.0*
+                           (CASE WHEN inv.interstate=1 THEN 1 ELSE 0 END)
+                      END) AS igst
+           FROM invoice_items ii
+           JOIN invoices inv ON inv.id = ii.invoice_id
+           JOIN vouchers v ON v.id = inv.voucher_id
+           WHERE v.vtype IN ('Sales', 'Sales Return')
+             AND v.vdate BETWEEN ? AND ?
+             AND CAST(ii.gst AS REAL) > 0""",
+        (start, end)).fetchone()
+
+    # 3.1(c) Nil-rated / exempt (gst = 0)
+    nil_row = con.execute(
+        """SELECT SUM(CASE WHEN v.vtype='Sales' THEN ii.amount ELSE -ii.amount END) AS val
+           FROM invoice_items ii
+           JOIN invoices inv ON inv.id = ii.invoice_id
+           JOIN vouchers v ON v.id = inv.voucher_id
+           WHERE v.vtype IN ('Sales', 'Sales Return')
+             AND v.vdate BETWEEN ? AND ?
+             AND CAST(ii.gst AS REAL) = 0""",
+        (start, end)).fetchone()
+
+    # 3.2 Interstate supplies to unregistered (B2C-interstate)
+    b2cus_row = con.execute(
         """SELECT SUM(CASE WHEN v.vtype='Sales' THEN inv.taxable ELSE -inv.taxable END) AS taxable,
-                  SUM(CASE WHEN v.vtype='Sales' THEN inv.cgst    ELSE -inv.cgst    END) AS cgst,
-                  SUM(CASE WHEN v.vtype='Sales' THEN inv.sgst    ELSE -inv.sgst    END) AS sgst,
                   SUM(CASE WHEN v.vtype='Sales' THEN inv.igst    ELSE -inv.igst    END) AS igst
            FROM invoices inv
            JOIN vouchers v ON v.id = inv.voucher_id
+           LEFT JOIN parties p ON p.name = inv.party
            WHERE v.vtype IN ('Sales', 'Sales Return')
-             AND v.vdate BETWEEN ? AND ?""",
+             AND v.vdate BETWEEN ? AND ?
+             AND inv.interstate = 1
+             AND COALESCE(p.gstin, '') = ''""",
         (start, end)).fetchone()
 
-    # ITC (Purchase - Purchase Return)
+    # 4 ITC available (from purchases)
     itc_row = con.execute(
         """SELECT SUM(CASE WHEN v.vtype='Purchase' THEN inv.cgst ELSE -inv.cgst END) AS cgst,
                   SUM(CASE WHEN v.vtype='Purchase' THEN inv.sgst ELSE -inv.sgst END) AS sgst,
@@ -1013,15 +1058,20 @@ def gstr3b_report(con, fy, month_num):
 
     outward = {
         "taxable": to_rupees(out_row["taxable"] or 0),
-        "cgst":    to_rupees(out_row["cgst"] or 0),
-        "sgst":    to_rupees(out_row["sgst"] or 0),
-        "igst":    to_rupees(out_row["igst"] or 0),
+        "cgst":    float(out_row["cgst"] or 0) / 100.0,
+        "sgst":    float(out_row["sgst"] or 0) / 100.0,
+        "igst":    float(out_row["igst"] or 0) / 100.0,
     }
+    nil_exempt = to_rupees(nil_row["val"] or 0)
+    b2c_inter  = {"taxable": to_rupees(b2cus_row["taxable"] or 0),
+                  "igst":    to_rupees(b2cus_row["igst"]    or 0)}
     itc = {
         "cgst": to_rupees(itc_row["cgst"] or 0),
         "sgst": to_rupees(itc_row["sgst"] or 0),
         "igst": to_rupees(itc_row["igst"] or 0),
     }
+
+    # Net GST liability
     net = {
         "cgst": outward["cgst"] - itc["cgst"],
         "sgst": outward["sgst"] - itc["sgst"],
@@ -1029,9 +1079,38 @@ def gstr3b_report(con, fy, month_num):
     }
     net["total"] = net["cgst"] + net["sgst"] + net["igst"]
 
-    # Closing stock value reference (from stock_summary)
+    # 6.1 Suggested payment breakdown: ITC used + cash top-up
+    # (simplified: ITC applied to same head first; cross-utilization skipped for now)
+    paid_by_itc = {
+        "cgst": min(outward["cgst"], itc["cgst"]),
+        "sgst": min(outward["sgst"], itc["sgst"]),
+        "igst": min(outward["igst"], itc["igst"]),
+    }
+    paid_by_cash = {
+        "cgst": max(0.0, outward["cgst"] - itc["cgst"]),
+        "sgst": max(0.0, outward["sgst"] - itc["sgst"]),
+        "igst": max(0.0, outward["igst"] - itc["igst"]),
+    }
+    itc_balance = {
+        "cgst": max(0.0, itc["cgst"] - outward["cgst"]),
+        "sgst": max(0.0, itc["sgst"] - outward["sgst"]),
+        "igst": max(0.0, itc["igst"] - outward["igst"]),
+    }
+
+    # Closing stock reference
     stock = stock_summary(con, fy)
     stock_value = sum(it.get("stock_value", 0.0) for it in stock)
 
-    return {"outward": outward, "itc": itc, "net": net,
-            "stock_value": stock_value, "period_from": start, "period_to": end}
+    return {
+        "outward": outward,
+        "nil_exempt": nil_exempt,
+        "b2c_inter": b2c_inter,
+        "itc": itc,
+        "net": net,
+        "paid_by_itc": paid_by_itc,
+        "paid_by_cash": paid_by_cash,
+        "itc_balance": itc_balance,
+        "stock_value": stock_value,
+        "period_from": start,
+        "period_to": end,
+    }
