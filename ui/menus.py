@@ -34,6 +34,8 @@ MENUS = {
     M("Balance Sheet", "B", ("page", "bs")), M("Trading & P&L", "P", ("page", "pl")),
     M("Stock Summary", "K", ("page", "stocksummary")),
     M("Item-wise Profit", "I", ("page", "itemprofit")),
+    M("GSTR-1 (Outward)", "G", ("page", "gstr1")),
+    M("GSTR-3B (Summary)", "3", ("page", "gstr3b")),
     ]),
     "utilities": ("Utilities", [
         M("Company Details",  "C", ("page", "company")),
