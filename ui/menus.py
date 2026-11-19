@@ -33,6 +33,7 @@ MENUS = {
     M("Purchase Return Register", "N", ("page", "purchasereturnreg")),
     M("Balance Sheet", "B", ("page", "bs")), M("Trading & P&L", "P", ("page", "pl")),
     M("Stock Summary", "K", ("page", "stocksummary")),
+    M("Item-wise Profit", "I", ("page", "itemprofit")),
     ]),
     "utilities": ("Utilities", [
         M("Company Details",  "C", ("page", "company")),
