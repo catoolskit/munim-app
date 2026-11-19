@@ -713,3 +713,59 @@ class StockSummaryFrame(ReportBase):
         data = [[it["name"], it["hsn"], it["unit"], it["opening"],
                  it["purchased"], it["sold"], it["closing"]] for it in rows]
         return f"Stock Summary {self.fy.get()}", headers, data
+
+class StockSummaryFrame(ReportBase):
+    """Item-wise stock: opening + purchased - sold = closing, with weighted-avg valuation."""
+    title_text = "Stock Summary"
+    sub_text = "Item-wise stock position and value for the financial year."
+
+    def __init__(self, master, con):
+        super().__init__(master, con)
+        self.table = DataTable(self, [
+            ("n", "Item",        200, L),
+            ("h", "HSN",          80, L),
+            ("u", "Unit",         60, L),
+            ("o", "Opening",      90, "c"),
+            ("p", "Purchased",   100, "c"),
+            ("s", "Sold",         90, "c"),
+            ("c", "Closing",     100, "c"),
+            ("r", "Avg Rate",    110, R),
+            ("v", "Stock Value", 130, R)], height=14)
+        self.table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
+        self.refresh()
+
+    def _fmt(self, v):
+        return f"{v:,.3f}".rstrip("0").rstrip(".")
+
+    def refresh(self):
+        from db.setup import stock_summary
+        rows = stock_summary(self.con, self.fy.get())
+        out = []
+        totals = [0.0] * 4        # opening, purchased, sold, closing (qty)
+        total_value = 0.0          # stock value in Rs
+        for it in rows:
+            vals = [it["opening"], it["purchased"], it["sold"], it["closing"]]
+            for i, v in enumerate(vals):
+                totals[i] += v
+            total_value += it.get("stock_value", 0.0)
+            out.append((it["name"], it["hsn"] or "-", it["unit"],
+                        self._fmt(it["opening"]), self._fmt(it["purchased"]),
+                        self._fmt(it["sold"]),    self._fmt(it["closing"]),
+                        inr(it.get("avg_rate", 0.0)) if it.get("avg_rate") else "",
+                        inr(it.get("stock_value", 0.0)) if it.get("stock_value") else ""))
+        out.append((("", "", "Total",
+                     self._fmt(totals[0]), self._fmt(totals[1]),
+                     self._fmt(totals[2]), self._fmt(totals[3]),
+                     "", inr(total_value)), "total"))
+        self.table.set_rows(out)
+
+    def export_data(self):
+        from db.setup import stock_summary
+        rows = stock_summary(self.con, self.fy.get())
+        headers = ["Item", "HSN", "Unit", "Opening", "Purchased", "Sold",
+                   "Closing", "Avg Rate", "Stock Value"]
+        data = [[it["name"], it["hsn"], it["unit"], it["opening"],
+                 it["purchased"], it["sold"], it["closing"],
+                 it.get("avg_rate", 0.0), it.get("stock_value", 0.0)]
+                for it in rows]
+        return f"Stock Summary {self.fy.get()}", headers, data
