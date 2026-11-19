@@ -112,7 +112,6 @@ class PartyFrame(ctk.CTkFrame):
                              values=(p["name"], p["ptype"], p["gstin"], p["phone"], p["address"], amt, p["credit_days"]))
         self.count.configure(text=f"{len(rows)} shown")
 
-
 class EditPartyDialog(ctk.CTkToplevel):
     """Edit an existing party's details (name, type, GSTIN, phone, address, credit days)."""
 
@@ -122,18 +121,21 @@ class EditPartyDialog(ctk.CTkToplevel):
         self.con = con
         self.old_name = old_name
         self.on_saved = on_saved
-        self.geometry("460x480")
+        self.geometry("480x620")
         self.transient(master)
         self.grab_set()
-        self.configure(fg_color=T.BG if hasattr(T, "BG") else "#F5F7FB")
 
-        ctk.CTkLabel(self, text=old_name, font=T.f(18, "bold"),
-                     text_color=T.TEXT).pack(anchor="w", padx=22, pady=(20, 4))
-        ctk.CTkLabel(self, text="Edit the party's details below.",
-                     font=T.f(12), text_color=T.MUTED).pack(anchor="w", padx=22, pady=(0, 14))
+        # Fixed header
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.pack(fill="x", padx=22, pady=(20, 4))
+        ctk.CTkLabel(header, text=old_name, font=T.f(18, "bold"),
+                     text_color=T.TEXT).pack(anchor="w")
+        ctk.CTkLabel(header, text="Edit the party's details below.",
+                     font=T.f(12), text_color=T.MUTED).pack(anchor="w", pady=(2, 0))
 
-        body = ctk.CTkFrame(self, fg_color="transparent")
-        body.pack(fill="both", expand=True, padx=22)
+        # Scrollable body
+        body = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=14, pady=(8, 0))
 
         self.name = T.entry(body, "")
         self.name.insert(0, old_name)
@@ -157,15 +159,17 @@ class EditPartyDialog(ctk.CTkToplevel):
                   ("Address", self.address), ("Credit days", self.credit)]
         for i, (label, w) in enumerate(fields):
             ctk.CTkLabel(body, text=label, font=T.f(12), text_color=T.MUTED).grid(
-                row=i * 2, column=0, sticky="w", pady=(8, 2))
-            w.grid(row=i * 2 + 1, column=0, sticky="ew")
+                row=i * 2, column=0, sticky="w", pady=(8, 2), padx=8)
+            w.grid(row=i * 2 + 1, column=0, sticky="ew", padx=8)
         body.grid_columnconfigure(0, weight=1)
 
-        self.msg = ctk.CTkLabel(self, text="", font=T.f(13))
-        self.msg.pack(anchor="w", padx=22, pady=(10, 0))
-
-        bar = ctk.CTkFrame(self, fg_color="transparent")
-        bar.pack(fill="x", padx=22, pady=(10, 20))
+        # Fixed footer (always visible, outside scroll)
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.pack(fill="x", padx=22, pady=(10, 20))
+        self.msg = ctk.CTkLabel(footer, text="", font=T.f(13))
+        self.msg.pack(anchor="w", pady=(0, 8))
+        bar = ctk.CTkFrame(footer, fg_color="transparent")
+        bar.pack(fill="x")
         T.button(bar, "Save changes", self.save, width=150).pack(side="left")
         T.button(bar, "Cancel", self.destroy, width=110,
                  fg_color="#E7ECF5", text_color=T.TEXT,
