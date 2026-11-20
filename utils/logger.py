@@ -1,29 +1,27 @@
-"""Structured error logging for MUNIM (Road B foundation).
-
-Uncaught exceptions are written to C:\\MUNIM\\logs\\error_YYYYMMDD.log.
-Nothing is ever shown to the user from here — the caller decides that.
-"""
+"""Structured error logging for MUNIM."""
 import os
 import sys
 import traceback
 from datetime import datetime
 
-_DEFAULT_LOG_ROOT = r"C:\MUNIM\logs"
+_LOG_SUBDIR = "logs"
 
 
 def _log_root() -> str:
     try:
+        from db.setup import data_dir
         from utils import settings as _s
         st = _s.load_settings()
-        root = (st.get("log_folder") or "").strip() or _DEFAULT_LOG_ROOT
+        root = (st.get("log_folder") or "").strip()
+        if not root:
+            root = os.path.join(data_dir(), _LOG_SUBDIR)
     except Exception:
-        root = _DEFAULT_LOG_ROOT
+        root = os.path.join(os.path.expanduser("~"), "MUNIM", "logs")
     os.makedirs(root, exist_ok=True)
     return root
 
 
 def log_exception(exc_type, exc_value, exc_tb) -> str:
-    """Write the exception to the daily log file. Returns a short user-facing message."""
     try:
         root = _log_root()
         fname = os.path.join(root, f"error_{datetime.now():%Y%m%d}.log")
@@ -40,7 +38,6 @@ def log_exception(exc_type, exc_value, exc_tb) -> str:
 
 
 def install_global_handler():
-    """Call once at app startup to catch all unhandled exceptions."""
     def _handler(exc_type, exc_value, exc_tb):
         log_exception(exc_type, exc_value, exc_tb)
         sys.__excepthook__(exc_type, exc_value, exc_tb)
