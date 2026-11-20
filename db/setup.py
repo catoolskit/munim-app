@@ -184,6 +184,16 @@ CREATE TABLE IF NOT EXISTS stock_manual(
 CREATE TABLE IF NOT EXISTS audit_log(
   id INTEGER PRIMARY KEY, at TEXT NOT NULL, username TEXT NOT NULL DEFAULT '',
   action TEXT NOT NULL, vtype TEXT, vno INTEGER, fy TEXT, detail TEXT);
+CREATE TABLE IF NOT EXISTS bank_recon(
+  id INTEGER PRIMARY KEY,
+  account TEXT NOT NULL DEFAULT 'Bank',
+  stmt_date TEXT NOT NULL,
+  stmt_desc TEXT NOT NULL DEFAULT '',
+  stmt_amount INTEGER NOT NULL,
+  stmt_type TEXT NOT NULL CHECK(stmt_type IN ('Dr','Cr')),
+  voucher_id INTEGER REFERENCES vouchers(id),
+  reconciled INTEGER NOT NULL DEFAULT 0,
+  imported_at TEXT NOT NULL);
 """
 
 DEFAULT_ACCOUNTS = [
@@ -263,6 +273,17 @@ def init_db(path=None):
         con.execute("ALTER TABLE invoice_items ADD COLUMN stock_item_id INTEGER REFERENCES stock_items(id)")
     if "opening_rate" not in [r["name"] for r in con.execute("PRAGMA table_info(stock_items)")]:
         con.execute("ALTER TABLE stock_items ADD COLUMN opening_rate TEXT NOT NULL DEFAULT '0'")
+    # v0.17: bank_recon table
+    con.execute("""CREATE TABLE IF NOT EXISTS bank_recon(
+        id INTEGER PRIMARY KEY,
+        account TEXT NOT NULL DEFAULT 'Bank',
+        stmt_date TEXT NOT NULL,
+        stmt_desc TEXT NOT NULL DEFAULT '',
+        stmt_amount INTEGER NOT NULL,
+        stmt_type TEXT NOT NULL CHECK(stmt_type IN ('Dr','Cr')),
+        voucher_id INTEGER REFERENCES vouchers(id),
+        reconciled INTEGER NOT NULL DEFAULT 0,
+        imported_at TEXT NOT NULL)""")
     if not con.execute("SELECT 1 FROM accounts LIMIT 1").fetchone():
         for n, g, nat in DEFAULT_ACCOUNTS:
             con.execute("INSERT INTO accounts(name,grp,nature) VALUES(?,?,?)", (n, g, nat))
@@ -290,6 +311,7 @@ def reset_all_data(con, admin_password):
         DELETE FROM stock_manual;
         DELETE FROM stock_items;
         DELETE FROM accounts;
+        DELETE FROM bank_recon;
     """)
     for n, g, nat in DEFAULT_ACCOUNTS:
         con.execute("INSERT INTO accounts(name,grp,nature) VALUES(?,?,?)", (n, g, nat))
@@ -541,12 +563,10 @@ def update_party(con, old_name, name, ptype, gstin="", phone="", address="", cre
     if gstin and not GSTIN_RE.match(gstin):
         raise ValueError("GSTIN format is invalid (15 characters, e.g. 03ABCDE1234F1Z5)")
     days = _credit_days(credit_days)
-
     row = con.execute("SELECT id, account_id, ptype FROM parties WHERE name=?",
                       (old_name,)).fetchone()
     if not row:
         raise ValueError("Party not found")
-
     if name != old_name:
         if con.execute("SELECT 1 FROM parties WHERE name=? COLLATE NOCASE AND id!=?",
                        (name, row["id"])).fetchone():
@@ -554,7 +574,6 @@ def update_party(con, old_name, name, ptype, gstin="", phone="", address="", cre
         if con.execute("SELECT 1 FROM accounts WHERE name=? COLLATE NOCASE AND id!=?",
                        (name, row["account_id"])).fetchone():
             raise ValueError("A ledger account with this name already exists")
-
     try:
         if ptype != row["ptype"]:
             grp, nature, side = (("Sundry Debtors", "Asset", "Dr") if ptype == "Customer"
@@ -563,14 +582,45 @@ def update_party(con, old_name, name, ptype, gstin="", phone="", address="", cre
                         (name, grp, nature, side, row["account_id"]))
         else:
             con.execute("UPDATE accounts SET name=? WHERE id=?", (name, row["account_id"]))
-
         con.execute(
             "UPDATE parties SET name=?, ptype=?, gstin=?, phone=?, address=?, credit_days=? WHERE id=?",
             (name, ptype, gstin, (phone or "").strip(), (address or "").strip(), days, row["id"]))
-
         if name != old_name:
             con.execute("UPDATE invoices SET party=? WHERE party=?", (name, old_name))
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
 
+def delete_party(con, name):
+    """Delete a party. Blocks if the party has any invoices or non-zero ledger balance."""
+    row = con.execute("SELECT id, account_id FROM parties WHERE name=?", (name,)).fetchone()
+    if not row:
+        raise ValueError("Party not found")
+    inv_count = con.execute(
+        "SELECT COUNT(*) FROM invoices WHERE party=?", (name,)).fetchone()[0]
+    if inv_count > 0:
+        raise ValueError(
+            f"Cannot delete: {inv_count} invoice(s) exist for this party. "
+            "Delete all their invoices first.")
+    # Check ledger balance
+    acc = con.execute(
+        "SELECT opening, opening_side FROM accounts WHERE id=?",
+        (row["account_id"],)).fetchone()
+    signed_open = acc["opening"] if acc["opening_side"] == "Dr" else -acc["opening"]
+    movement = con.execute(
+        """SELECT COALESCE(SUM(e.dr - e.cr), 0) AS net
+           FROM entries e WHERE e.account_id=?""",
+        (row["account_id"],)).fetchone()["net"]
+    balance = signed_open + movement
+    if balance != 0:
+        from db.setup import to_rupees
+        raise ValueError(
+            f"Cannot delete: ledger balance is Rs {abs(to_rupees(balance)):,.2f}. "
+            "Clear the balance first.")
+    try:
+        con.execute("DELETE FROM accounts WHERE id=?", (row["account_id"],))
+        con.execute("DELETE FROM parties WHERE id=?", (row["id"],))
         con.commit()
     except Exception:
         con.rollback()
@@ -621,9 +671,9 @@ ACCOUNT_GROUPS = [
     ("Loans (Liability)", "Liability"), ("Duties & Taxes", "Liability"),
 ]
 GROUP_NATURE = dict(ACCOUNT_GROUPS)
-SYSTEM_ACCOUNTS = {"Cash", "Bank", "Sales", "Purchase", "Capital", "Sundry Debtors", "Sundry Creditors",
-                   "Stock-in-Trade", "Output CGST", "Output SGST", "Output IGST",
-                   "Input CGST", "Input SGST", "Input IGST"}
+SYSTEM_ACCOUNTS = {"Cash", "Bank", "Sales", "Purchase", "Capital", "Sundry Debtors",
+                   "Sundry Creditors", "Stock-in-Trade", "Output CGST", "Output SGST",
+                   "Output IGST", "Input CGST", "Input SGST", "Input IGST"}
 
 def add_ledger_account(con, name, group, opening=0, side="Dr"):
     name = (name or "").strip()
@@ -666,7 +716,7 @@ def delete_ledger_account(con, name):
     if name in SYSTEM_ACCOUNTS:
         raise ValueError("This is a built-in account and cannot be deleted")
     if con.execute("SELECT 1 FROM parties WHERE account_id=?", (a["id"],)).fetchone():
-        raise ValueError("This account belongs to a party. Parties cannot be deleted yet")
+        raise ValueError("This account belongs to a party. Use Delete Party instead")
     if con.execute("SELECT 1 FROM entries WHERE account_id=?", (a["id"],)).fetchone():
         raise ValueError("This account already has entries, so it cannot be deleted")
     con.execute("DELETE FROM accounts WHERE id=?", (a["id"],))
@@ -715,7 +765,7 @@ def prior_stock_effect(con, fy):
         total += c - o
     return total
 
-# ---------- Stock Items Master ----------
+# ---------- Stock Items ----------
 
 def list_stock_items(con):
     return con.execute(
@@ -732,7 +782,8 @@ def _check_rate(value):
         raise ValueError("Opening rate cannot be negative")
     return v
 
-def add_stock_item(con, name, hsn="", unit="pcs", gst_rate="18", opening_qty="0", opening_rate="0"):
+def add_stock_item(con, name, hsn="", unit="pcs", gst_rate="18",
+                   opening_qty="0", opening_rate="0"):
     name = (name or "").strip()
     if not name:
         raise ValueError("Item name is required")
@@ -767,7 +818,6 @@ def delete_stock_item(con, item_id):
     con.commit()
 
 def _row_get(row, key, default=None):
-    """Safe column read from an sqlite3.Row (older DBs may lack a column)."""
     try:
         v = row[key]
     except (IndexError, KeyError):
@@ -775,7 +825,6 @@ def _row_get(row, key, default=None):
     return default if v is None else v
 
 def _pur_pool(con, item_id, vtype, kind_filter, start, end):
-    """Sum of qty*rate and qty for one voucher type in a date range."""
     q = """SELECT COALESCE(SUM(CAST(ii.qty AS REAL) * CAST(ii.rate AS REAL)), 0) AS val,
                   COALESCE(SUM(CAST(ii.qty AS REAL)), 0) AS qty
            FROM invoice_items ii
@@ -792,18 +841,9 @@ def _pur_pool(con, item_id, vtype, kind_filter, start, end):
     return float(r["val"]), float(r["qty"])
 
 def _avg_cost(con, item, fy):
-    """Weighted-average cost for one item.
-
-    Pool = opening stock (only when an opening rate is set)
-           + this FY's purchases, net of purchase returns.
-    Falls back to the previous FY's purchase average when the pool is empty.
-    Returns 0.0 when no cost basis exists at all.
-    """
     start, end = fy_range(fy)
-
     pur_val, pur_qty = _pur_pool(con, item["id"], "Purchase", "Purchase", start, end)
     pret_val, pret_qty = _pur_pool(con, item["id"], "Purchase Return", None, start, end)
-
     try:
         open_qty = float(_row_get(item, "opening_qty", 0) or 0)
     except (ValueError, TypeError):
@@ -812,74 +852,55 @@ def _avg_cost(con, item, fy):
         open_rate = float(_row_get(item, "opening_rate", 0) or 0)
     except (ValueError, TypeError):
         open_rate = 0.0
-
     use_open = open_qty > 0 and open_rate > 0
     pool_val = (open_qty * open_rate if use_open else 0.0) + pur_val - pret_val
     pool_qty = (open_qty if use_open else 0.0) + pur_qty - pret_qty
-
     if pool_qty > 0 and pool_val > 0:
         return pool_val / pool_qty
-
     p_start, p_end = fy_range(prev_fy(fy))
     prev_val, prev_qty = _pur_pool(con, item["id"], "Purchase", "Purchase", p_start, p_end)
     if prev_qty > 0:
         return prev_val / prev_qty
-
     return open_rate if open_rate > 0 else 0.0
 
 def stock_summary(con, fy):
-    """Item-wise stock: opening + purchased - sold = closing,
-    plus weighted-avg rate and stock value."""
     from decimal import Decimal
     start, end = fy_range(fy)
     items = list_stock_items(con)
     out = []
     for item in items:
         opening = Decimal(str(item["opening_qty"] or "0"))
-
         purchased = Decimal(str(con.execute(
             """SELECT COALESCE(SUM(CAST(ii.qty AS REAL)), 0)
-               FROM invoice_items ii
-               JOIN invoices inv ON inv.id = ii.invoice_id
+               FROM invoice_items ii JOIN invoices inv ON inv.id = ii.invoice_id
                JOIN vouchers v ON v.id = inv.voucher_id
                WHERE ii.stock_item_id=? AND inv.kind='Purchase'
-               AND v.vtype='Purchase'
-               AND v.vdate BETWEEN ? AND ?""",
+               AND v.vtype='Purchase' AND v.vdate BETWEEN ? AND ?""",
             (item["id"], start, end)).fetchone()[0]))
-
         sold = Decimal(str(con.execute(
             """SELECT COALESCE(SUM(CAST(ii.qty AS REAL)), 0)
-               FROM invoice_items ii
-               JOIN invoices inv ON inv.id = ii.invoice_id
+               FROM invoice_items ii JOIN invoices inv ON inv.id = ii.invoice_id
                JOIN vouchers v ON v.id = inv.voucher_id
                WHERE ii.stock_item_id=? AND inv.kind='Sales'
-               AND v.vtype='Sales'
-               AND v.vdate BETWEEN ? AND ?""",
+               AND v.vtype='Sales' AND v.vdate BETWEEN ? AND ?""",
             (item["id"], start, end)).fetchone()[0]))
-
         sales_return = Decimal(str(con.execute(
             """SELECT COALESCE(SUM(CAST(ii.qty AS REAL)), 0)
-               FROM invoice_items ii
-               JOIN invoices inv ON inv.id = ii.invoice_id
+               FROM invoice_items ii JOIN invoices inv ON inv.id = ii.invoice_id
                JOIN vouchers v ON v.id = inv.voucher_id
                WHERE ii.stock_item_id=? AND v.vtype='Sales Return'
                AND v.vdate BETWEEN ? AND ?""",
             (item["id"], start, end)).fetchone()[0]))
-
         purchase_return = Decimal(str(con.execute(
             """SELECT COALESCE(SUM(CAST(ii.qty AS REAL)), 0)
-               FROM invoice_items ii
-               JOIN invoices inv ON inv.id = ii.invoice_id
+               FROM invoice_items ii JOIN invoices inv ON inv.id = ii.invoice_id
                JOIN vouchers v ON v.id = inv.voucher_id
                WHERE ii.stock_item_id=? AND v.vtype='Purchase Return'
                AND v.vdate BETWEEN ? AND ?""",
             (item["id"], start, end)).fetchone()[0]))
-
         closing = opening + purchased + sales_return - sold - purchase_return
-
         avg_rate = _avg_cost(con, item, fy)
         stock_value = float(closing) * avg_rate if avg_rate > 0 else 0.0
-
         out.append({
             "name": item["name"], "hsn": item["hsn"], "unit": item["unit"],
             "opening": float(opening), "purchased": float(purchased),
@@ -889,7 +910,6 @@ def stock_summary(con, fy):
     return out
 
 def item_wise_profit(con, fy):
-    """Item-wise profit: sale value - (sold qty × weighted-avg cost)."""
     start, end = fy_range(fy)
     items = list_stock_items(con)
     out = []
@@ -897,35 +917,27 @@ def item_wise_profit(con, fy):
         sale_row = con.execute(
             """SELECT COALESCE(SUM(CAST(ii.qty AS REAL)), 0) AS qty,
                       COALESCE(SUM(ii.amount), 0) AS val
-               FROM invoice_items ii
-               JOIN invoices inv ON inv.id = ii.invoice_id
+               FROM invoice_items ii JOIN invoices inv ON inv.id = ii.invoice_id
                JOIN vouchers v ON v.id = inv.voucher_id
                WHERE ii.stock_item_id=? AND inv.kind='Sales'
-               AND v.vtype='Sales'
-               AND v.vdate BETWEEN ? AND ?""",
+               AND v.vtype='Sales' AND v.vdate BETWEEN ? AND ?""",
             (item["id"], start, end)).fetchone()
-
         sret_row = con.execute(
             """SELECT COALESCE(SUM(CAST(ii.qty AS REAL)), 0) AS qty,
                       COALESCE(SUM(ii.amount), 0) AS val
-               FROM invoice_items ii
-               JOIN invoices inv ON inv.id = ii.invoice_id
+               FROM invoice_items ii JOIN invoices inv ON inv.id = ii.invoice_id
                JOIN vouchers v ON v.id = inv.voucher_id
                WHERE ii.stock_item_id=? AND v.vtype='Sales Return'
                AND v.vdate BETWEEN ? AND ?""",
             (item["id"], start, end)).fetchone()
-
         sold_qty = float(sale_row["qty"]) - float(sret_row["qty"])
         sale_value = (float(sale_row["val"]) - float(sret_row["val"])) / 100.0
-
         if sold_qty <= 0:
             continue
-
         avg_rate = _avg_cost(con, item, fy)
         cost_of_sold = sold_qty * avg_rate
         profit = sale_value - cost_of_sold
         margin = (profit / sale_value * 100) if sale_value > 0 else 0.0
-
         out.append({
             "name": item["name"], "unit": item["unit"],
             "sold_qty": sold_qty, "sale_value": sale_value,
@@ -935,8 +947,6 @@ def item_wise_profit(con, fy):
     return out
 
 def _month_range(fy, month_num):
-    """Return (start_iso, end_iso) for a month within the FY.
-    month_num: 1=April, 2=May, ..., 12=March."""
     from calendar import monthrange
     y = int(fy[:4])
     if month_num <= 9:
@@ -946,11 +956,8 @@ def _month_range(fy, month_num):
     last = monthrange(year, mon)[1]
     return date(year, mon, 1).isoformat(), date(year, mon, last).isoformat()
 
-
 def gstr1_report(con, fy, month_num):
-    """GSTR-1: outward supplies. Returns summary (by rate, B2B/B2C) + invoice detail."""
     start, end = _month_range(fy, month_num)
-
     detail = con.execute(
         """SELECT v.id, v.vdate, v.vno, v.vtype, inv.party, inv.customer_name,
                   inv.interstate, inv.taxable, inv.cgst, inv.sgst, inv.igst, inv.total,
@@ -962,7 +969,6 @@ def gstr1_report(con, fy, month_num):
              AND v.vdate BETWEEN ? AND ?
            ORDER BY v.vdate, v.vno""",
         (start, end)).fetchall()
-
     invoices = []
     for r in detail:
         sign = -1 if r["vtype"] == "Sales Return" else 1
@@ -978,7 +984,6 @@ def gstr1_report(con, fy, month_num):
             "igst": to_rupees(r["igst"]) * sign,
             "total": to_rupees(r["total"]) * sign,
         })
-
     rate_rows = con.execute(
         """SELECT ii.gst AS rate, COALESCE(p.gstin, '') AS gstin, v.vtype,
                   SUM(ii.amount) AS taxable_paise,
@@ -992,7 +997,6 @@ def gstr1_report(con, fy, month_num):
              AND v.vdate BETWEEN ? AND ?
            GROUP BY ii.gst, (CASE WHEN COALESCE(p.gstin,'')='' THEN 'B2C' ELSE 'B2B' END), v.vtype""",
         (start, end)).fetchall()
-
     summary = {}
     for r in rate_rows:
         rate = str(r["rate"] or "0")
@@ -1006,54 +1010,42 @@ def gstr1_report(con, fy, month_num):
         intra = to_rupees(r["intra_taxable"] or 0) * sign
         inter = to_rupees(r["inter_taxable"] or 0) * sign
         s = summary.setdefault(key, {"rate": rate, "kind": kind,
-                                     "taxable": 0.0, "cgst": 0.0, "sgst": 0.0, "igst": 0.0})
+                                     "taxable": 0.0, "cgst": 0.0,
+                                     "sgst": 0.0, "igst": 0.0})
         s["taxable"] += intra + inter
         s["cgst"] += intra * rate_f / 2
         s["sgst"] += intra * rate_f / 2
         s["igst"] += inter * rate_f
-
     summary_rows = sorted(summary.values(), key=lambda x: (x["kind"], float(x["rate"] or 0)))
     for s in summary_rows:
         s["total"] = s["taxable"] + s["cgst"] + s["sgst"] + s["igst"]
-
     totals = {"taxable": sum(s["taxable"] for s in summary_rows),
-              "cgst":    sum(s["cgst"] for s in summary_rows),
-              "sgst":    sum(s["sgst"] for s in summary_rows),
-              "igst":    sum(s["igst"] for s in summary_rows),
-              "total":   sum(s["total"] for s in summary_rows)}
-
+              "cgst":    sum(s["cgst"]    for s in summary_rows),
+              "sgst":    sum(s["sgst"]    for s in summary_rows),
+              "igst":    sum(s["igst"]    for s in summary_rows),
+              "total":   sum(s["total"]   for s in summary_rows)}
     return {"summary": summary_rows, "invoices": invoices, "totals": totals,
             "period_from": start, "period_to": end}
 
-
 def gstr3b_report(con, fy, month_num):
-    """GSTR-3B: full summary with RCM, ITC cross-utilisation, and all major sections."""
     start, end = _month_range(fy, month_num)
-
-    # 3.1(a) Outward taxable (non-zero rated)
     out_row = con.execute(
         """SELECT SUM(CASE WHEN v.vtype='Sales' THEN ii.amount ELSE -ii.amount END) AS taxable,
                   SUM(CASE WHEN v.vtype='Sales' THEN
                            CAST(ii.amount AS REAL)*CAST(ii.gst AS REAL)/100.0*
                            (CASE WHEN inv.interstate=0 THEN 0.5 ELSE 0 END)
-                      ELSE
-                           -CAST(ii.amount AS REAL)*CAST(ii.gst AS REAL)/100.0*
-                           (CASE WHEN inv.interstate=0 THEN 0.5 ELSE 0 END)
-                      END) AS cgst,
+                      ELSE -CAST(ii.amount AS REAL)*CAST(ii.gst AS REAL)/100.0*
+                           (CASE WHEN inv.interstate=0 THEN 0.5 ELSE 0 END) END) AS cgst,
                   SUM(CASE WHEN v.vtype='Sales' THEN
                            CAST(ii.amount AS REAL)*CAST(ii.gst AS REAL)/100.0*
                            (CASE WHEN inv.interstate=0 THEN 0.5 ELSE 0 END)
-                      ELSE
-                           -CAST(ii.amount AS REAL)*CAST(ii.gst AS REAL)/100.0*
-                           (CASE WHEN inv.interstate=0 THEN 0.5 ELSE 0 END)
-                      END) AS sgst,
+                      ELSE -CAST(ii.amount AS REAL)*CAST(ii.gst AS REAL)/100.0*
+                           (CASE WHEN inv.interstate=0 THEN 0.5 ELSE 0 END) END) AS sgst,
                   SUM(CASE WHEN v.vtype='Sales' THEN
                            CAST(ii.amount AS REAL)*CAST(ii.gst AS REAL)/100.0*
                            (CASE WHEN inv.interstate=1 THEN 1 ELSE 0 END)
-                      ELSE
-                           -CAST(ii.amount AS REAL)*CAST(ii.gst AS REAL)/100.0*
-                           (CASE WHEN inv.interstate=1 THEN 1 ELSE 0 END)
-                      END) AS igst
+                      ELSE -CAST(ii.amount AS REAL)*CAST(ii.gst AS REAL)/100.0*
+                           (CASE WHEN inv.interstate=1 THEN 1 ELSE 0 END) END) AS igst
            FROM invoice_items ii
            JOIN invoices inv ON inv.id = ii.invoice_id
            JOIN vouchers v ON v.id = inv.voucher_id
@@ -1061,59 +1053,41 @@ def gstr3b_report(con, fy, month_num):
              AND v.vdate BETWEEN ? AND ?
              AND CAST(ii.gst AS REAL) > 0""",
         (start, end)).fetchone()
-
-    # 3.1(b) Zero-rated / exports (stub)
     zero_rated = {"taxable": 0.0, "cgst": 0.0, "sgst": 0.0, "igst": 0.0}
-
-    # 3.1(c) Nil-rated / exempt
     nil_row = con.execute(
         """SELECT SUM(CASE WHEN v.vtype='Sales' THEN ii.amount ELSE -ii.amount END) AS val
-           FROM invoice_items ii
-           JOIN invoices inv ON inv.id = ii.invoice_id
+           FROM invoice_items ii JOIN invoices inv ON inv.id = ii.invoice_id
            JOIN vouchers v ON v.id = inv.voucher_id
            WHERE v.vtype IN ('Sales', 'Sales Return')
              AND v.vdate BETWEEN ? AND ?
              AND CAST(ii.gst AS REAL) = 0""",
         (start, end)).fetchone()
-
-    # 3.1(d) Inward supplies liable to RCM
     rcm_row = con.execute(
         """SELECT SUM(CASE WHEN v.vtype='Purchase' THEN inv.taxable ELSE -inv.taxable END) AS taxable,
                   SUM(CASE WHEN v.vtype='Purchase' THEN inv.cgst ELSE -inv.cgst END) AS cgst,
                   SUM(CASE WHEN v.vtype='Purchase' THEN inv.sgst ELSE -inv.sgst END) AS sgst,
                   SUM(CASE WHEN v.vtype='Purchase' THEN inv.igst ELSE -inv.igst END) AS igst
-           FROM invoices inv
-           JOIN vouchers v ON v.id = inv.voucher_id
+           FROM invoices inv JOIN vouchers v ON v.id = inv.voucher_id
            WHERE v.vtype IN ('Purchase', 'Purchase Return')
-             AND v.vdate BETWEEN ? AND ?
-             AND inv.rcm = 1""",
+             AND v.vdate BETWEEN ? AND ? AND inv.rcm = 1""",
         (start, end)).fetchone()
-
-    # 3.2 Interstate B2C
     b2cus_row = con.execute(
         """SELECT SUM(CASE WHEN v.vtype='Sales' THEN inv.taxable ELSE -inv.taxable END) AS taxable,
                   SUM(CASE WHEN v.vtype='Sales' THEN inv.igst    ELSE -inv.igst    END) AS igst
-           FROM invoices inv
-           JOIN vouchers v ON v.id = inv.voucher_id
+           FROM invoices inv JOIN vouchers v ON v.id = inv.voucher_id
            LEFT JOIN parties p ON p.name = inv.party
            WHERE v.vtype IN ('Sales', 'Sales Return')
              AND v.vdate BETWEEN ? AND ?
-             AND inv.interstate = 1
-             AND COALESCE(p.gstin, '') = ''""",
+             AND inv.interstate = 1 AND COALESCE(p.gstin, '') = ''""",
         (start, end)).fetchone()
-
-    # 4(A) ITC — normal (non-RCM) purchases
     itc_row = con.execute(
         """SELECT SUM(CASE WHEN v.vtype='Purchase' THEN inv.cgst ELSE -inv.cgst END) AS cgst,
                   SUM(CASE WHEN v.vtype='Purchase' THEN inv.sgst ELSE -inv.sgst END) AS sgst,
                   SUM(CASE WHEN v.vtype='Purchase' THEN inv.igst ELSE -inv.igst END) AS igst
-           FROM invoices inv
-           JOIN vouchers v ON v.id = inv.voucher_id
+           FROM invoices inv JOIN vouchers v ON v.id = inv.voucher_id
            WHERE v.vtype IN ('Purchase', 'Purchase Return')
-             AND v.vdate BETWEEN ? AND ?
-             AND inv.rcm = 0""",
+             AND v.vdate BETWEEN ? AND ? AND inv.rcm = 0""",
         (start, end)).fetchone()
-
     outward = {
         "taxable": to_rupees(out_row["taxable"] or 0),
         "cgst":    float(out_row["cgst"] or 0) / 100.0,
@@ -1136,108 +1110,57 @@ def gstr3b_report(con, fy, month_num):
         "sgst": to_rupees(itc_row["sgst"] or 0),
         "igst": to_rupees(itc_row["igst"] or 0),
     }
-    # 4(B) ITC reversed — RCM
     itc_reversed = {
         "cgst": to_rupees(rcm_row["cgst"] or 0),
         "sgst": to_rupees(rcm_row["sgst"] or 0),
         "igst": to_rupees(rcm_row["igst"] or 0),
     }
-    # 4(C) Net ITC
     net_itc = {
         "cgst": itc["cgst"] - itc_reversed["cgst"],
         "sgst": itc["sgst"] - itc_reversed["sgst"],
         "igst": itc["igst"] - itc_reversed["igst"],
     }
-
-    # Total liability = outward + RCM
     total_liability = {
         "cgst": outward["cgst"] + rcm_liability["cgst"],
         "sgst": outward["sgst"] + rcm_liability["sgst"],
         "igst": outward["igst"] + rcm_liability["igst"],
     }
-
-    # ── ITC cross-utilisation (GST Act order) ────────────────────────────────
-    # Step 1: IGST ITC → IGST liability
-    # Step 2: remaining IGST ITC → CGST, then SGST
-    # Step 3: CGST ITC → CGST; SGST ITC → SGST (no CGST↔SGST cross)
-    igst_itc  = net_itc["igst"]
-    cgst_itc  = net_itc["cgst"]
-    sgst_itc  = net_itc["sgst"]
-    igst_liab = total_liability["igst"]
-    cgst_liab = total_liability["cgst"]
-    sgst_liab = total_liability["sgst"]
-
-    igst_used_on_igst = min(igst_itc, igst_liab)
-    igst_itc_rem      = igst_itc - igst_used_on_igst
-    igst_liab_rem     = igst_liab - igst_used_on_igst
-
-    igst_used_on_cgst = min(igst_itc_rem, cgst_liab)
-    igst_itc_rem     -= igst_used_on_cgst
-    cgst_liab_rem     = cgst_liab - igst_used_on_cgst
-
-    igst_used_on_sgst = min(igst_itc_rem, sgst_liab)
-    igst_itc_rem     -= igst_used_on_sgst
-    sgst_liab_rem     = sgst_liab - igst_used_on_sgst
-
-    cgst_used    = min(cgst_itc, cgst_liab_rem)
-    cgst_itc_rem = cgst_itc - cgst_used
-    cgst_cash    = max(0.0, cgst_liab_rem - cgst_used)
-
-    sgst_used    = min(sgst_itc, sgst_liab_rem)
-    sgst_itc_rem = sgst_itc - sgst_used
-    sgst_cash    = max(0.0, sgst_liab_rem - sgst_used)
-
+    igst_itc  = net_itc["igst"];  cgst_itc  = net_itc["cgst"];  sgst_itc  = net_itc["sgst"]
+    igst_liab = total_liability["igst"]; cgst_liab = total_liability["cgst"]; sgst_liab = total_liability["sgst"]
+    igst_used_on_igst = min(igst_itc, igst_liab); igst_itc_rem = igst_itc - igst_used_on_igst; igst_liab_rem = igst_liab - igst_used_on_igst
+    igst_used_on_cgst = min(igst_itc_rem, cgst_liab); igst_itc_rem -= igst_used_on_cgst; cgst_liab_rem = cgst_liab - igst_used_on_cgst
+    igst_used_on_sgst = min(igst_itc_rem, sgst_liab); igst_itc_rem -= igst_used_on_sgst; sgst_liab_rem = sgst_liab - igst_used_on_sgst
+    cgst_used = min(cgst_itc, cgst_liab_rem); cgst_itc_rem = cgst_itc - cgst_used; cgst_cash = max(0.0, cgst_liab_rem - cgst_used)
+    sgst_used = min(sgst_itc, sgst_liab_rem); sgst_itc_rem = sgst_itc - sgst_used; sgst_cash = max(0.0, sgst_liab_rem - sgst_used)
     igst_cash = max(0.0, igst_liab_rem)
-
-    paid_by_itc = {
-        "cgst": igst_used_on_cgst + cgst_used,
-        "sgst": igst_used_on_sgst + sgst_used,
-        "igst": igst_used_on_igst,
-    }
+    paid_by_itc = {"cgst": igst_used_on_cgst + cgst_used, "sgst": igst_used_on_sgst + sgst_used, "igst": igst_used_on_igst}
     paid_by_cash = {"cgst": cgst_cash, "sgst": sgst_cash, "igst": igst_cash}
     itc_balance  = {"cgst": cgst_itc_rem, "sgst": sgst_itc_rem, "igst": igst_itc_rem}
-
     net = {"cgst": cgst_cash, "sgst": sgst_cash, "igst": igst_cash}
     net["total"] = net["cgst"] + net["sgst"] + net["igst"]
-
     stock = stock_summary(con, fy)
     stock_value = sum(it.get("stock_value", 0.0) for it in stock)
-
     return {
-        "outward":       outward,
-        "zero_rated":    zero_rated,
-        "nil_exempt":    nil_exempt,
-        "rcm_liability": rcm_liability,
-        "b2c_inter":     b2c_inter,
-        "itc":           itc,
-        "net_itc":       net_itc,
-        "itc_reversed":  itc_reversed,
-        "net":           net,
-        "paid_by_itc":   paid_by_itc,
-        "paid_by_cash":  paid_by_cash,
-        "itc_balance":   itc_balance,
-        "stock_value":   stock_value,
-        "period_from":   start,
-        "period_to":     end,
+        "outward": outward, "zero_rated": zero_rated, "nil_exempt": nil_exempt,
+        "rcm_liability": rcm_liability, "b2c_inter": b2c_inter,
+        "itc": itc, "net_itc": net_itc, "itc_reversed": itc_reversed,
+        "net": net, "paid_by_itc": paid_by_itc, "paid_by_cash": paid_by_cash,
+        "itc_balance": itc_balance, "stock_value": stock_value,
+        "period_from": start, "period_to": end,
     }
 
-
 def gstr1_json(con, fy, month_num):
-    """Generate portal-ready GSTR-1 JSON for the given FY and month.
-
-    Schema follows the GST offline tool / API format:
-      gstin, fp (MMYYYY), b2b, b2cs, hsn
-    Returns a dict ready for json.dumps().
-    """
+    """Generate portal-ready GSTR-1 JSON.
+    Fixes v0.17: rt uses actual GST rate, inv_no uses prefix+vno, pos from buyer GSTIN."""
     from utils import settings as _st
     st = _st.load_settings()
     gstin = (st.get("gstin") or "").strip().upper()
+    prefix = (st.get("invoice_prefix") or "").strip()
     rep = gstr1_report(con, fy, month_num)
-
     y, m, _ = rep["period_from"].split("-")
     fp = f"{m}{y}"
 
-    # B2B — group by buyer GSTIN
+    # B2B
     b2b_map = {}
     for inv in rep["invoices"]:
         if not (inv["b2b"] and inv["gstin"]):
@@ -1246,20 +1169,31 @@ def gstr1_json(con, fy, month_num):
         buyer = inv["gstin"]
         if buyer not in b2b_map:
             b2b_map[buyer] = []
-        # Format date as DD/MM/YYYY
-        raw = inv["date"]   # YYYY-MM-DD
+        raw = inv["date"]
         idt = f"{raw[8:10]}/{raw[5:7]}/{raw[:4]}"
+        # FIX: use prefix+vno for invoice number
+        inv_no = f"{prefix}{inv['vno']}" if prefix else str(inv["vno"])
+        # FIX: pos from buyer GSTIN state code
+        pos = buyer[:2] if buyer[:2].isdigit() else gstin[:2]
+        # FIX: get actual GST rate for this invoice from invoice_items
+        rate_row = con.execute(
+            """SELECT COALESCE(AVG(CAST(ii.gst AS REAL)), 0) AS avg_rate
+               FROM invoice_items ii
+               JOIN invoices i ON i.id = ii.invoice_id
+               WHERE i.voucher_id = ?""",
+            (inv["id"],)).fetchone()
+        rt = float(rate_row["avg_rate"]) if rate_row else 0.0
         b2b_map[buyer].append({
-            "inum":    str(inv["vno"]),
+            "inum":    inv_no,
             "idt":     idt,
             "val":     round(inv["total"] * sign, 2),
-            "pos":     buyer[:2],
+            "pos":     pos,
             "rchrg":   "N",
             "inv_typ": "R",
             "itms": [{
                 "num": 1,
                 "itm_det": {
-                    "rt":    0.0,
+                    "rt":    round(rt, 2),
                     "txval": round(inv["taxable"] * sign, 2),
                     "camt":  round(inv["cgst"]    * sign, 2),
                     "samt":  round(inv["sgst"]    * sign, 2),
@@ -1269,7 +1203,7 @@ def gstr1_json(con, fy, month_num):
             }]
         })
 
-    # B2CS — rate-wise B2C summary from already-computed summary rows
+    # B2CS
     b2cs_list = []
     for s_row in rep["summary"]:
         if s_row["kind"] != "B2C":
@@ -1284,7 +1218,7 @@ def gstr1_json(con, fy, month_num):
             "csamt":   0.0,
         })
 
-    # HSN summary — aggregate from invoice_items for the period
+    # HSN
     hsn_data = con.execute(
         """SELECT ii.gst AS rate,
                   COALESCE(si.hsn, ii.hsn, '') AS hsn,
@@ -1305,7 +1239,6 @@ def gstr1_json(con, fy, month_num):
              AND v.vdate BETWEEN ? AND ?
            GROUP BY ii.gst, hsn""",
         (rep["period_from"], rep["period_to"])).fetchall()
-
     hsn_list = []
     for idx, h in enumerate(hsn_data, 1):
         hsn_list.append({
@@ -1320,7 +1253,6 @@ def gstr1_json(con, fy, month_num):
             "samt":   round(float(h["sgst_p"]) / 100.0, 2),
             "csamt":  0.0,
         })
-
     return {
         "gstin":   gstin,
         "fp":      fp,
@@ -1330,3 +1262,78 @@ def gstr1_json(con, fy, month_num):
         "version": "GST3.0.4",
         "hash":    "hash",
     }
+
+# ---------- Bank Reconciliation ----------
+
+def import_bank_statement(con, account, rows):
+    """Import CSV rows into bank_recon.
+    rows: list of (date_iso, description, amount_rupees, type_str)
+    type_str: 'Dr' or 'Cr' from the bank's perspective.
+    Returns count of rows imported."""
+    from datetime import datetime
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    count = 0
+    for stmt_date, desc, amount, dr_cr in rows:
+        paise = to_paise(amount)
+        con.execute(
+            """INSERT INTO bank_recon(account, stmt_date, stmt_desc, stmt_amount,
+               stmt_type, reconciled, imported_at)
+               VALUES(?,?,?,?,?,0,?)""",
+            (account, stmt_date, desc or "", paise, dr_cr, now))
+        count += 1
+    con.commit()
+    return count
+
+def get_recon_rows(con, account="Bank"):
+    """Return unreconciled bank statement rows with best-match voucher suggestions."""
+    stmt_rows = con.execute(
+        """SELECT * FROM bank_recon WHERE account=? AND reconciled=0
+           ORDER BY stmt_date, id""", (account,)).fetchall()
+    out = []
+    for r in stmt_rows:
+        # Find ledger entries on same date with same amount
+        matches = con.execute(
+            """SELECT v.id, v.vtype, v.vno, v.vdate, v.narration,
+                      e.dr, e.cr
+               FROM entries e
+               JOIN vouchers v ON v.id = e.voucher_id
+               JOIN accounts a ON a.id = e.account_id
+               WHERE a.name = ?
+                 AND v.vdate = ?
+                 AND (e.dr = ? OR e.cr = ?)
+               ORDER BY v.id""",
+            (account, r["stmt_date"], r["stmt_amount"], r["stmt_amount"])).fetchall()
+        out.append({
+            "id":          r["id"],
+            "date":        r["stmt_date"],
+            "desc":        r["stmt_desc"],
+            "amount":      to_rupees(r["stmt_amount"]),
+            "type":        r["stmt_type"],
+            "voucher_id":  r["voucher_id"],
+            "matches":     [{"id": m["id"], "vtype": m["vtype"], "vno": m["vno"],
+                             "narration": m["narration"]} for m in matches],
+        })
+    return out
+
+def reconcile_row(con, recon_id, voucher_id=None):
+    """Mark a bank_recon row as reconciled, optionally linking a voucher."""
+    con.execute(
+        "UPDATE bank_recon SET reconciled=1, voucher_id=? WHERE id=?",
+        (voucher_id, recon_id))
+    con.commit()
+
+def clear_recon(con, account="Bank"):
+    """Remove all reconciliation data for an account (start fresh)."""
+    con.execute("DELETE FROM bank_recon WHERE account=?", (account,))
+    con.commit()
+
+def recon_summary(con, account="Bank"):
+    """Returns dict with counts and totals for the reconciliation summary."""
+    total   = con.execute("SELECT COUNT(*) FROM bank_recon WHERE account=?", (account,)).fetchone()[0]
+    matched = con.execute("SELECT COUNT(*) FROM bank_recon WHERE account=? AND reconciled=1", (account,)).fetchone()[0]
+    unmatched = total - matched
+    stmt_total = con.execute(
+        """SELECT COALESCE(SUM(CASE WHEN stmt_type='Dr' THEN stmt_amount ELSE -stmt_amount END),0)
+           FROM bank_recon WHERE account=?""", (account,)).fetchone()[0]
+    return {"total": total, "matched": matched, "unmatched": unmatched,
+            "stmt_balance": to_rupees(stmt_total)}

@@ -1010,3 +1010,331 @@ class GSTR3BFrame(ReportBase):
         headers = ["Section", "Amount (Rs)", "CGST", "SGST", "IGST"]
         title   = f"GSTR-3B {self.month.get()} {self.fy.get()}"
         return title, headers, rows
+
+
+# ── ADD at bottom of report_screens.py ───────────────────────────────────────
+
+class CashFlowFrame(ReportBase):
+    title_text = "Cash Flow Statement"
+    sub_text   = ("Sources and uses of cash: operating, financing, "
+                  "and investing activities.")
+
+    def __init__(self, master, con):
+        super().__init__(master, con)
+        self.table = DataTable(self, [
+            ("s", "Particulars", 400, L),
+            ("a", "Amount (Rs)", 160, R)], height=18)
+        self.table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
+        self.refresh()
+
+    def refresh(self):
+        from db.reports import cash_flow
+        cf   = cash_flow(self.con, self.fy.get())
+        rows = []
+
+        def section(title, items, total):
+            rows.append((("", ""), "head"))
+            rows.append(((title, ""), "head"))
+            for name, amt in items:
+                rows.append((name, _amt(amt)))
+            rows.append((("  Total", inr(total)), "total"))
+
+        section("A. OPERATING ACTIVITIES",
+                cf["operating"]["items"], cf["operating"]["total"])
+        section("B. FINANCING ACTIVITIES",
+                cf["financing"]["items"], cf["financing"]["total"])
+        section("C. INVESTING ACTIVITIES",
+                cf["investing"]["items"], cf["investing"]["total"])
+
+        rows.append((("", ""), None))
+        rows.append((("Net increase / (decrease) in cash",
+                      inr(cf["net_change"])), "total"))
+        rows.append((("Opening cash & bank balance",
+                      inr(cf["opening_cash"])), None))
+        rows.append((("Closing cash & bank balance",
+                      inr(cf["closing_cash"])), "total"))
+        self.table.set_rows(rows)
+
+    def export_data(self):
+        from db.reports import cash_flow
+        cf   = cash_flow(self.con, self.fy.get())
+        rows = []
+        for section, key in (("Operating", "operating"),
+                              ("Financing", "financing"),
+                              ("Investing", "investing")):
+            rows.append([section, ""])
+            for name, amt in cf[key]["items"]:
+                rows.append([name, amt])
+            rows.append(["Total", cf[key]["total"]])
+            rows.append(["", ""])
+        rows.append(["Net change in cash",    cf["net_change"]])
+        rows.append(["Opening cash & bank",   cf["opening_cash"]])
+        rows.append(["Closing cash & bank",   cf["closing_cash"]])
+        return (f"Cash Flow {self.fy.get()}",
+                ["Particulars", "Amount (Rs)"], rows)
+
+
+class PartyStatementFrame(ReportBase):
+    title_text = "Party Statement"
+    sub_text   = ("Full account statement for one party — "
+                  "opening, all transactions, closing.")
+    with_fy    = True
+
+    def __init__(self, master, con):
+        super().__init__(master, con)
+        names = [p["name"] for p in con.execute(
+            "SELECT name FROM parties ORDER BY name COLLATE NOCASE")]
+        self.party = T.combo(self.bar, names, width=240,
+                             command=lambda _v: self.refresh())
+        self.party.set(names[0] if names else "")
+        self.party.pack(side="right", padx=(10, 0))
+        T.button(self.bar, "Show", self.refresh, width=70).pack(
+            side="right", padx=(10, 0))
+
+        self.summary = ctk.CTkLabel(self, text="", font=T.f(13, "bold"),
+                                    text_color=T.TEXT)
+        self.summary.pack(anchor="w", padx=28, pady=(0, 8))
+        self.table = DataTable(self, [
+            ("dt", "Date",        100, L), ("v",  "Voucher",    140, L),
+            ("n",  "Narration",   280, L), ("d",  "Debit (Rs)", 130, R),
+            ("c",  "Credit (Rs)", 130, R), ("b",  "Balance",    150, R)],
+            height=14)
+        self.table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
+        self.refresh()
+
+    def refresh(self):
+        from db.reports import party_statement
+        name = self.party.get().strip()
+        if not name:
+            return
+        try:
+            ps = party_statement(self.con, name, self.fy.get())
+        except ValueError as e:
+            self.summary.configure(text=str(e), text_color=T.DANGER)
+            self.table.set_rows([])
+            return
+        rows = [(("", "", "Opening balance", "", "",
+                  f"{inr(ps['opening'])} {ps['opening_side']}"), "head")]
+        for x in ps["rows"]:
+            rows.append((disp_date(x["date"]),
+                         f"{x['vtype']} #{x['vno']}",
+                         x["narration"],
+                         _amt(x["dr"]), _amt(x["cr"]),
+                         f"{inr(x['balance'])} {x['side']}"))
+        rows.append((("", "", "Total",
+                      inr(ps["total_dr"]), inr(ps["total_cr"]),
+                      f"{inr(ps['closing'])} {ps['closing_side']}"), "total"))
+        self.table.set_rows(rows)
+        gstin = f"  |  GSTIN: {ps['gstin']}" if ps["gstin"] else ""
+        self.summary.configure(
+            text=(f"{name} ({ps['ptype']}){gstin}   |   "
+                  f"Closing: Rs {inr(ps['closing'])} {ps['closing_side']}"),
+            text_color=T.TEXT)
+
+    def export_data(self):
+        from db.reports import party_statement
+        name = self.party.get().strip()
+        if not name:
+            return "Party Statement", [], []
+        try:
+            ps = party_statement(self.con, name, self.fy.get())
+        except ValueError:
+            return "Party Statement", [], []
+        headers = ["Date", "Voucher", "Narration",
+                   "Debit (Rs)", "Credit (Rs)", "Balance"]
+        rows = [[disp_date(x["date"]), f"{x['vtype']} #{x['vno']}",
+                 x["narration"], x["dr"], x["cr"],
+                 f"{x['balance']} {x['side']}"]
+                for x in ps["rows"]]
+        return (f"Party Statement {name} {self.fy.get()}", headers, rows)
+
+
+class BankReconFrame(ReportBase):
+    title_text = "Bank Reconciliation"
+    sub_text   = ("Import your bank statement CSV and match entries to your books. "
+                  "Unmatched items on either side need investigation.")
+    with_fy    = False
+
+    def __init__(self, master, con):
+        super().__init__(master, con)
+        self.own_controls  = True
+        self._recon_rows   = []
+
+        ctrl = T.card(self)
+        ctrl.pack(fill="x", padx=28, pady=(0, 10))
+
+        bank_names = [r["name"] for r in con.execute(
+            "SELECT name FROM accounts "
+            "WHERE grp IN ('Bank Accounts','Cash-in-hand') "
+            "ORDER BY name")]
+        if not bank_names:
+            bank_names = ["Bank", "Cash"]
+
+        self.account = T.option_menu(ctrl, bank_names, width=160,
+                                     command=lambda _v: self.refresh())
+        self.account.set("Bank" if "Bank" in bank_names else bank_names[0])
+
+        ctk.CTkLabel(ctrl, text="Account", font=T.f(12),
+                     text_color=T.MUTED).grid(
+            row=0, column=0, sticky="w", padx=(20, 8), pady=(12, 2))
+        self.account.grid(row=1, column=0, padx=(20, 8), pady=(0, 14))
+
+        T.button(ctrl, "Import CSV", self._import_csv, width=120).grid(
+            row=1, column=1, padx=8, pady=(0, 14))
+        T.button(ctrl, "Clear all", self._clear, width=100,
+                 fg_color="#E7ECF5", text_color=T.TEXT,
+                 hover_color="#DCE3F0").grid(row=1, column=2, padx=8, pady=(0, 14))
+        T.button(ctrl, "Export Excel", self.export, width=120,
+                 fg_color="#E7ECF5", text_color=T.TEXT,
+                 hover_color="#DCE3F0").grid(row=1, column=3, padx=8, pady=(0, 14))
+
+        ctk.CTkLabel(ctrl,
+                     text="CSV format: Date (DD-MM-YYYY), Description, Amount, Dr/Cr",
+                     font=T.f(11), text_color=T.MUTED).grid(
+            row=2, column=0, columnspan=4, sticky="w", padx=20, pady=(0, 10))
+
+        self.summary_lbl = ctk.CTkLabel(self, text="", font=T.f(13, "bold"),
+                                        text_color=T.TEXT)
+        self.summary_lbl.pack(anchor="w", padx=28, pady=(0, 8))
+
+        self.table = DataTable(self, [
+            ("dt",  "Stmt Date",   100, L),
+            ("dsc", "Description", 240, L),
+            ("amt", "Amount",      110, R),
+            ("typ", "Dr/Cr",        60, L),
+            ("mat", "Best match",  200, L),
+            ("sts", "Status",       90, L)], height=14)
+        self.table.pack(fill="both", expand=True, padx=28, pady=(0, 10))
+        self.table.on_open(self._on_row_open)
+
+        foot = ctk.CTkFrame(self, fg_color="transparent")
+        foot.pack(fill="x", padx=28, pady=(0, 16))
+        T.button(foot, "Mark selected as reconciled",
+                 self._reconcile_selected, width=220).pack(side="left")
+        self.foot_msg = ctk.CTkLabel(foot, text="", font=T.f(12),
+                                     text_color=T.MUTED)
+        self.foot_msg.pack(side="left", padx=12)
+        self.refresh()
+
+    def _import_csv(self):
+        from tkinter import filedialog, messagebox
+        import csv
+        from db.setup import import_bank_statement
+        from utils.fmt import parse_date
+        path = filedialog.askopenfilename(
+            title="Open bank statement CSV",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
+        if not path:
+            return
+        rows = []
+        try:
+            with open(path, encoding="utf-8-sig", newline="") as f:
+                reader = csv.reader(f)
+                for line in reader:
+                    if len(line) < 4:
+                        continue
+                    try:
+                        d     = parse_date(line[0].strip())
+                        desc  = line[1].strip()
+                        amt   = float(line[2].strip().replace(",", ""))
+                        dr_cr = line[3].strip().upper()
+                        dr_cr = ("Dr" if dr_cr in ("DR", "D", "DEBIT")
+                                 else "Cr")
+                        rows.append((d.isoformat(), desc, amt, dr_cr))
+                    except Exception:
+                        continue
+        except Exception as e:
+            messagebox.showerror("MUNIM", f"Could not read CSV:\n{e}")
+            return
+        if not rows:
+            messagebox.showwarning(
+                "MUNIM",
+                "No valid rows found.\n\n"
+                "Expected format: Date, Description, Amount, Dr/Cr")
+            return
+        from db.setup import import_bank_statement as _ibs
+        count = _ibs(self.con, self.account.get(), rows)
+        messagebox.showinfo("MUNIM", f"{count} rows imported.")
+        self.refresh()
+
+    def _clear(self):
+        from tkinter import messagebox
+        from db.setup import clear_recon
+        if not messagebox.askyesno(
+                "Clear reconciliation",
+                "Remove all imported statement rows for this account?"):
+            return
+        clear_recon(self.con, self.account.get())
+        self.refresh()
+
+    def refresh(self):
+        from db.setup import get_recon_rows, recon_summary
+        account = self.account.get()
+        rows    = get_recon_rows(self.con, account)
+        summary = recon_summary(self.con, account)
+        self.summary_lbl.configure(
+            text=(f"Total: {summary['total']} rows  |  "
+                  f"Matched: {summary['matched']}  |  "
+                  f"Unmatched: {summary['unmatched']}  |  "
+                  f"Statement balance: Rs {inr(summary['stmt_balance'])}"))
+        self._recon_rows = rows
+        out = []
+        for r in rows:
+            match_text = ""
+            if r["matches"]:
+                m = r["matches"][0]
+                match_text = f"{m['vtype']} #{m['vno']}"
+            status = ("✓ Matched"  if r["voucher_id"] else
+                      "Suggested"  if r["matches"]    else
+                      "Unmatched")
+            out.append(((disp_date(r["date"]), r["desc"][:40],
+                          inr(r["amount"]), r["type"],
+                          match_text, status),
+                         "total" if status == "✓ Matched" else None,
+                         r["id"]))
+        self.table.set_rows(out)
+
+    def _on_row_open(self, recon_id):
+        from db.setup import reconcile_row
+        row = next((r for r in self._recon_rows if r["id"] == recon_id), None)
+        if not row:
+            return
+        if row["matches"]:
+            reconcile_row(self.con, recon_id, row["matches"][0]["id"])
+            self.foot_msg.configure(
+                text=(f"Matched to "
+                      f"{row['matches'][0]['vtype']} #{row['matches'][0]['vno']}"),
+                text_color=T.OK)
+        else:
+            reconcile_row(self.con, recon_id, None)
+            self.foot_msg.configure(
+                text="Marked reconciled (no voucher match)",
+                text_color=T.MUTED)
+        self.refresh()
+
+    def _reconcile_selected(self):
+        key = self.table.selected_key()
+        if not key:
+            self.foot_msg.configure(text="Select a row first",
+                                    text_color=T.DANGER)
+            return
+        self._on_row_open(key)
+
+    def export_data(self):
+        from db.setup import get_recon_rows
+        rows    = get_recon_rows(self.con, self.account.get())
+        headers = ["Date", "Description", "Amount", "Dr/Cr",
+                   "Best match", "Status"]
+        data    = []
+        for r in rows:
+            match_text = ""
+            if r["matches"]:
+                m = r["matches"][0]
+                match_text = f"{m['vtype']} #{m['vno']}"
+            status = ("Matched"   if r["voucher_id"] else
+                      "Suggested" if r["matches"]    else
+                      "Unmatched")
+            data.append([disp_date(r["date"]), r["desc"],
+                          r["amount"], r["type"], match_text, status])
+        return (f"Bank Reconciliation {self.account.get()}",
+                headers, data)

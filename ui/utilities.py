@@ -8,7 +8,6 @@ from ui.widgets import DataTable
 from datetime import datetime, date
 from utils.licence import validate_key, licence_status, days_remaining
 
-# Indian state codes from GSTIN first 2 digits
 STATE_CODES = {
     "01": "Jammu & Kashmir", "02": "Himachal Pradesh", "03": "Punjab",
     "04": "Chandigarh", "05": "Uttarakhand", "06": "Haryana",
@@ -50,7 +49,8 @@ class CompanyFrame(ctk.CTkFrame):
         e = T.entry(card, "Your business name", width=560)
         e.insert(0, st.get("company_name", ""))
         self.w["company_name"] = e
-        ctk.CTkLabel(card, text="Company name *", font=T.f(12), text_color=T.MUTED).grid(
+        ctk.CTkLabel(card, text="Company name *", font=T.f(12),
+                     text_color=T.MUTED).grid(
             row=0, column=0, columnspan=3, sticky="w", padx=20, pady=(14, 2))
         e.grid(row=1, column=0, columnspan=3, sticky="ew", padx=20)
 
@@ -70,17 +70,19 @@ class CompanyFrame(ctk.CTkFrame):
         self.state_menu = T.option_menu(card, STATE_NAMES, width=220,
                                         command=lambda _v: None)
         saved_state = st.get("state_name", "-- Select state --")
-        self.state_menu.set(saved_state if saved_state in STATE_NAMES else "-- Select state --")
+        self.state_menu.set(saved_state if saved_state in STATE_NAMES
+                            else "-- Select state --")
 
-        for c, (h, w) in enumerate((("GSTIN", gstin_e), ("Phone", phone_e), ("State", self.state_menu))):
+        for c, (h, w) in enumerate((("GSTIN", gstin_e), ("Phone", phone_e),
+                                     ("State", self.state_menu))):
             ctk.CTkLabel(card, text=h, font=T.f(12), text_color=T.MUTED).grid(
                 row=4, column=c, sticky="w", padx=20, pady=(14, 2))
             w.grid(row=5, column=c, padx=20, pady=(0, 4))
 
-        self.gst_reg = ctk.CTkCheckBox(card, text="GST Registered",
-                                       font=T.f(13), text_color=T.TEXT,
-                                       fg_color=T.ACCENT, hover_color=T.ACCENT_HOVER,
-                                       command=self._gst_toggle)
+        self.gst_reg = ctk.CTkCheckBox(
+            card, text="GST Registered", font=T.f(13), text_color=T.TEXT,
+            fg_color=T.ACCENT, hover_color=T.ACCENT_HOVER,
+            command=self._gst_toggle)
         if st.get("gst_registered", True):
             self.gst_reg.select()
 
@@ -88,16 +90,18 @@ class CompanyFrame(ctk.CTkFrame):
         prefix_e.insert(0, st.get("invoice_prefix", ""))
         self.w["invoice_prefix"] = prefix_e
 
-        self.roundoff = ctk.CTkCheckBox(card, text="Round off invoices to nearest rupee",
-                                        font=T.f(13), text_color=T.TEXT,
-                                        fg_color=T.ACCENT, hover_color=T.ACCENT_HOVER)
+        self.roundoff = ctk.CTkCheckBox(
+            card, text="Round off invoices to nearest rupee",
+            font=T.f(13), text_color=T.TEXT,
+            fg_color=T.ACCENT, hover_color=T.ACCENT_HOVER)
         if st.get("round_off", False):
             self.roundoff.select()
 
         self.books_begin = T.entry(card, "e.g. 01-04-2026", width=160)
         self.books_begin.insert(0, st.get("books_begin", ""))
 
-        for c, (h, w) in enumerate((("", self.gst_reg), ("Invoice prefix", prefix_e),
+        for c, (h, w) in enumerate((("", self.gst_reg),
+                                     ("Invoice prefix", prefix_e),
                                      ("Books begin date", self.books_begin))):
             if h:
                 ctk.CTkLabel(card, text=h, font=T.f(12), text_color=T.MUTED).grid(
@@ -107,7 +111,8 @@ class CompanyFrame(ctk.CTkFrame):
                     row=6, column=c, sticky="w", padx=20, pady=(14, 2))
             w.grid(row=7, column=c, padx=20, pady=(0, 4), sticky="w")
 
-        self.roundoff.grid(row=8, column=0, columnspan=2, sticky="w", padx=20, pady=(10, 4))
+        self.roundoff.grid(row=8, column=0, columnspan=2, sticky="w",
+                           padx=20, pady=(10, 4))
 
         bar = ctk.CTkFrame(card, fg_color="transparent")
         bar.grid(row=9, column=0, columnspan=3, sticky="ew", padx=20, pady=18)
@@ -126,11 +131,11 @@ class CompanyFrame(ctk.CTkFrame):
 
     def save(self):
         vals = {k: w.get().strip() for k, w in self.w.items()}
-        vals["gstin"] = vals.get("gstin", "").upper()
+        vals["gstin"]          = vals.get("gstin", "").upper()
         vals["gst_registered"] = bool(self.gst_reg.get())
-        vals["state_name"] = self.state_menu.get()
-        vals["round_off"] = bool(self.roundoff.get())
-        vals["books_begin"] = self.books_begin.get().strip()
+        vals["state_name"]     = self.state_menu.get()
+        vals["round_off"]      = bool(self.roundoff.get())
+        vals["books_begin"]    = self.books_begin.get().strip()
         if not vals["company_name"]:
             self.msg.configure(text="Company name is required", text_color=T.DANGER)
             return
@@ -157,14 +162,16 @@ class PasswordFrame(ctk.CTkFrame):
             anchor="w", padx=28, pady=(24, 14))
         card = T.card(self)
         card.pack(anchor="w", padx=28)
-        self.cur  = T.entry(card, "Current password", width=340, show="*")
+        self.cur  = T.entry(card, "Current password",                width=340, show="*")
         self.new  = T.entry(card, "New password (min 8 characters)", width=340, show="*")
-        self.conf = T.entry(card, "Confirm new password", width=340, show="*")
+        self.conf = T.entry(card, "Confirm new password",            width=340, show="*")
         for w, pad in ((self.cur, (24, 10)), (self.new, (0, 10)), (self.conf, (0, 6))):
             w.pack(padx=24, pady=pad)
-        self.msg = ctk.CTkLabel(card, text="", font=T.f(13), wraplength=340, justify="left")
+        self.msg = ctk.CTkLabel(card, text="", font=T.f(13),
+                                wraplength=340, justify="left")
         self.msg.pack(anchor="w", padx=24, pady=4)
-        T.button(card, "Update password", self.save, width=340).pack(padx=24, pady=(6, 24))
+        T.button(card, "Update password", self.save, width=340).pack(
+            padx=24, pady=(6, 24))
 
     def save(self):
         if not s.login(self.con, self.username, self.cur.get()):
@@ -183,16 +190,15 @@ class PasswordFrame(ctk.CTkFrame):
 
 
 class AuditFrame(ctk.CTkFrame):
-    """Every voucher created, edited or deleted. Filter by type and date."""
     def __init__(self, master, con, opener=None):
         super().__init__(master, fg_color="transparent")
-        self.con = con
-        self.opener = opener
+        self.con     = con
+        self.opener  = opener
         T.title(self, "Audit Log",
                 "Who created, edited or deleted what. Filter by type and date range."
                 ).pack(anchor="w", padx=28, pady=(24, 12))
 
-        ctrl = T.card(self)
+        ctrl  = T.card(self)
         ctrl.pack(fill="x", padx=28, pady=(0, 10))
         today = date.today()
 
@@ -259,8 +265,7 @@ class AuditFrame(ctk.CTkFrame):
                     continue
             except Exception:
                 continue
-
-            if vtype_f != "All types" and e["vtype"] != vtype_f:
+            if vtype_f  != "All types"   and e["vtype"]  != vtype_f:
                 continue
             if action_f != "All actions" and e["action"] != action_f:
                 continue
@@ -268,7 +273,7 @@ class AuditFrame(ctk.CTkFrame):
             change = ""
             try:
                 import json as _json
-                d = _json.loads(e["detail"] or "{}")
+                d      = _json.loads(e["detail"] or "{}")
                 before = d.get("before")
                 after  = d.get("after")
                 if e["action"] == "edit" and before and after:
@@ -294,7 +299,6 @@ class AuditFrame(ctk.CTkFrame):
             from db.setup import to_rupees
             from utils.fmt import inr as _inr
 
-            # get voucher id for Enter/double-click to open
             vid = None
             if e["vtype"] and e["vno"] and e["action"] != "delete":
                 try:
@@ -306,7 +310,8 @@ class AuditFrame(ctk.CTkFrame):
                 except Exception:
                     pass
 
-            when = datetime.strptime(e["at"], "%Y-%m-%d %H:%M:%S").strftime("%d-%m-%Y %H:%M")
+            when = datetime.strptime(
+                e["at"], "%Y-%m-%d %H:%M:%S").strftime("%d-%m-%Y %H:%M")
             row_data = (when, e["username"] or "-",
                         e["action"].capitalize(),
                         f"{e['vtype']} #{e['vno']}" if e["vtype"] else "-",
@@ -320,10 +325,9 @@ class AuditFrame(ctk.CTkFrame):
 
 
 class ResetDataFrame(ctk.CTkFrame):
-    """Wipe all business data — vouchers, parties, accounts. Keeps logins."""
     def __init__(self, master, con, on_done=None):
         super().__init__(master, fg_color="transparent")
-        self.con = con
+        self.con     = con
         self.on_done = on_done
         T.title(self, "Reset / Clear All Data",
                 "Deletes all vouchers, parties and accounts. Keeps your login. Cannot be undone."
@@ -331,19 +335,23 @@ class ResetDataFrame(ctk.CTkFrame):
         card = T.card(self)
         card.pack(anchor="w", padx=28)
 
-        ctk.CTkLabel(card, text="⚠  This will permanently delete all your business data.",
-                     font=T.f(14, "bold"), text_color=T.DANGER).pack(anchor="w", padx=24, pady=(20, 4))
+        ctk.CTkLabel(card,
+                     text="⚠  This will permanently delete all your business data.",
+                     font=T.f(14, "bold"), text_color=T.DANGER).pack(
+            anchor="w", padx=24, pady=(20, 4))
         ctk.CTkLabel(card,
                      text="All vouchers, parties and ledger accounts will be removed.\n"
                           "Your login password will NOT change.\n"
                           "Take a Backup first if you want to keep a copy.",
-                     font=T.f(13), text_color=T.TEXT, justify="left").pack(anchor="w", padx=24, pady=(0, 16))
+                     font=T.f(13), text_color=T.TEXT, justify="left").pack(
+            anchor="w", padx=24, pady=(0, 16))
 
-        ctk.CTkLabel(card, text="Enter admin password to confirm:", font=T.f(13),
-                     text_color=T.MUTED).pack(anchor="w", padx=24)
+        ctk.CTkLabel(card, text="Enter admin password to confirm:",
+                     font=T.f(13), text_color=T.MUTED).pack(anchor="w", padx=24)
         self.pw = T.entry(card, "Admin password", width=300, show="*")
         self.pw.pack(anchor="w", padx=24, pady=(6, 4))
-        self.msg = ctk.CTkLabel(card, text="", font=T.f(13), text_color=T.DANGER, wraplength=400)
+        self.msg = ctk.CTkLabel(card, text="", font=T.f(13),
+                                text_color=T.DANGER, wraplength=400)
         self.msg.pack(anchor="w", padx=24, pady=4)
 
         bar = ctk.CTkFrame(card, fg_color="transparent")
@@ -376,14 +384,12 @@ class ResetDataFrame(ctk.CTkFrame):
 
 
 class RenewLicenceFrame(ctk.CTkFrame):
-    """Utilities → Renew Licence: enter a new key without touching settings.json manually."""
-
     def __init__(self, master):
         super().__init__(master, fg_color="transparent")
-        st = settings.load_settings()
+        st          = settings.load_settings()
         current_key = st.get("licence_key", "")
-        status = licence_status(current_key)
-        days = days_remaining(current_key)
+        status      = licence_status(current_key)
+        days        = days_remaining(current_key)
 
         T.title(self, "Renew Licence",
                 "Enter a new licence key to extend your subscription.").pack(
@@ -407,7 +413,8 @@ class RenewLicenceFrame(ctk.CTkFrame):
         self.key_entry = T.entry(card, "MNM-…", width=500)
         self.key_entry.grid(row=3, column=0, sticky="w", padx=20, pady=(0, 4))
 
-        self.msg = ctk.CTkLabel(card, text="", font=T.f(13), wraplength=480, justify="left")
+        self.msg = ctk.CTkLabel(card, text="", font=T.f(13),
+                                wraplength=480, justify="left")
         self.msg.grid(row=4, column=0, sticky="w", padx=20, pady=(4, 4))
 
         T.button(card, "Activate new key", self._activate, width=200).grid(
@@ -416,7 +423,8 @@ class RenewLicenceFrame(ctk.CTkFrame):
     def _activate(self):
         key = self.key_entry.get().strip()
         if not key:
-            self.msg.configure(text="Please enter a licence key.", text_color=T.DANGER)
+            self.msg.configure(text="Please enter a licence key.",
+                               text_color=T.DANGER)
             return
         try:
             username, expiry = validate_key(key)
@@ -427,14 +435,16 @@ class RenewLicenceFrame(ctk.CTkFrame):
         st["licence_key"] = key
         settings.save_settings(st)
         self.msg.configure(
-            text=f"✓  Licence activated for {username}. Valid until {expiry.strftime('%d-%m-%Y')}.",
+            text=f"✓  Licence activated for {username}. "
+                 f"Valid until {expiry.strftime('%d-%m-%Y')}.",
             text_color=T.OK)
         self.key_entry.delete(0, "end")
+
+
 class ManageCompaniesFrame(ctk.CTkFrame):
-    """Rename or delete companies."""
     def __init__(self, master):
         super().__init__(master, fg_color="transparent")
-        from db.setup import list_companies, delete_company, rename_company
+        from db.setup import list_companies
         from utils.settings import get_active_company
         self._active = get_active_company()
         T.title(self, "Manage Companies",
@@ -452,14 +462,15 @@ class ManageCompaniesFrame(ctk.CTkFrame):
             w.destroy()
         companies = list_companies()
         if not companies:
-            ctk.CTkLabel(self.card, text="No companies found.", font=T.f(13),
-                         text_color=T.MUTED).pack(padx=24, pady=16)
+            ctk.CTkLabel(self.card, text="No companies found.",
+                         font=T.f(13), text_color=T.MUTED).pack(padx=24, pady=16)
             return
         for co in companies:
             row = ctk.CTkFrame(self.card, fg_color="#EEF2FA", corner_radius=8)
             row.pack(fill="x", padx=16, pady=4)
             is_active = co["name"] == self._active
-            ctk.CTkLabel(row, text=co["name"] + (" (current)" if is_active else ""),
+            ctk.CTkLabel(row,
+                         text=co["name"] + (" (current)" if is_active else ""),
                          font=T.f(13, "bold" if is_active else "normal"),
                          text_color=T.ACCENT if is_active else T.TEXT,
                          anchor="w").pack(side="left", padx=14, pady=10)
@@ -474,8 +485,9 @@ class ManageCompaniesFrame(ctk.CTkFrame):
     def _rename(self, name):
         from tkinter import simpledialog
         from db.setup import rename_company
-        new = simpledialog.askstring("Rename Company", f"New name for '{name}':",
-                                     initialvalue=name, parent=self.winfo_toplevel())
+        new = simpledialog.askstring(
+            "Rename Company", f"New name for '{name}':",
+            initialvalue=name, parent=self.winfo_toplevel())
         if not new or new.strip() == name:
             return
         try:
@@ -486,10 +498,11 @@ class ManageCompaniesFrame(ctk.CTkFrame):
             self.msg.configure(text=str(e), text_color=T.DANGER)
 
     def _delete(self, name):
-        from tkinter import messagebox
         from db.setup import delete_company
-        if not messagebox.askyesno("Delete Company",
-                                   f"Permanently delete '{name}' and all its data?\n\nThis cannot be undone."):
+        if not messagebox.askyesno(
+                "Delete Company",
+                f"Permanently delete '{name}' and all its data?\n\n"
+                "This cannot be undone."):
             return
         try:
             delete_company(name)
@@ -498,32 +511,36 @@ class ManageCompaniesFrame(ctk.CTkFrame):
         except ValueError as e:
             self.msg.configure(text=str(e), text_color=T.DANGER)
 
-class DataLocationFrame(ctk.CTkFrame):
-    """Move MUNIM data folder to a new location."""
 
+class DataLocationFrame(ctk.CTkFrame):
     def __init__(self, master):
         super().__init__(master, fg_color="transparent")
         from db.setup import data_dir
         import os
         self._current = data_dir()
-        self._default = r"C:\MUNIM" if os.name == "nt" else os.path.join(os.path.expanduser("~"), "MUNIM")
+        self._default = (r"C:\MUNIM" if os.name == "nt"
+                         else os.path.join(os.path.expanduser("~"), "MUNIM"))
         self._pointer = os.path.join(self._default, "data_location.txt")
 
-        head = ctk.CTkFrame(self, fg_color="transparent")
-        head.pack(fill="x", padx=28, pady=(24, 12))
-        T.title(head, "Data Location", "Move your MUNIM data folder to a new drive or folder.").pack(side="left")
+        T.title(self, "Data Location",
+                "Move your MUNIM data folder to a new drive or folder.").pack(
+            anchor="w", padx=28, pady=(24, 12))
 
         card = T.card(self)
         card.pack(fill="x", padx=28, pady=(0, 16))
 
-        ctk.CTkLabel(card, text="Current data location", font=T.f(12), text_color=T.MUTED).pack(
+        ctk.CTkLabel(card, text="Current data location",
+                     font=T.f(12), text_color=T.MUTED).pack(
             anchor="w", padx=24, pady=(18, 2))
-        self.current_lbl = ctk.CTkLabel(card, text=self._current, font=T.f(13, "bold"),
-                                         text_color=T.TEXT, wraplength=700, justify="left")
+        self.current_lbl = ctk.CTkLabel(
+            card, text=self._current, font=T.f(13, "bold"),
+            text_color=T.TEXT, wraplength=700, justify="left")
         self.current_lbl.pack(anchor="w", padx=24, pady=(0, 16))
 
-        ctk.CTkLabel(card, text="New location (choose a folder — a MUNIM subfolder will be created inside it)",
-                     font=T.f(12), text_color=T.MUTED).pack(anchor="w", padx=24, pady=(0, 4))
+        ctk.CTkLabel(
+            card,
+            text="New location (choose a folder — a MUNIM subfolder will be created inside it)",
+            font=T.f(12), text_color=T.MUTED).pack(anchor="w", padx=24, pady=(0, 4))
 
         row = ctk.CTkFrame(card, fg_color="transparent")
         row.pack(fill="x", padx=24, pady=(0, 18))
@@ -531,63 +548,186 @@ class DataLocationFrame(ctk.CTkFrame):
         self.path_entry.pack(side="left", padx=(0, 10))
         T.button(row, "Browse…", self._browse, width=100).pack(side="left")
 
-        self.msg = ctk.CTkLabel(card, text="", font=T.f(12), text_color=T.DANGER, wraplength=700)
+        self.msg = ctk.CTkLabel(card, text="", font=T.f(12),
+                                text_color=T.DANGER, wraplength=700)
         self.msg.pack(anchor="w", padx=24, pady=(0, 4))
 
-        T.button(card, "Move Data", self._move, width=140).pack(anchor="w", padx=24, pady=(0, 18))
+        T.button(card, "Move Data", self._move, width=140).pack(
+            anchor="w", padx=24, pady=(0, 18))
 
     def _browse(self):
         from tkinter import filedialog
-        folder = filedialog.askdirectory(title="Choose a parent folder for MUNIM data")
+        folder = filedialog.askdirectory(
+            title="Choose a parent folder for MUNIM data")
         if folder:
             self.path_entry.delete(0, "end")
             self.path_entry.insert(0, folder)
 
     def _move(self):
         import shutil, os
-        from tkinter import messagebox
-        from db.setup import data_dir, db_path
-        from utils.settings import load_settings, save_settings
-
         dest_parent = self.path_entry.get().strip()
         if not dest_parent:
-            self.msg.configure(text="Please choose a destination folder first.", text_color=T.DANGER)
+            self.msg.configure(
+                text="Please choose a destination folder first.",
+                text_color=T.DANGER)
             return
         if not os.path.isdir(dest_parent):
-            self.msg.configure(text="That folder does not exist. Please choose an existing folder.", text_color=T.DANGER)
+            self.msg.configure(
+                text="That folder does not exist. Please choose an existing folder.",
+                text_color=T.DANGER)
             return
-
-        dest = os.path.join(dest_parent, "MUNIM")
+        dest    = os.path.join(dest_parent, "MUNIM")
         current = self._current
-
         if os.path.normcase(dest) == os.path.normcase(current):
-            self.msg.configure(text="Data is already at that location.", text_color=T.MUTED)
+            self.msg.configure(text="Data is already at that location.",
+                               text_color=T.MUTED)
             return
-
-        if not messagebox.askyesno("Move Data", f"MUNIM will copy all data to:\n\n{dest}\n\n"
-                                   "Then delete the old location.\n\n"
-                                   "Make sure you have a backup first! Continue?"):
+        if not messagebox.askyesno(
+                "Move Data",
+                f"MUNIM will copy all data to:\n\n{dest}\n\n"
+                "Then delete the old location.\n\n"
+                "Make sure you have a backup first! Continue?"):
             return
-
         try:
-            # 1. Copy entire current data folder to new location
             if os.path.exists(dest):
-                messagebox.showerror("MUNIM", f"Folder already exists:\n{dest}\n\nChoose a different location or rename it.")
+                messagebox.showerror(
+                    "MUNIM",
+                    f"Folder already exists:\n{dest}\n\n"
+                    "Choose a different location or rename it.")
                 return
             shutil.copytree(current, dest)
-
-            # 2. Write the pointer file at default location
             os.makedirs(self._default, exist_ok=True)
             with open(self._pointer, "w", encoding="utf-8") as f:
                 f.write(dest)
-
-            # 3. Delete old data (only if it's not the default location)
             if os.path.normcase(current) != os.path.normcase(self._default):
                 shutil.rmtree(current, ignore_errors=True)
-
-            messagebox.showinfo("MUNIM", f"Data moved to:\n{dest}\n\nRestart MUNIM to use the new location.")
+            messagebox.showinfo(
+                "MUNIM",
+                f"Data moved to:\n{dest}\n\nRestart MUNIM to use the new location.")
             self.current_lbl.configure(text=dest)
-            self.msg.configure(text="Done! Please restart MUNIM.", text_color=T.OK if hasattr(T, 'OK') else "green")
-
+            self.msg.configure(text="Done! Please restart MUNIM.", text_color=T.OK)
         except Exception as e:
             self.msg.configure(text=f"Error: {e}", text_color=T.DANGER)
+
+
+# ── NEW v0.17: Tally Import ───────────────────────────────────────────────────
+
+class TallyImportFrame(ctk.CTkFrame):
+    """Utilities → Import from Tally.
+    Reads a Tally XML export and imports parties + ledger accounts
+    with opening balances (Masters only).
+    """
+
+    def __init__(self, master, con):
+        super().__init__(master, fg_color="transparent")
+        self.con = con
+
+        T.title(self, "Import from Tally",
+                "Import your parties and ledger accounts from a Tally XML export. "
+                "Historical vouchers are not imported — you start entering new "
+                "transactions in MUNIM."
+                ).pack(anchor="w", padx=28, pady=(24, 14))
+
+        # How-to card
+        how = T.card(self)
+        how.pack(fill="x", padx=28, pady=(0, 14))
+        ctk.CTkLabel(how, text="How to export from Tally",
+                     font=T.f(13, "bold"), text_color=T.TEXT).pack(
+            anchor="w", padx=20, pady=(14, 6))
+        for step in [
+            "1.  Open Tally and select your company.",
+            "2.  Go to Gateway of Tally > Export Data.",
+            "3.  Choose Masters > XML format.",
+            "4.  Save the file and select it below.",
+        ]:
+            ctk.CTkLabel(how, text=step, font=T.f(12), text_color=T.MUTED,
+                         anchor="w").pack(anchor="w", padx=20, pady=1)
+        ctk.CTkFrame(how, fg_color=T.CARD, height=12).pack()
+
+        # File picker
+        file_card = T.card(self)
+        file_card.pack(fill="x", padx=28, pady=(0, 14))
+        ctk.CTkLabel(file_card, text="Tally XML file",
+                     font=T.f(12), text_color=T.MUTED).pack(
+            anchor="w", padx=20, pady=(14, 4))
+        row = ctk.CTkFrame(file_card, fg_color="transparent")
+        row.pack(fill="x", padx=20, pady=(0, 14))
+        self.path_entry = T.entry(row, "Select file…", width=460)
+        self.path_entry.pack(side="left", padx=(0, 10))
+        T.button(row, "Browse…", self._browse, width=100).pack(side="left")
+
+        # Import button
+        btn_row = ctk.CTkFrame(self, fg_color="transparent")
+        btn_row.pack(anchor="w", padx=28, pady=(0, 10))
+        T.button(btn_row, "Import Masters", self._import, width=160).pack(side="left")
+        self.msg = ctk.CTkLabel(btn_row, text="", font=T.f(13))
+        self.msg.pack(side="left", padx=14)
+
+        # Results area
+        self.results = ctk.CTkScrollableFrame(self, fg_color="transparent",
+                                              height=300)
+        self.results.pack(fill="both", expand=True, padx=28, pady=(0, 16))
+
+    def _browse(self):
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            title="Select Tally XML export",
+            filetypes=[("XML files", "*.xml"), ("All files", "*.*")])
+        if path:
+            self.path_entry.delete(0, "end")
+            self.path_entry.insert(0, path)
+
+    def _import(self):
+        from utils.tally_import import parse_tally_xml, import_masters
+
+        path = self.path_entry.get().strip()
+        if not path:
+            self.msg.configure(text="Choose a file first.", text_color=T.DANGER)
+            return
+
+        import os
+        if not os.path.exists(path):
+            self.msg.configure(text="File not found.", text_color=T.DANGER)
+            return
+
+        for w in self.results.winfo_children():
+            w.destroy()
+
+        self.msg.configure(text="Reading file…", text_color=T.MUTED)
+        self.update()
+
+        try:
+            data   = parse_tally_xml(path)
+            result = import_masters(self.con, data)
+        except Exception as e:
+            self.msg.configure(text=f"Error: {e}", text_color=T.DANGER)
+            return
+
+        pa = result["parties_added"]
+        aa = result["accounts_added"]
+        self.msg.configure(
+            text=f"Done — {pa} parties, {aa} accounts imported.",
+            text_color=T.OK)
+
+        def _section(title, items, color):
+            if not items:
+                return
+            ctk.CTkLabel(self.results, text=title,
+                         font=T.f(13, "bold"), text_color=color).pack(
+                anchor="w", pady=(10, 2))
+            for item in items:
+                ctk.CTkLabel(self.results, text=f"  • {item}",
+                             font=T.f(12), text_color=T.TEXT,
+                             anchor="w", wraplength=700).pack(anchor="w", pady=1)
+
+        _section(f"✓  Imported ({pa + aa})",
+                 ([f"{pa} parties (customers/suppliers)",
+                   f"{aa} ledger accounts"] if (pa + aa) else []),
+                 T.OK)
+        _section("⚠  Skipped", result["skipped"], T.MUTED)
+        _section("✗  Errors",  result["errors"],  T.DANGER)
+
+        if result["errors"]:
+            self.msg.configure(
+                text=f"Done with {len(result['errors'])} errors — see below.",
+                text_color="#B26A00")

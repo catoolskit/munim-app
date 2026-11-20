@@ -6,19 +6,25 @@ from db import setup as s, reports as rep
 from ui import theme as T
 from ui.menus import MENUS
 from ui.party import PartyFrame
-from ui.entry_screens import JournalFrame, TradeFrame, SummaryFrame, PaymentFrame, SalesReturnFrame, PurchaseReturnFrame
+from ui.entry_screens import (JournalFrame, TradeFrame, SummaryFrame,
+                               PaymentFrame, SalesReturnFrame, PurchaseReturnFrame)
 from ui.help import HelpFrame
 from ui.account_master import AccountMasterFrame
 from ui.stock_items import StockItemsFrame
-from ui.report_screens import (TrialBalanceFrame, LedgerFrame, DayBookFrame, OutstandingFrame,
-                               ProfitLossFrame, BalanceSheetFrame, InvoiceRegisterFrame,
-                               ReturnsRegisterFrame, StockSummaryFrame, ItemWiseProfitFrame,
-                               GSTR1Frame, GSTR3BFrame)
+from ui.report_screens import (TrialBalanceFrame, LedgerFrame, DayBookFrame,
+                                OutstandingFrame, ProfitLossFrame, BalanceSheetFrame,
+                                InvoiceRegisterFrame, ReturnsRegisterFrame,
+                                StockSummaryFrame, ItemWiseProfitFrame,
+                                GSTR1Frame, GSTR3BFrame,
+                                CashFlowFrame, PartyStatementFrame, BankReconFrame)
 from ui.about import AboutFrame
 from ui.voucher_dialog import VoucherDialog
 from ui.widgets import ErrorPanel
-from ui.utilities import CompanyFrame, PasswordFrame, AuditFrame, ResetDataFrame, RenewLicenceFrame, DataLocationFrame, ManageCompaniesFrame
-from utils import errlog
+from ui.utilities import (CompanyFrame, PasswordFrame, AuditFrame, ResetDataFrame,
+                           RenewLicenceFrame, DataLocationFrame, ManageCompaniesFrame,
+                           TallyImportFrame)
+from ui.dashboard import DashboardFrame
+from utils import errlog, logger
 from utils import settings
 from utils import backup as bkup
 from utils.fmt import inr, disp_date
@@ -31,7 +37,7 @@ PAGES = {
     "renew":          ("Renew Licence",       lambda sh: RenewLicenceFrame(sh.body)),
     "datalocation":   ("Data Location",       lambda sh: DataLocationFrame(sh.body)),
     "companies":      ("Manage Companies",    lambda sh: ManageCompaniesFrame(sh.body)),
-    "about":          ("About MUNIM",         lambda sh: AboutFrame(sh.body)),          # ← new
+    "about":          ("About MUNIM",         lambda sh: AboutFrame(sh.body)),
     "journal":        ("Voucher Entry",       lambda sh: JournalFrame(sh.body, sh.con, sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
     "sales":          ("Sales Invoice",       lambda sh: TradeFrame(sh.body, sh.con, "Sales", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
     "purchase":       ("Purchase Bill",       lambda sh: TradeFrame(sh.body, sh.con, "Purchase", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
@@ -59,7 +65,14 @@ PAGES = {
     "daybook":        ("Day Book",            lambda sh: DayBookFrame(sh.body, sh.con, sh.open_voucher)),
     "pl":             ("Trading & P&L",       lambda sh: ProfitLossFrame(sh.body, sh.con)),
     "bs":             ("Balance Sheet",       lambda sh: BalanceSheetFrame(sh.body, sh.con)),
+    # v0.17 new pages
+    "dashboard":      ("Dashboard",           lambda sh: DashboardFrame(sh.body, sh.con)),
+    "cashflow":       ("Cash Flow",           lambda sh: CashFlowFrame(sh.body, sh.con)),
+    "partystatement": ("Party Statement",     lambda sh: PartyStatementFrame(sh.body, sh.con)),
+    "bankrecon":      ("Bank Reconciliation", lambda sh: BankReconFrame(sh.body, sh.con)),
+    "tallyimport":    ("Import from Tally",   lambda sh: TallyImportFrame(sh.body, sh.con)),
 }
+
 SEL_BG, HINT = "#E6EEFA", "↑ ↓ move     Enter open     Letter jump     Esc back"
 
 
@@ -73,20 +86,24 @@ class MenuView(ctk.CTkFrame):
             side(wrap).pack(side="left", padx=14, anchor="n")
         card = T.card(wrap, width=400)
         card.pack(side="left", padx=14, anchor="n")
-        ctk.CTkLabel(card, text=title.upper(), font=T.f(11, "bold"), text_color=T.MUTED).pack(
-            anchor="w", padx=24, pady=(20, 8))
+        ctk.CTkLabel(card, text=title.upper(), font=T.f(11, "bold"),
+                     text_color=T.MUTED).pack(anchor="w", padx=24, pady=(20, 8))
         for i, it in enumerate(items):
             on = it["go"] is not None
-            row = ctk.CTkFrame(card, fg_color="transparent", corner_radius=8, height=42, width=352)
+            row = ctk.CTkFrame(card, fg_color="transparent",
+                               corner_radius=8, height=42, width=352)
             row.pack(padx=16, pady=(2, 16) if i == len(items) - 1 else 2)
             row.pack_propagate(False)
             lbl = ctk.CTkLabel(row, text=it["label"], font=T.f(15), anchor="w",
                                text_color=T.TEXT if on else "#A3ACBF")
             lbl.pack(side="left", padx=14)
-            chip = ctk.CTkLabel(row, text=it["key"] if on else "soon", font=T.f(11, "bold"),
+            chip = ctk.CTkLabel(row,
+                                text=it["key"] if on else "soon",
+                                font=T.f(11, "bold"),
                                 text_color=T.ACCENT if on else "#A3ACBF",
                                 fg_color=SEL_BG if on else "transparent",
-                                corner_radius=6, width=34 if on else 40, height=22)
+                                corner_radius=6,
+                                width=34 if on else 40, height=22)
             chip.pack(side="right", padx=12)
             for w in (row, lbl, chip):
                 w.bind("<Button-1>", lambda _e, i=i: self.pick(i))
@@ -128,23 +145,26 @@ class Shell(ctk.CTkFrame):
         bar = ctk.CTkFrame(self, fg_color=T.NAVY, corner_radius=0, height=58)
         bar.pack(fill="x")
         bar.pack_propagate(False)
-        ctk.CTkLabel(bar, text="MUNIM", font=T.f(20, "bold"), text_color="white").pack(
-            side="left", padx=(22, 18))
-        self.back_btn = ctk.CTkButton(bar, text="←  Back", width=84, height=32, corner_radius=8,
-                                      fg_color=T.NAVY_HOVER, hover_color=T.NAVY_ACTIVE,
-                                      font=T.f(12, "bold"), command=self.go_back)
+        ctk.CTkLabel(bar, text="MUNIM", font=T.f(20, "bold"),
+                     text_color="white").pack(side="left", padx=(22, 18))
+        self.back_btn = ctk.CTkButton(
+            bar, text="←  Back", width=84, height=32, corner_radius=8,
+            fg_color=T.NAVY_HOVER, hover_color=T.NAVY_ACTIVE,
+            font=T.f(12, "bold"), command=self.go_back)
         self.crumb = ctk.CTkLabel(bar, text="", font=T.f(13), text_color="#9FB3D9")
         self.crumb.pack(side="left", padx=14)
         right = ctk.CTkFrame(bar, fg_color="transparent")
         right.pack(side="right", padx=20)
-        self.company_lbl = ctk.CTkLabel(right, text="", font=T.f(13, "bold"), text_color="white")
+        self.company_lbl = ctk.CTkLabel(right, text="", font=T.f(13, "bold"),
+                                        text_color="white")
         self.company_lbl.pack(anchor="e")
         from datetime import date as _d
         ctk.CTkLabel(right, text=f"FY {s.fy_of(_d.today())}  ·  {username}",
                      font=T.f(11), text_color="#9FB3D9").pack(anchor="e")
 
         self.status = ctk.CTkLabel(self, text=HINT, font=T.f(11), text_color=T.MUTED,
-                                   anchor="w", fg_color="#EAEEF5", height=28, corner_radius=0)
+                                   anchor="w", fg_color="#EAEEF5", height=28,
+                                   corner_radius=0)
         self.status.pack(side="bottom", fill="x")
         self.body = ctk.CTkFrame(self, fg_color="transparent")
         self.body.pack(fill="both", expand=True)
@@ -170,10 +190,9 @@ class Shell(ctk.CTkFrame):
         super().destroy()
 
     def _do_auto_backup(self):
-        """Silently copy the DB to the backup folder and stamp last_backup."""
-        st = settings.load_settings()
+        st      = settings.load_settings()
         company = st.get("company_name", "company")
-        path = bkup.auto_backup(self.con, company, st)
+        path    = bkup.auto_backup(self.con, company, st)
         if path:
             st = bkup.record_backup(st)
             settings.save_settings(st)
@@ -186,8 +205,10 @@ class Shell(ctk.CTkFrame):
         if len(self.stack) > 1:
             dirty = getattr(self.current, "is_dirty", None)
             if callable(dirty) and dirty():
-                if not messagebox.askyesno("Unsaved entry",
-                        "You have typed something that is not saved yet.\n\nLeave this screen and lose it?"):
+                if not messagebox.askyesno(
+                        "Unsaved entry",
+                        "You have typed something that is not saved yet.\n\n"
+                        "Leave this screen and lose it?"):
                     return
             self.stack.pop()
             self.render()
@@ -210,10 +231,17 @@ class Shell(ctk.CTkFrame):
             try:
                 self.current = PAGES[name][1](self)
             except Exception:
-                self.current = ErrorPanel(self.body, errlog.log_exception(*sys.exc_info()))
+                msg = logger.log_exception(*sys.exc_info())
+                self.current = ErrorPanel(self.body, msg)
+                messagebox.showerror(
+                    "MUNIM — Something went wrong",
+                    f"An error occurred opening this screen.\n\n"
+                    f"Details saved to:\n{errlog.log_path()}\n\n"
+                    f"Share this file with support if the problem continues.")
         self.current.pack(fill="both", expand=True)
-        labels = ["Gateway"] + [MENUS[n][0] if k == "menu" else PAGES[n][0]
-                                 for k, n in self.stack[1:]]
+        labels = ["Gateway"] + [
+            MENUS[n][0] if k == "menu" else PAGES[n][0]
+            for k, n in self.stack[1:]]
         self.crumb.configure(text="  ›  ".join(labels))
         if len(self.stack) > 1:
             self.back_btn.pack(side="left", before=self.crumb)
@@ -223,7 +251,8 @@ class Shell(ctk.CTkFrame):
     def pick(self, item):
         go = item["go"]
         if go is None:
-            self.status.configure(text=f"{item['label']} arrives in a later release.")
+            self.status.configure(
+                text=f"{item['label']} arrives in a later release.")
         elif go[0] in ("menu", "page"):
             self.push((go[0], go[1]))
         elif go[0] == "fn":
@@ -236,7 +265,8 @@ class Shell(ctk.CTkFrame):
                       on_edit=self.edit_voucher, on_changed=refresh)
 
     def edit_voucher(self, vid):
-        vt = self.con.execute("SELECT vtype FROM vouchers WHERE id=?", (vid,)).fetchone()["vtype"]
+        vt = self.con.execute(
+            "SELECT vtype FROM vouchers WHERE id=?", (vid,)).fetchone()["vtype"]
         self._edit_id = vid
         self.push(("page", {"Sales": "sales", "Purchase": "purchase"}.get(vt, "journal")))
 
@@ -261,78 +291,165 @@ class Shell(ctk.CTkFrame):
         self.company_lbl.configure(text=name or "Set up your company")
 
     def _info_card(self, parent):
+        from db.setup import stock_summary as _ss
         st = settings.load_settings()
-        c = s.counts(self.con)
+        c  = s.counts(self.con)
         receivable, payable = rep.receivable_payable(self.con)
-        card = T.card(parent, width=300)
+        fy = s.fy_of(date.today())
+
+        today_str   = date.today().isoformat()
+        month_start = date.today().replace(day=1).isoformat()
+
+        try:
+            today_sales = self.con.execute(
+                """SELECT COALESCE(SUM(inv.total),0)
+                   FROM invoices inv JOIN vouchers v ON v.id=inv.voucher_id
+                   WHERE v.vtype='Sales' AND v.vdate=?""",
+                (today_str,)).fetchone()[0]
+        except Exception:
+            today_sales = 0
+
+        try:
+            month_sales = self.con.execute(
+                """SELECT COALESCE(SUM(inv.total),0)
+                   FROM invoices inv JOIN vouchers v ON v.id=inv.voucher_id
+                   WHERE v.vtype='Sales' AND v.vdate BETWEEN ? AND ?""",
+                (month_start, today_str)).fetchone()[0]
+        except Exception:
+            month_sales = 0
+
+        try:
+            stock_items = _ss(self.con, fy)
+            stock_value = sum(it.get("stock_value", 0.0) for it in stock_items)
+        except Exception:
+            stock_value = 0.0
+
+        try:
+            out_rep = rep.outstanding_report(self.con, "Sales")
+            top5 = sorted(out_rep["parties"],
+                          key=lambda p: -p["balance"])[:5]
+        except Exception:
+            top5 = []
+
+        try:
+            month_num = (date.today().month - 3) % 12 or 12
+            from db.setup import gstr3b_report
+            gst_rep    = gstr3b_report(self.con, fy, month_num)
+            gst_payable = gst_rep["net"]["total"]
+        except Exception:
+            gst_payable = 0.0
+
+        card = T.card(parent, width=320)
+
         ctk.CTkLabel(card, text="CURRENT COMPANY", font=T.f(11, "bold"),
                      text_color=T.MUTED).pack(anchor="w", padx=24, pady=(20, 6))
-        ctk.CTkLabel(card, text=st.get("company_name") or "Not set up yet",
-                     font=T.f(18, "bold"), text_color=T.TEXT, wraplength=250,
-                     justify="left").pack(anchor="w", padx=24)
-        ctk.CTkLabel(card, text=f"Financial year {s.fy_of(date.today())}", font=T.f(12),
-                     text_color=T.MUTED).pack(anchor="w", padx=24, pady=(2, 14))
+        ctk.CTkLabel(card,
+                     text=st.get("company_name") or "Not set up yet",
+                     font=T.f(18, "bold"), text_color=T.TEXT,
+                     wraplength=270, justify="left").pack(anchor="w", padx=24)
+        ctk.CTkLabel(card, text=f"Financial year {fy}", font=T.f(12),
+                     text_color=T.MUTED).pack(anchor="w", padx=24, pady=(2, 10))
 
-        def row(label, value, color=T.TEXT):
+        ctk.CTkFrame(card, fg_color=T.BORDER, height=1).pack(fill="x", padx=24)
+
+        def row(label, value, color=T.TEXT, bold=False):
             r = ctk.CTkFrame(card, fg_color=T.CARD, corner_radius=0)
-            r.pack(fill="x", padx=24, pady=3)
-            ctk.CTkLabel(r, text=label, font=T.f(13), text_color=T.MUTED).pack(side="left")
-            ctk.CTkLabel(r, text=value, font=T.f(13, "bold"), text_color=color).pack(side="right")
+            r.pack(fill="x", padx=24, pady=2)
+            ctk.CTkLabel(r, text=label, font=T.f(12),
+                         text_color=T.MUTED).pack(side="left")
+            ctk.CTkLabel(r, text=value,
+                         font=T.f(13, "bold" if bold else "normal"),
+                         text_color=color).pack(side="right")
 
-        row("Customers owe you", inr(receivable), T.OK if receivable else T.TEXT)
-        row("You owe suppliers", inr(payable), "#B26A00" if payable else T.TEXT)
-        row("Vouchers", str(c["vouchers"]))
+        ctk.CTkLabel(card, text="TODAY", font=T.f(10, "bold"),
+                     text_color=T.MUTED).pack(anchor="w", padx=24, pady=(12, 2))
+        row("Today's sales",  f"Rs {inr(today_sales / 100)}",
+            T.OK if today_sales else T.TEXT)
+        row("This month",     f"Rs {inr(month_sales / 100)}")
+
+        ctk.CTkLabel(card, text="OUTSTANDING", font=T.f(10, "bold"),
+                     text_color=T.MUTED).pack(anchor="w", padx=24, pady=(12, 2))
+        row("Customers owe you", f"Rs {inr(receivable)}",
+            T.OK if receivable else T.TEXT, bold=True)
+        row("You owe suppliers", f"Rs {inr(payable)}",
+            "#B26A00" if payable else T.TEXT, bold=True)
+
+        ctk.CTkLabel(card, text="STOCK & GST", font=T.f(10, "bold"),
+                     text_color=T.MUTED).pack(anchor="w", padx=24, pady=(12, 2))
+        row("Stock value",  f"Rs {inr(stock_value)}")
+        row("GST payable",  f"Rs {inr(gst_payable)}",
+            T.DANGER if gst_payable > 0 else T.TEXT)
+
+        if top5:
+            ctk.CTkLabel(card, text="TOP OUTSTANDING", font=T.f(10, "bold"),
+                         text_color=T.MUTED).pack(anchor="w", padx=24, pady=(12, 2))
+            for p in top5:
+                row(p["party"][:22], f"Rs {inr(p['balance'])}",
+                    T.DANGER if p["balance"] > 50000 else T.TEXT)
+
+        ctk.CTkFrame(card, fg_color=T.BORDER, height=1).pack(
+            fill="x", padx=24, pady=(10, 0))
 
         last = st.get("last_backup")
         nag  = bkup.should_nag(st)
+        ctk.CTkLabel(card, text="BACKUP", font=T.f(10, "bold"),
+                     text_color=T.MUTED).pack(anchor="w", padx=24, pady=(10, 2))
         if last:
-            days = (date.today() - date.fromisoformat(last)).days
             row("Last backup", disp_date(last), T.DANGER if nag else T.OK)
         else:
             row("Last backup", "never", T.DANGER)
 
-        # Backup nag banner (only shown when overdue)
         if nag:
             banner = ctk.CTkFrame(card, fg_color="#FFF3CD", corner_radius=6)
             banner.pack(fill="x", padx=24, pady=(8, 4))
             ctk.CTkLabel(banner,
-                         text="⚠  No backup in over 7 days — go to Utilities > Backup Data",
+                         text="⚠  No backup in over 7 days\nUtilities > Backup Data",
                          font=T.f(11), text_color="#7A4F00",
                          wraplength=240, justify="left").pack(padx=10, pady=6)
 
         steps = [
-            ("Set up your company",       bool(st.get("company_name")), "Utilities > Company Details"),
-            ("Add a customer or supplier", c["parties"] > 0,            "Masters > Party Master"),
-            ("Record a sale or purchase",  c["vouchers"] > 0,           "Transactions"),
-            ("Take a backup",              bool(last),                   "Utilities > Backup Data"),
+            ("Set up your company",        bool(st.get("company_name")),
+             "Utilities > Company Details"),
+            ("Add a customer or supplier", c["parties"] > 0,
+             "Masters > Party Master"),
+            ("Record a sale or purchase",  c["vouchers"] > 0,
+             "Transactions"),
+            ("Take a backup",              bool(last),
+             "Utilities > Backup Data"),
         ]
         if not all(done for _t, done, _h in steps):
-            ctk.CTkLabel(card, text="GETTING STARTED", font=T.f(11, "bold"),
-                         text_color=T.MUTED).pack(anchor="w", padx=24, pady=(16, 4))
+            ctk.CTkLabel(card, text="GETTING STARTED", font=T.f(10, "bold"),
+                         text_color=T.MUTED).pack(
+                anchor="w", padx=24, pady=(12, 4))
             for text, done, hint in steps:
-                ctk.CTkLabel(card, text=("✓  " if done else "○  ") + text,
-                             font=T.f(13), text_color=T.OK if done else T.TEXT).pack(
-                             anchor="w", padx=24, pady=(3, 0))
+                ctk.CTkLabel(card,
+                             text=("✓  " if done else "○  ") + text,
+                             font=T.f(12),
+                             text_color=T.OK if done else T.TEXT).pack(
+                    anchor="w", padx=24, pady=(2, 0))
                 if not done:
-                    ctk.CTkLabel(card, text="     " + hint, font=T.f(11),
+                    ctk.CTkLabel(card, text="     " + hint,
+                                 font=T.f(11),
                                  text_color=T.ACCENT).pack(anchor="w", padx=24)
-        ctk.CTkFrame(card, fg_color=T.CARD, corner_radius=0, height=18).pack()
+
+        ctk.CTkFrame(card, fg_color=T.CARD, corner_radius=0, height=16).pack()
         return card
 
-def backup(self):
-    st = settings.load_settings()
-    folder = filedialog.askdirectory(
-        title="Choose a folder for the backup",
-        initialdir=s.data_dir()          # ← only this line added
-    )
-    if not folder:
-        return
-    try:
-        path = s.backup_db(self.con, folder)
-    except Exception as e:
-        messagebox.showerror("MUNIM", f"Backup failed:\n{e}")
-        return
-    st = bkup.record_backup(st)
-    settings.save_settings(st)
-    messagebox.showinfo("MUNIM", f"Backup saved:\n{path}\n\n"
-                        "Keep a copy on a USB drive or cloud folder, not only on this PC.")
+    def backup(self):
+        st = settings.load_settings()
+        folder = filedialog.askdirectory(
+            title="Choose a folder for the backup",
+            initialdir=s.data_dir())
+        if not folder:
+            return
+        try:
+            path = s.backup_db(self.con, folder)
+        except Exception as e:
+            messagebox.showerror("MUNIM", f"Backup failed:\n{e}")
+            return
+        st = bkup.record_backup(st)
+        settings.save_settings(st)
+        messagebox.showinfo("MUNIM",
+                            f"Backup saved:\n{path}\n\n"
+                            "Keep a copy on a USB drive or cloud folder, "
+                            "not only on this PC.")

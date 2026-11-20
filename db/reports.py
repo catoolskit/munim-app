@@ -1,4 +1,5 @@
-"""Read-only reports: ledger, day book, profit & loss, balance sheet. Amounts returned in rupees."""
+"""Read-only reports: ledger, day book, profit & loss, balance sheet,
+cash flow, party statement. Amounts returned in rupees."""
 from datetime import date, timedelta
 from db.setup import account_states, fy_range, to_rupees
 from db.setup import get_stock as s_get_stock, prior_stock_effect as s_prior_stock_effect
@@ -11,7 +12,6 @@ def _side(bal):
 
 def ledger_view(con, name, fy, date_from=None, date_to=None):
     start, end = fy_range(fy)
-    # Apply date range filter if provided
     if date_from:
         start = max(start, date_from.isoformat())
     if date_to:
@@ -32,12 +32,13 @@ def ledger_view(con, name, fy, date_from=None, date_to=None):
         tdr += r["dr"]; tcr += r["cr"]
         side, amt = _side(bal)
         rows.append({"date": r["vdate"], "vtype": r["vtype"], "vno": r["vno"],
-                     "narration": r["narration"], "dr": to_rupees(r["dr"]), "cr": to_rupees(r["cr"]),
-                     "balance": to_rupees(amt), "side": side})
+                     "narration": r["narration"], "dr": to_rupees(r["dr"]),
+                     "cr": to_rupees(r["cr"]), "balance": to_rupees(amt), "side": side})
     cs, ca = _side(bal)
     return {"account": name, "opening": to_rupees(a0), "opening_side": s0, "rows": rows,
             "total_dr": to_rupees(tdr), "total_cr": to_rupees(tcr),
             "closing": to_rupees(ca), "closing_side": cs}
+
 
 def day_book(con, date_from, date_to):
     out = []
@@ -58,8 +59,6 @@ def _paise(x):
 
 
 def profit_and_loss(con, fy, closing_stock=None, opening_stock=None):
-    """Totals for the whole year. Stock values default to those saved for the year (see set_stock);
-    pass numbers (rupees) to override. Net profit = income + closing stock - expenses - opening stock."""
     states, _ = account_states(con, fy)
     inc, exp = [], []
     ti = te = 0
@@ -72,18 +71,17 @@ def profit_and_loss(con, fy, closing_stock=None, opening_stock=None):
     o_db, c_db = s_get_stock(con, fy)
     cs = c_db if closing_stock is None else _paise(closing_stock)
     os_ = o_db if opening_stock is None else _paise(opening_stock)
-    return {"income": inc, "expenses": exp, "closing_stock": to_rupees(cs), "opening_stock": to_rupees(os_),
+    return {"income": inc, "expenses": exp,
+            "closing_stock": to_rupees(cs), "opening_stock": to_rupees(os_),
             "total_income": to_rupees(ti), "total_expenses": to_rupees(te),
             "net_profit": to_rupees(ti + cs - te - os_)}
 
 
 TRADING_EXPENSE_GROUPS = ("Purchase Accounts", "Direct Expenses")
-TRADING_INCOME_GROUPS = ("Sales Accounts", "Direct Income")
+TRADING_INCOME_GROUPS  = ("Sales Accounts", "Direct Income")
 
 
 def trading_and_pl(con, fy, closing_stock=None, opening_stock=None):
-    """Trading Account (gross profit) and Profit & Loss Account (net profit), each with two sides
-    that total to the same figure. Sales/Purchase/direct accounts go to trading; the rest to P&L."""
     states, _ = account_states(con, fy)
     grp = {r["name"]: r["grp"] for r in con.execute("SELECT name, grp FROM accounts")}
     pl = profit_and_loss(con, fy, closing_stock, opening_stock)
@@ -98,7 +96,7 @@ def trading_and_pl(con, fy, closing_stock=None, opening_stock=None):
             (t_exp if grp.get(st["name"]) in TRADING_EXPENSE_GROUPS else i_exp).append((st["name"], net))
     os_, cs = _paise(pl["opening_stock"]), _paise(pl["closing_stock"])
     gross = sum(a for _, a in t_inc) + cs - sum(a for _, a in t_exp) - os_
-    net = gross + sum(a for _, a in i_inc) - sum(a for _, a in i_exp)
+    net   = gross + sum(a for _, a in i_inc) - sum(a for _, a in i_exp)
     tl = ([("Opening Stock", os_)] if os_ else []) + t_exp
     tr = t_inc + ([("Closing Stock", cs)] if cs else [])
     if gross > 0:
@@ -111,11 +109,13 @@ def trading_and_pl(con, fy, closing_stock=None, opening_stock=None):
         pl_l.append(("Net Profit", net))
     elif net < 0:
         pl_r.append(("Net Loss", -net))
-    cv = lambda rows: [(n, to_rupees(a)) for n, a in rows]
+    cv  = lambda rows: [(n, to_rupees(a)) for n, a in rows]
     tot = lambda rows: to_rupees(sum(a for _, a in rows))
-    return {"trading": {"left": cv(tl), "right": cv(tr), "left_total": tot(tl), "right_total": tot(tr),
+    return {"trading": {"left": cv(tl), "right": cv(tr),
+                        "left_total": tot(tl), "right_total": tot(tr),
                         "gross_profit": to_rupees(gross)},
-            "pl": {"left": cv(pl_l), "right": cv(pl_r), "left_total": tot(pl_l), "right_total": tot(pl_r),
+            "pl": {"left": cv(pl_l), "right": cv(pl_r),
+                   "left_total": tot(pl_l), "right_total": tot(pl_r),
                    "net_profit": to_rupees(net)},
             "opening_stock": pl["opening_stock"], "closing_stock": pl["closing_stock"]}
 
@@ -131,7 +131,7 @@ def balance_sheet(con, fy, closing_stock=None, opening_stock=None):
         net = st["bf"] + st["dr"] - st["cr"]
         if net == 0:
             continue
-        to_assets = (net > 0)  # Dr balance sits with assets, Cr balance with liabilities
+        to_assets = (net > 0)
         (assets if to_assets else liabs).append((st["name"], abs(net)))
     if cs:
         assets.append(("Closing Stock", cs))
@@ -141,7 +141,7 @@ def balance_sheet(con, fy, closing_stock=None, opening_stock=None):
     elif profit < 0:
         assets.append(("Profit & Loss A/c (loss)", -profit))
     ta, tl = sum(a for _, a in assets), sum(a for _, a in liabs)
-    if ta != tl:  # one-sided opening balances
+    if ta != tl:
         diff = abs(ta - tl)
         (liabs if ta > tl else assets).append(("Difference in opening balances", diff))
         ta, tl = max(ta, tl), max(ta, tl)
@@ -151,11 +151,10 @@ def balance_sheet(con, fy, closing_stock=None, opening_stock=None):
 
 
 def invoice_register(con, fy, kind):
-    """Sales or purchase register for a financial year, with settlement status. Bills saved before
-    item details were stored show party '(details not stored)', status '-' and only their total."""
     start, end = fy_range(fy)
     out = []
-    q = """SELECT v.id, v.vdate, v.vno, v.narration, i.party, i.taxable, i.cgst, i.sgst, i.igst, i.total,
+    q = """SELECT v.id, v.vdate, v.vno, v.narration, i.party, i.taxable,
+                  i.cgst, i.sgst, i.igst, i.total,
                   (SELECT COALESCE(SUM(dr),0) FROM entries WHERE voucher_id=v.id) AS dr_total,
                   COALESCE((SELECT SUM(amount) FROM allocations WHERE invoice_voucher_id=v.id),0) AS settled,
                   i.customer_name
@@ -164,22 +163,24 @@ def invoice_register(con, fy, kind):
     for r in con.execute(q, (kind, start, end)):
         has = r["party"] is not None
         total = r["total"] if has else r["dr_total"]
-        immediate = has and r["party"] in ("Cash", "Bank")      # paid at the counter
+        immediate = has and r["party"] in ("Cash", "Bank")
         out.append({"id": r["id"], "date": r["vdate"], "vno": r["vno"],
-                    "party": ((f"{r['party']} ({r['customer_name']})" if r["customer_name"] else r["party"])
+                    "party": ((f"{r['party']} ({r['customer_name']})"
+                               if r["customer_name"] else r["party"])
                               if has else "(details not stored)"),
                     "taxable": to_rupees(r["taxable"]) if has else 0,
-                    "cgst": to_rupees(r["cgst"]) if has else 0,
-                    "sgst": to_rupees(r["sgst"]) if has else 0,
-                    "igst": to_rupees(r["igst"]) if has else 0,
-                    "total": to_rupees(total),
-                    "balance": to_rupees(max(total - r["settled"], 0)) if has and not immediate else 0,
-                    "status": ("Paid" if immediate else bl.invoice_status(total, r["settled"])) if has else "-"})
+                    "cgst":    to_rupees(r["cgst"])    if has else 0,
+                    "sgst":    to_rupees(r["sgst"])    if has else 0,
+                    "igst":    to_rupees(r["igst"])    if has else 0,
+                    "total":   to_rupees(total),
+                    "balance": to_rupees(max(total - r["settled"], 0))
+                               if has and not immediate else 0,
+                    "status":  ("Paid" if immediate
+                                else bl.invoice_status(total, r["settled"])) if has else "-"})
     return out
 
 
 def _net(con, name, as_of):
-    """Signed ledger balance (Dr positive) of an account up to a date, in paise."""
     r = con.execute(
         """SELECT a.opening, a.opening_side,
                   COALESCE((SELECT SUM(e.dr - e.cr) FROM entries e JOIN vouchers v ON v.id=e.voucher_id
@@ -194,7 +195,6 @@ DEFAULT_EDGES = [30, 60, 90]
 
 
 def parse_edges(text):
-    """'90,120,180' -> [90, 120, 180]. Whole days, ascending, 1 to 6 limits."""
     try:
         edges = [int(x) for x in str(text).replace(";", ",").replace(" ", ",").split(",") if x.strip()]
     except ValueError:
@@ -224,43 +224,43 @@ def _bucket(days, edges, labels, due):
 
 
 def outstanding_report(con, kind, as_of=None, basis="bill", edges=None):
-    """kind 'Sales' = receivables (customers), 'Purchase' = payables (suppliers).
-    basis 'bill' ages from the bill date; 'due' ages from bill date + the party's credit days
-    (bills not yet due go to 'Not due'). edges are the day limits, default 30,60,90.
-    'on_account' is the party's ledger balance less its open bills (opening balances, advances,
-    unmatched receipts)."""
     as_of = as_of or date.today()
     edges = edges or DEFAULT_EDGES
-    due = basis == "due"
+    due   = basis == "due"
     labels = ageing_labels(edges, due)
-    ptype = "Customer" if kind == "Sales" else "Supplier"
+    ptype  = "Customer" if kind == "Sales" else "Supplier"
     parties, totals, total = [], {l: 0 for l in labels}, 0
-    for p in con.execute("SELECT name FROM parties WHERE ptype=? ORDER BY name COLLATE NOCASE", (ptype,)):
+    for p in con.execute("SELECT name FROM parties WHERE ptype=? ORDER BY name COLLATE NOCASE",
+                         (ptype,)):
         name = p["name"]
         bills, bills_total, pb = [], 0, {l: 0 for l in labels}
         for o in bl.open_invoices(con, name, kind, as_of):
-            bdate = date.fromisoformat(o["vdate"])
+            bdate    = date.fromisoformat(o["vdate"])
             due_date = bdate + timedelta(days=o["credit_days"])
-            days = (as_of - (due_date if due else bdate)).days
+            days     = (as_of - (due_date if due else bdate)).days
             bk = _bucket(days, edges, labels, due)
             pb[bk] += o["balance"]; totals[bk] += o["balance"]
             bills_total += o["balance"]
-            bills.append({"id": o["id"], "vno": o["vno"], "date": o["vdate"], "due_date": due_date.isoformat(),
+            bills.append({"id": o["id"], "vno": o["vno"], "date": o["vdate"],
+                          "due_date": due_date.isoformat(),
                           "total": to_rupees(o["total"]), "settled": to_rupees(o["settled"]),
                           "balance": to_rupees(o["balance"]), "days": days, "bucket": bk})
-        net = _net(con, name, as_of)
+        net    = _net(con, name, as_of)
         ledger = net if kind == "Sales" else -net
         if not bills and ledger == 0:
             continue
         total += ledger
-        parties.append({"party": name, "bills": bills, "on_account": to_rupees(ledger - bills_total),
-                        "balance": to_rupees(ledger), "bucket_amounts": {l: to_rupees(v) for l, v in pb.items()}})
-    return {"labels": labels, "parties": parties, "basis": basis, "as_of": as_of.isoformat(),
-            "buckets": {l: to_rupees(v) for l, v in totals.items()}, "total": to_rupees(total)}
+        parties.append({"party": name, "bills": bills,
+                        "on_account": to_rupees(ledger - bills_total),
+                        "balance": to_rupees(ledger),
+                        "bucket_amounts": {l: to_rupees(v) for l, v in pb.items()}})
+    return {"labels": labels, "parties": parties, "basis": basis,
+            "as_of": as_of.isoformat(),
+            "buckets": {l: to_rupees(v) for l, v in totals.items()},
+            "total": to_rupees(total)}
 
 
 def receivable_payable(con, as_of=None):
-    """(money customers owe you, money you owe suppliers), from party ledger balances."""
     as_of = as_of or date.today()
     rec = pay = 0
     for p in con.execute("SELECT name, ptype FROM parties"):
@@ -271,22 +271,20 @@ def receivable_payable(con, as_of=None):
             pay += -net
     return to_rupees(rec), to_rupees(pay)
 
+
 def returns_register(con, fy, kind):
-    """Sales Return (Credit Note) or Purchase Return (Debit Note) register for a FY.
-    kind = 'Sales Return' or 'Purchase Return'."""
     start, end = fy_range(fy)
     out = []
-    q = """SELECT v.id, v.vdate, v.vno, v.narration, i.party, i.taxable, i.cgst, i.sgst, i.igst, i.total,
-                  i.customer_name
+    q = """SELECT v.id, v.vdate, v.vno, v.narration, i.party, i.taxable,
+                  i.cgst, i.sgst, i.igst, i.total, i.customer_name
            FROM vouchers v LEFT JOIN invoices i ON i.voucher_id=v.id
            WHERE v.vtype=? AND v.vdate BETWEEN ? AND ? ORDER BY v.vdate, v.vno"""
     for r in con.execute(q, (kind, start, end)):
         has = r["party"] is not None
         out.append({
-            "id":      r["id"],
-            "date":    r["vdate"],
-            "vno":     r["vno"],
-            "party":   ((f"{r['party']} ({r['customer_name']})" if r["customer_name"] else r["party"])
+            "id":      r["id"], "date": r["vdate"], "vno": r["vno"],
+            "party":   ((f"{r['party']} ({r['customer_name']})"
+                         if r["customer_name"] else r["party"])
                         if has else "(details not stored)"),
             "taxable": to_rupees(r["taxable"]) if has else 0,
             "cgst":    to_rupees(r["cgst"])    if has else 0,
@@ -295,3 +293,164 @@ def returns_register(con, fy, kind):
             "total":   to_rupees(r["total"])   if has else 0,
         })
     return out
+
+
+# ── NEW v0.17: Cash Flow Statement ───────────────────────────────────────────
+
+def cash_flow(con, fy):
+    """Simple indirect-method cash flow statement.
+    Operating: net profit adjusted for non-cash items + working capital changes.
+    Financing: capital and loan movements.
+    Investing: fixed asset movements.
+    Returns dict with three sections and net change in cash."""
+    start, end = fy_range(fy)
+
+    # Net profit from P&L
+    pl = profit_and_loss(con, fy)
+    net_profit = _paise(pl["net_profit"])
+
+    # Helper: movement in an account group during FY
+    def group_movement(grp_list):
+        total = 0
+        for grp in grp_list:
+            r = con.execute(
+                """SELECT COALESCE(SUM(e.dr - e.cr), 0) AS net
+                   FROM entries e
+                   JOIN vouchers v ON v.id = e.voucher_id
+                   JOIN accounts a ON a.id = e.account_id
+                   WHERE a.grp = ? AND v.vdate BETWEEN ? AND ?""",
+                (grp, start, end)).fetchone()
+            total += r["net"] if r else 0
+        return total
+
+    # Operating activities (indirect method)
+    dep_exp = group_movement(["Indirect Expenses"])   # simplified
+    wc_debtors   = -group_movement(["Current Assets"])   # increase in debtors = use of cash
+    wc_creditors =  group_movement(["Current Liabilities"])
+    wc_stock     = 0  # handled via closing stock
+
+    operating_items = [
+        ("Net Profit / (Loss)", to_rupees(net_profit)),
+        ("Add: Increase in Sundry Creditors", to_rupees(wc_creditors)),
+        ("Less: Increase in Sundry Debtors",  to_rupees(-wc_debtors)),
+    ]
+    operating_total = net_profit + wc_creditors + wc_debtors
+
+    # Financing activities
+    capital_mv = group_movement(["Capital Account"])
+    loan_mv    = group_movement(["Loans (Liability)"])
+    financing_items = [
+        ("Capital introduced / (withdrawn)", to_rupees(-capital_mv)),
+        ("Loans taken / (repaid)",           to_rupees(-loan_mv)),
+    ]
+    financing_total = -(capital_mv + loan_mv)
+
+    # Investing activities
+    asset_mv = group_movement(["Fixed Assets"])
+    investing_items = [
+        ("Purchase / (Sale) of Fixed Assets", to_rupees(-asset_mv)),
+    ]
+    investing_total = -asset_mv
+
+    # Net change in cash
+    cash_open = _net(con, "Cash", date.fromisoformat(start) - timedelta(days=1))
+    bank_open = _net(con, "Bank", date.fromisoformat(start) - timedelta(days=1))
+    cash_close = _net(con, "Cash", date.fromisoformat(end))
+    bank_close = _net(con, "Bank", date.fromisoformat(end))
+
+    net_change   = (cash_close + bank_close) - (cash_open + bank_open)
+    opening_cash = cash_open + bank_open
+    closing_cash = cash_close + bank_close
+
+    return {
+        "operating":       {"items": operating_items,  "total": to_rupees(operating_total)},
+        "financing":       {"items": financing_items,  "total": to_rupees(financing_total)},
+        "investing":       {"items": investing_items,  "total": to_rupees(investing_total)},
+        "net_change":      to_rupees(net_change),
+        "opening_cash":    to_rupees(opening_cash),
+        "closing_cash":    to_rupees(closing_cash),
+    }
+
+
+# ── NEW v0.17: Party Statement ────────────────────────────────────────────────
+
+def party_statement(con, name, fy, date_from=None, date_to=None):
+    """Full account statement for one party:
+    opening balance + all transactions + closing balance.
+    Same structure as ledger_view but includes invoice details."""
+    start, end = fy_range(fy)
+    if date_from:
+        start = max(start, date_from.isoformat())
+    if date_to:
+        end = min(end, date_to.isoformat())
+
+    # Get party info
+    party_row = con.execute(
+        "SELECT p.ptype, p.gstin, p.phone, a.id AS acc_id, a.opening, a.opening_side "
+        "FROM parties p JOIN accounts a ON a.id = p.account_id WHERE p.name=?",
+        (name,)).fetchone()
+    if not party_row:
+        raise ValueError(f"Party not found: {name}")
+
+    acc_id = party_row["acc_id"]
+    signed_open = (party_row["opening"] if party_row["opening_side"] == "Dr"
+                   else -party_row["opening"])
+
+    # Balance before period start
+    bf_row = con.execute(
+        """SELECT COALESCE(SUM(e.dr - e.cr), 0) AS mv
+           FROM entries e JOIN vouchers v ON v.id = e.voucher_id
+           WHERE e.account_id = ? AND v.vdate < ?""",
+        (acc_id, start)).fetchone()
+    bf = signed_open + (bf_row["mv"] if bf_row else 0)
+    s0, a0 = _side(bf)
+
+    # Transactions in period
+    rows_raw = con.execute(
+        """SELECT v.id, v.vdate, v.vtype, v.vno, v.narration,
+                  e.dr, e.cr,
+                  COALESCE(i.total, 0) AS inv_total,
+                  COALESCE(i.taxable, 0) AS taxable,
+                  COALESCE(i.cgst + i.sgst + i.igst, 0) AS gst_total
+           FROM entries e
+           JOIN vouchers v ON v.id = e.voucher_id
+           LEFT JOIN invoices i ON i.voucher_id = v.id
+           WHERE e.account_id = ? AND v.vdate BETWEEN ? AND ?
+           ORDER BY v.vdate, v.id""",
+        (acc_id, start, end)).fetchall()
+
+    bal = bf
+    rows = []
+    tdr = tcr = 0
+    for r in rows_raw:
+        bal += r["dr"] - r["cr"]
+        tdr += r["dr"]; tcr += r["cr"]
+        side, amt = _side(bal)
+        rows.append({
+            "id":        r["id"],
+            "date":      r["vdate"],
+            "vtype":     r["vtype"],
+            "vno":       r["vno"],
+            "narration": r["narration"] or "",
+            "dr":        to_rupees(r["dr"]),
+            "cr":        to_rupees(r["cr"]),
+            "balance":   to_rupees(amt),
+            "side":      side,
+        })
+
+    cs, ca = _side(bal)
+    return {
+        "party":        name,
+        "ptype":        party_row["ptype"],
+        "gstin":        party_row["gstin"] or "",
+        "phone":        party_row["phone"] or "",
+        "opening":      to_rupees(a0),
+        "opening_side": s0,
+        "rows":         rows,
+        "total_dr":     to_rupees(tdr),
+        "total_cr":     to_rupees(tcr),
+        "closing":      to_rupees(ca),
+        "closing_side": cs,
+        "period_from":  start,
+        "period_to":    end,
+    }

@@ -1,4 +1,4 @@
-"""Tally-style menu tree. go=None means 'not built yet' (shown dimmed, with a 'soon' tag)."""
+"""Tally-style menu tree. go=None means 'not built yet' (shown dimmed)."""
 def M(label, key, go=None):
     return {"label": label, "key": key, "go": go}
 
@@ -26,6 +26,7 @@ MENUS = {
         M("GST Invoice (print)",          "G"),
     ]),
     "reports": ("Reports", [
+        M("Dashboard",  "D", ("page", "dashboard")),
         M("Accounting", "A", ("menu", "reports_acct")),
         M("Registers",  "R", ("menu", "reports_reg")),
         M("Financial",  "F", ("menu", "reports_fin")),
@@ -33,10 +34,12 @@ MENUS = {
         M("GST",        "G", ("menu", "reports_gst")),
     ]),
     "reports_acct": ("Accounting Reports", [
-        M("Ledger View",   "L", ("page", "ledger")),
-        M("Trial Balance", "T", ("page", "trial")),
-        M("Cash Book",     "C", ("page", "cashbook")),
-        M("Day Book",      "D", ("page", "daybook")),
+        M("Ledger View",         "L", ("page", "ledger")),
+        M("Trial Balance",       "T", ("page", "trial")),
+        M("Cash Book",           "C", ("page", "cashbook")),
+        M("Day Book",            "D", ("page", "daybook")),
+        M("Party Statement",     "S", ("page", "partystatement")),
+        M("Bank Reconciliation", "B", ("page", "bankrecon")),
     ]),
     "reports_reg": ("Registers", [
         M("Sales Register",           "S", ("page", "salesreg")),
@@ -48,6 +51,7 @@ MENUS = {
         M("Balance Sheet", "B", ("page", "bs")),
         M("Trading & P&L", "P", ("page", "pl")),
         M("Outstanding",   "O", ("page", "outstanding")),
+        M("Cash Flow",     "W", ("page", "cashflow")),
     ]),
     "reports_stk": ("Stock Reports", [
         M("Stock Summary",    "K", ("page", "stocksummary")),
@@ -58,15 +62,16 @@ MENUS = {
         M("GSTR-3B (Summary)", "3", ("page", "gstr3b")),
     ]),
     "utilities": ("Utilities", [
-        M("Company Details",  "C", ("page", "company")),
-        M("Backup Data",      "B", ("fn",   "backup")),
-        M("Data Location",    "D", ("page", "datalocation")),
-        M("Audit Log",        "A", ("page", "audit")),
-        M("Help & Shortcuts", "H", ("page", "help")),
-        M("Change Password",  "P", ("page", "password")),
-        M("Renew Licence",    "R", ("page", "renew")),
-        M("Manage Companies", "M", ("page", "companies")),
-        M("About MUNIM",      "I", ("page", "about")),
-        M("Reset All Data",   "X", ("page", "reset")),
+        M("Company Details",   "C", ("page", "company")),
+        M("Backup Data",       "B", ("fn",   "backup")),
+        M("Import from Tally", "T", ("page", "tallyimport")),
+        M("Data Location",     "D", ("page", "datalocation")),
+        M("Audit Log",         "A", ("page", "audit")),
+        M("Help & Shortcuts",  "H", ("page", "help")),
+        M("Change Password",   "P", ("page", "password")),
+        M("Renew Licence",     "R", ("page", "renew")),
+        M("Manage Companies",  "M", ("page", "companies")),
+        M("About MUNIM",       "I", ("page", "about")),
+        M("Reset All Data",    "X", ("page", "reset")),
     ]),
 }

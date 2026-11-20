@@ -23,30 +23,40 @@ def _lbl(parent, text, **grid):
 
 class EntryBase(ctk.CTkFrame):
     def _init_base(self, con, username, opener):
-        self.con, self.username, self.opener, self._last_vid = con, username, opener, None
+        self.con, self.username, self.opener, self._last_vid = (
+            con, username, opener, None)
+        self._last_pdf_path = ""
 
     def _make_msg(self, foot):
-        self.msg = ctk.CTkLabel(foot, text="", font=T.f(13))
+        self.msg       = ctk.CTkLabel(foot, text="", font=T.f(13))
         self.msg.pack(side="left", padx=16)
-        self.view_btn = T.button(foot, "View", self._view, width=70, height=30, **GHOST)
-        self.pdf_btn  = T.button(foot, "Save PDF", self._save_pdf, width=90, height=30, **GHOST)
+        self.view_btn  = T.button(foot, "View",     self._view,
+                                  width=70, height=30, **GHOST)
+        self.pdf_btn   = T.button(foot, "Save PDF", self._save_pdf,
+                                  width=90, height=30, **GHOST)
+        self.share_btn = T.button(foot, "Share",    self._share,
+                                  width=70, height=30, **GHOST)
 
     def ok(self, text, vtype=None, vno=None, vdate=None):
         self.msg.configure(text=text, text_color=T.OK)
-        self._last_vid = s.find_voucher(self.con, vtype, vno, vdate) if vtype else None
+        self._last_vid = (s.find_voucher(self.con, vtype, vno, vdate)
+                          if vtype else None)
         if self._last_vid and self.opener:
             self.view_btn.pack(side="left")
         else:
             self.view_btn.pack_forget()
         if vtype == "Sales" and self._last_vid:
-            self.pdf_btn.pack(side="left", padx=(4, 0))
+            self.pdf_btn.pack(side="left",   padx=(4, 0))
+            self.share_btn.pack(side="left", padx=(4, 0))
         else:
             self.pdf_btn.pack_forget()
+            self.share_btn.pack_forget()
 
     def err(self, text):
         self.msg.configure(text=text, text_color=T.DANGER)
         self.view_btn.pack_forget()
         self.pdf_btn.pack_forget()
+        self.share_btn.pack_forget()
 
     def _view(self):
         if self._last_vid and self.opener:
@@ -58,6 +68,7 @@ class EntryBase(ctk.CTkFrame):
         try:
             from utils.pdf_invoice import generate_invoice_pdf
             path = generate_invoice_pdf(self.con, self._last_vid)
+            self._last_pdf_path = path
             folder = os.path.dirname(path)
             if sys.platform == "win32":
                 os.startfile(folder)
@@ -68,9 +79,88 @@ class EntryBase(ctk.CTkFrame):
         except Exception as e:
             self.msg.configure(text=f"PDF error: {e}", text_color=T.DANGER)
 
+    def _share(self):
+        """Share invoice via WhatsApp (web) or Email."""
+        if not self._last_vid:
+            return
+        try:
+            snap    = s.voucher_snapshot(self.con, self._last_vid)
+            inv     = snap["invoice"]
+            from utils.fmt import inr as _inr, disp_date as _dd
+            from utils import settings as _st
+            st      = _st.load_settings()
+            prefix  = (st.get("invoice_prefix") or "").strip()
+            inv_no  = f"{prefix}{snap['vno']}" if prefix else str(snap["vno"])
+            company = st.get("company_name", "")
+            total   = _inr(inv["total"] / 100)
+            vdate   = _dd(snap["vdate"])
+            party   = inv["party"]
+
+            p_row = self.con.execute(
+                "SELECT phone FROM parties WHERE name=?", (party,)).fetchone()
+            phone = (p_row["phone"] or "").strip() if p_row else ""
+
+            msg_text = (
+                f"Dear {party},\n\n"
+                f"Please find your invoice details:\n"
+                f"Invoice No: {inv_no}\n"
+                f"Date: {vdate}\n"
+                f"Amount: Rs {total}\n\n"
+                f"From: {company}\n"
+                f"Thank you for your business!"
+            )
+
+            import urllib.parse, webbrowser
+            encoded = urllib.parse.quote(msg_text)
+            if phone:
+                digits = "".join(c for c in phone if c.isdigit())
+                if len(digits) == 10:
+                    digits = "91" + digits
+                wa_url = f"https://wa.me/{digits}?text={encoded}"
+            else:
+                wa_url = f"https://wa.me/?text={encoded}"
+
+            subject  = urllib.parse.quote(f"Invoice {inv_no} from {company}")
+            body     = urllib.parse.quote(msg_text)
+            mail_url = f"mailto:?subject={subject}&body={body}"
+
+            import tkinter as tk
+            dialog = ctk.CTkToplevel(self.winfo_toplevel())
+            dialog.title("Share Invoice")
+            dialog.geometry("340x200")
+            dialog.resizable(False, False)
+            dialog.configure(fg_color=T.BG)
+            dialog.transient(self.winfo_toplevel())
+            dialog.grab_set()
+
+            ctk.CTkLabel(dialog, text="Share invoice via",
+                         font=T.f(16, "bold"), text_color=T.TEXT).pack(
+                pady=(24, 16))
+
+            def _wa():
+                webbrowser.open(wa_url)
+                dialog.destroy()
+
+            def _email():
+                webbrowser.open(mail_url)
+                dialog.destroy()
+
+            btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+            btn_frame.pack()
+            T.button(btn_frame, "WhatsApp", _wa, width=130).pack(
+                side="left", padx=8)
+            T.button(btn_frame, "Email", _email, width=130,
+                     fg_color="#E7ECF5", text_color=T.TEXT,
+                     hover_color="#DCE3F0").pack(side="left", padx=8)
+            if phone:
+                ctk.CTkLabel(dialog,
+                             text=f"WhatsApp will open for {phone}",
+                             font=T.f(11), text_color=T.MUTED).pack(pady=(12, 0))
+        except Exception as e:
+            self.msg.configure(text=f"Share error: {e}", text_color=T.DANGER)
+
     def is_dirty(self):
         return False
-
 
 # ── JournalFrame ─────────────────────────────────────────────────────────────
 
