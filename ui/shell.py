@@ -319,17 +319,20 @@ class Shell(ctk.CTkFrame):
         ctk.CTkFrame(card, fg_color=T.CARD, corner_radius=0, height=18).pack()
         return card
 
-    def backup(self):
-        st = settings.load_settings()
-        folder = filedialog.askdirectory(title="Choose a folder for the backup")
-        if not folder:
-            return
-        try:
-            path = s.backup_db(self.con, folder)
-        except Exception as e:
-            messagebox.showerror("MUNIM", f"Backup failed:\n{e}")
-            return
-        st = bkup.record_backup(st)
-        settings.save_settings(st)
-        messagebox.showinfo("MUNIM", f"Backup saved:\n{path}\n\n"
-                            "Keep a copy on a USB drive or cloud folder, not only on this PC.")
+def backup(self):
+    st = settings.load_settings()
+    folder = filedialog.askdirectory(
+        title="Choose a folder for the backup",
+        initialdir=s.data_dir()          # ← only this line added
+    )
+    if not folder:
+        return
+    try:
+        path = s.backup_db(self.con, folder)
+    except Exception as e:
+        messagebox.showerror("MUNIM", f"Backup failed:\n{e}")
+        return
+    st = bkup.record_backup(st)
+    settings.save_settings(st)
+    messagebox.showinfo("MUNIM", f"Backup saved:\n{path}\n\n"
+                        "Keep a copy on a USB drive or cloud folder, not only on this PC.")
