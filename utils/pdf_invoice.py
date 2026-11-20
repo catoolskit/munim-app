@@ -21,30 +21,28 @@ from utils.fmt import disp_date
 
 INVOICE_DIR = r"C:\MUNIM\Invoices"
 
-# ── colours ──────────────────────────────────────────────────────────────────
-NAVY    = colors.HexColor("#1A2B4A")
-BLUE    = colors.HexColor("#2563EB")
-LBLUE   = colors.HexColor("#DBEAFE")
-LIGHT   = colors.HexColor("#EEF2FF")
-MUTED   = colors.HexColor("#6B7280")
-WHITE   = colors.white
-BLACK   = colors.black
-RULE    = colors.HexColor("#D1D5DB")
+# ── colours ───────────────────────────────────────────────────────────────────
+NAVY  = colors.HexColor("#1A2B4A")
+BLUE  = colors.HexColor("#2563EB")
+LBLUE = colors.HexColor("#DBEAFE")
+LIGHT = colors.HexColor("#EEF2FF")
+MUTED = colors.HexColor("#6B7280")
+WHITE = colors.white
+BLACK = colors.black
+RULE  = colors.HexColor("#D1D5DB")
 
 
 def _fmt(paise) -> str:
-    """Format paise as rupees with Indian comma style (2,00,000.00), no wrapping."""
-    rupees = paise / 100
+    rupees   = paise / 100
     int_part = int(abs(rupees))
-    dec_str = f"{abs(rupees) % 1:.2f}"[1:]   # ".xx"
-    sign = "-" if rupees < 0 else ""
-
-    s = str(int_part)
-    if len(s) <= 3:
-        formatted = s
+    dec_str  = f"{abs(rupees) % 1:.2f}"[1:]
+    sign     = "-" if rupees < 0 else ""
+    s_str    = str(int_part)
+    if len(s_str) <= 3:
+        formatted = s_str
     else:
-        last3 = s[-3:]
-        rest = s[:-3]
+        last3 = s_str[-3:]
+        rest  = s_str[:-3]
         pairs = []
         while len(rest) > 2:
             pairs.append(rest[-2:])
@@ -53,7 +51,6 @@ def _fmt(paise) -> str:
             pairs.append(rest)
         pairs.reverse()
         formatted = ",".join(pairs) + "," + last3
-
     return f"{sign}{formatted}{dec_str}"
 
 
@@ -99,8 +96,6 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
 
     # ── page numbering canvas ─────────────────────────────────────────────────
     class _NumberedCanvas(_canvas.Canvas):
-        """Two-pass canvas so every page can print 'Page X of Y'."""
-
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self._saved_states = []
@@ -131,10 +126,10 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
     doc = SimpleDocTemplate(
         filepath, pagesize=A4,
         leftMargin=12*mm, rightMargin=12*mm,
-        topMargin=10*mm,  bottomMargin=14*mm,   # room for the page-number line
+        topMargin=10*mm,  bottomMargin=14*mm,
         title=f"Tax Invoice {inv_no}", author=company or "MUNIM",
     )
-    W = A4[0] - 24*mm   # usable width ≈ 537 pt
+    W = A4[0] - 24*mm
 
     # ── styles ────────────────────────────────────────────────────────────────
     def S(name, **kw):
@@ -145,7 +140,7 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
     NRM  = S("NRM",  fontSize=9,  textColor=BLACK,  fontName="Helvetica",      leading=12)
     SML  = S("SML",  fontSize=8,  textColor=MUTED,  fontName="Helvetica",      leading=10)
     RGT  = S("RGT",  fontSize=8,  textColor=BLACK,  fontName="Helvetica",      leading=12, alignment=TA_RIGHT)
-    BRGT = S("BRGT", fontSize=8, textColor=BLACK,  fontName="Helvetica-Bold", leading=13, alignment=TA_RIGHT)
+    BRGT = S("BRGT", fontSize=8,  textColor=BLACK,  fontName="Helvetica-Bold", leading=13, alignment=TA_RIGHT)
     CTR  = S("CTR",  fontSize=8,  textColor=BLACK,  fontName="Helvetica",      leading=12, alignment=TA_CENTER)
     HCTR = S("HCTR", fontSize=7,  textColor=WHITE,  fontName="Helvetica-Bold", leading=11, alignment=TA_CENTER)
     HRGT = S("HRGT", fontSize=8,  textColor=WHITE,  fontName="Helvetica-Bold", leading=11, alignment=TA_RIGHT)
@@ -190,8 +185,8 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
         return out
 
     seller_cell = addr_paras("SELLER", company, gstin, address, phone)
-    row_addr = con.execute("SELECT address FROM parties WHERE name=?", (party,)).fetchone()
-    party_addr = row_addr["address"] if row_addr else ""
+    row_addr    = con.execute("SELECT address FROM parties WHERE name=?", (party,)).fetchone()
+    party_addr  = row_addr["address"] if row_addr else ""
     buyer_cell  = addr_paras("BUYER",  cust_name, party_gstin, party_addr)
 
     info_tbl = Table(
@@ -210,37 +205,36 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
     story.append(HRFlowable(width="100%", thickness=1, color=NAVY, spaceAfter=4))
 
     # ── ITEMS TABLE ───────────────────────────────────────────────────────────
-    # Clean layout: # | HSN | Description | Qty | Rate/Unit | GST% | Amount
-    # Tax amounts removed from items table — shown only in HSN summary below
     IDX  = 16
     HSN  = 46
     QTY  = 28
-    PCT  = 36   # GST%
-    MON  = 72   # Amount / Rate
-    DESC = W - IDX - HSN - QTY - PCT - MON - MON  # Description gets remaining space
+    PCT  = 36
+    MON  = 72
+    DESC = W - IDX - HSN - QTY - PCT - MON - MON
 
     col_ws     = [IDX, HSN, DESC, QTY, MON, PCT, MON]
     hdr_labels = ["#", "HSN", "Description", "Qty", "Rate/Unit", "GST%", "Amount"]
     hdr_aligns = ["CTR", "CTR", "HLFT", "CTR", "HRGT", "HCTR", "HRGT"]
 
     def nw(text, base_style, width, min_size=6.2):
-        raw = str(text or "")
+        raw       = str(text or "")
         font_name = base_style.fontName
-        size = base_style.fontSize
+        size      = base_style.fontSize
         available = max(8, width - 5)
-        measured = stringWidth(raw, font_name, size)
+        measured  = stringWidth(raw, font_name, size)
         if measured > available and measured:
             size = max(min_size, size * available / measured)
         stl = ParagraphStyle(
             f"NW_{id(base_style)}_{len(raw)}", parent=base_style,
-            fontSize=size, leading=max(size + 2, base_style.leading * size / base_style.fontSize),
+            fontSize=size,
+            leading=max(size + 2, base_style.leading * size / base_style.fontSize),
             splitLongWords=0,
         )
         return Paragraph(f"<nobr>{escape(raw)}</nobr>", stl)
 
     style_map = {"CTR": HCTR, "HLFT": HLFT, "HRGT": HRGT, "HCTR": HCTR}
-    hdr_row = [nw(lbl, style_map[aln], col_ws[i], min_size=6.0)
-               for i, (lbl, aln) in enumerate(zip(hdr_labels, hdr_aligns))]
+    hdr_row   = [nw(lbl, style_map[aln], col_ws[i], min_size=6.0)
+                 for i, (lbl, aln) in enumerate(zip(hdr_labels, hdr_aligns))]
 
     rows_data = [hdr_row]
     for idx, it in enumerate(items, 1):
@@ -249,7 +243,7 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
         qty     = float(it["qty"])
         rate    = float(it["rate"])
         gst_p   = float(it["gst"])
-        tax_p   = round(qty * rate * 100)   # taxable paise
+        tax_p   = round(qty * rate * 100)
 
         if interstate:
             igst    = round(tax_p * gst_p / 100)
@@ -271,12 +265,12 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
 
     # Totals row
     total_cells = [
-        nw("", NRM, col_ws[0]),
-        nw("", NRM, col_ws[1]),
-        nw("Total", BLD, col_ws[2]),
-        nw("", NRM, col_ws[3]),
-        nw("", NRM, col_ws[4]),
-        nw("", NRM, col_ws[5]),
+        nw("",              NRM,  col_ws[0]),
+        nw("",              NRM,  col_ws[1]),
+        nw("Total",         BLD,  col_ws[2]),
+        nw("",              NRM,  col_ws[3]),
+        nw("",              NRM,  col_ws[4]),
+        nw("",              NRM,  col_ws[5]),
         nw(_fmt(tax["total"]), BRGT, col_ws[6]),
     ]
     rows_data.append(total_cells)
@@ -284,8 +278,6 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
     n = len(rows_data)
     item_tbl = Table(rows_data, colWidths=col_ws, repeatRows=1)
 
-    # Base style. NOSPLIT is applied per row below, never to the whole table,
-    # so a long invoice can break across pages while no single row is cut in half.
     item_style = [
         ("BACKGROUND",    (0, 0),     (-1, 0),     NAVY),
         ("FONTSIZE",      (0, 0),     (-1, 0),     8),
@@ -302,8 +294,8 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
         ("GRID",          (0, 0),     (-1, -1),    0.3, RULE),
         ("VALIGN",        (0, 0),     (-1, -1),    "MIDDLE"),
     ]
-    for r in range(n):
-        item_style.append(("NOSPLIT", (0, r), (-1, r)))
+    for r_idx in range(n):
+        item_style.append(("NOSPLIT", (0, r_idx), (-1, r_idx)))
     item_tbl.setStyle(TableStyle(item_style))
 
     story.append(item_tbl)
@@ -322,13 +314,19 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
         hsn_groups[key]["taxable"] += tax_p
         hsn_groups[key]["qty"]     += qty
 
-    tail = []   # HSN summary + totals + footer, kept together where possible
+    # Build tail: HSN table (flows freely) + summary/footer (kept together)
+    hsn_part   = []   # flows naturally across pages
+    close_part = []   # always kept on the same page
 
     if any(it.get("hsn") for it in items):
-        HSML = S("HSML", fontSize=7, textColor=WHITE, fontName="Helvetica-Bold", leading=10, alignment=TA_CENTER)
-        HNRM = S("HNRM", fontSize=8, textColor=BLACK, fontName="Helvetica",      leading=11, alignment=TA_CENTER)
-        HNRT = S("HNRT", fontSize=8, textColor=BLACK, fontName="Helvetica",      leading=11, alignment=TA_RIGHT)
-        HNBD = S("HNBD", fontSize=8, textColor=BLACK, fontName="Helvetica-Bold", leading=11, alignment=TA_RIGHT)
+        HSML = S("HSML", fontSize=7, textColor=WHITE, fontName="Helvetica-Bold",
+                 leading=10, alignment=TA_CENTER)
+        HNRM = S("HNRM", fontSize=8, textColor=BLACK, fontName="Helvetica",
+                 leading=11, alignment=TA_CENTER)
+        HNRT = S("HNRT", fontSize=8, textColor=BLACK, fontName="Helvetica",
+                 leading=11, alignment=TA_RIGHT)
+        HNBD = S("HNBD", fontSize=8, textColor=BLACK, fontName="Helvetica-Bold",
+                 leading=11, alignment=TA_RIGHT)
 
         if interstate:
             hw      = [60, 90, 40, 55, 85, 85]
@@ -349,12 +347,12 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
             if interstate:
                 igst = round(taxable * gst_p / 100)
                 hsn_rows.append([
-                    _p(code,           HNRM),
-                    _p(_fmt(taxable),  HNRT),
-                    _p(f"{qty_tot:g}", HNRM),
-                    _p(f"{gst_p:g}%",  HNRM),
-                    _p(_fmt(igst),     HNRT),
-                    _p(_fmt(igst),     HNBD),
+                    _p(code,            HNRM),
+                    _p(_fmt(taxable),   HNRT),
+                    _p(f"{qty_tot:g}",  HNRM),
+                    _p(f"{gst_p:g}%",   HNRM),
+                    _p(_fmt(igst),      HNRT),
+                    _p(_fmt(igst),      HNBD),
                 ])
             else:
                 half = gst_p / 2
@@ -383,9 +381,9 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
             ("ROWBACKGROUNDS",(0, 1), (-1, -1), [WHITE, LIGHT]),
             ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
         ]))
-        tail.append(Spacer(1, 2*mm))
-        tail.append(hsn_tbl)
-        tail.append(Spacer(1, 3*mm))
+        hsn_part.append(Spacer(1, 2*mm))
+        hsn_part.append(hsn_tbl)
+        hsn_part.append(Spacer(1, 3*mm))
 
     # ── SUMMARY BOX ───────────────────────────────────────────────────────────
     grand = tax["total"]
@@ -398,14 +396,14 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
 
     summ = []
     if not interstate:
-        summ += [[_p("CGST", NRM),          _p(_fmt(tax["cgst"]), RGT)],
-                 [_p("SGST", NRM),          _p(_fmt(tax["sgst"]), RGT)]]
+        summ += [[_p("CGST", NRM),         _p(_fmt(tax["cgst"]), RGT)],
+                 [_p("SGST", NRM),         _p(_fmt(tax["sgst"]), RGT)]]
     else:
-        summ += [[_p("IGST", NRM),          _p(_fmt(tax["igst"]), RGT)]]
-    summ   += [[_p("Taxable Amount", NRM),  _p(_fmt(tax["taxable"]), RGT)]]
+        summ += [[_p("IGST", NRM),         _p(_fmt(tax["igst"]), RGT)]]
+    summ   += [[_p("Taxable Amount", NRM), _p(_fmt(tax["taxable"]), RGT)]]
     if roff:
-        summ += [[_p("Round Off", NRM),     _p(_fmt(roff), RGT)]]
-    summ   += [[_p("GRAND TOTAL", BLD),     _p(_fmt(grand), BRGT)]]
+        summ += [[_p("Round Off", NRM),    _p(_fmt(roff), RGT)]]
+    summ   += [[_p("GRAND TOTAL", BLD),    _p(_fmt(grand), BRGT)]]
 
     SL = len(summ)
     summ_tbl = Table(summ, colWidths=[W * 0.42, 90], hAlign="RIGHT")
@@ -420,12 +418,13 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
         ("RIGHTPADDING",  (0, 0),      (-1, -1),      8),
         ("FONTNAME",      (0, SL - 1), (-1, SL - 1), "Helvetica-Bold"),
     ]))
-    tail.append(summ_tbl)
-    tail.append(Spacer(1, 8*mm))
+    close_part.append(summ_tbl)
+    close_part.append(Spacer(1, 8*mm))
 
     # ── FOOTER ────────────────────────────────────────────────────────────────
     FOOT_L = S("FL", fontSize=9, textColor=MUTED,  fontName="Helvetica-Oblique", leading=12)
-    FOOT_R = S("FR", fontSize=9, textColor=BLACK,  fontName="Helvetica",         leading=12, alignment=TA_RIGHT)
+    FOOT_R = S("FR", fontSize=9, textColor=BLACK,  fontName="Helvetica",
+               leading=12, alignment=TA_RIGHT)
 
     foot_tbl = Table(
         [[_p("This is a computer-generated invoice.", FOOT_L),
@@ -438,11 +437,13 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
         ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
         ("VALIGN",        (0, 0), (-1, 0), "MIDDLE"),
     ]))
-    tail.append(foot_tbl)
+    close_part.append(foot_tbl)
 
     wave = Table(
-        [[_p("Thank you for your business!", S("TY", fontSize=10, textColor=WHITE,
-              fontName="Helvetica-Oblique", leading=13, alignment=TA_CENTER))]],
+        [[_p("Thank you for your business!",
+             S("TY", fontSize=10, textColor=WHITE,
+               fontName="Helvetica-Oblique", leading=13,
+               alignment=TA_CENTER))]],
         colWidths=[W],
     )
     wave.setStyle(TableStyle([
@@ -450,12 +451,15 @@ def generate_invoice_pdf(con, voucher_id: int) -> str:
         ("TOPPADDING",    (0, 0), (-1, -1), 8),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
     ]))
-    tail.append(Spacer(1, 4*mm))
-    tail.append(wave)
+    close_part.append(Spacer(1, 4*mm))
+    close_part.append(wave)
 
-    # Keep the closing block on one page when it fits; fall back to a plain
-    # flow if it is too tall (very many HSN groups) so nothing is ever lost.
-    story.append(KeepTogether(tail))
+    # HSN table flows freely; only totals + footer are kept together.
+    # This prevents a sparse page 2 while still stopping the grand total orphaning.
+    for el in hsn_part:
+        story.append(el)
+    if close_part:
+        story.append(KeepTogether(close_part))
 
     doc.build(story, canvasmaker=_NumberedCanvas)
     return filepath

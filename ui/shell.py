@@ -14,11 +14,13 @@ from ui.report_screens import (TrialBalanceFrame, LedgerFrame, DayBookFrame, Out
                                ProfitLossFrame, BalanceSheetFrame, InvoiceRegisterFrame,
                                ReturnsRegisterFrame, StockSummaryFrame, ItemWiseProfitFrame,
                                GSTR1Frame, GSTR3BFrame)
+from ui.about import AboutFrame
 from ui.voucher_dialog import VoucherDialog
 from ui.widgets import ErrorPanel
 from ui.utilities import CompanyFrame, PasswordFrame, AuditFrame, ResetDataFrame, RenewLicenceFrame, DataLocationFrame, ManageCompaniesFrame
 from utils import errlog
 from utils import settings
+from utils import backup as bkup
 from utils.fmt import inr, disp_date
 
 PAGES = {
@@ -29,6 +31,7 @@ PAGES = {
     "renew":          ("Renew Licence",       lambda sh: RenewLicenceFrame(sh.body)),
     "datalocation":   ("Data Location",       lambda sh: DataLocationFrame(sh.body)),
     "companies":      ("Manage Companies",    lambda sh: ManageCompaniesFrame(sh.body)),
+    "about":          ("About MUNIM",         lambda sh: AboutFrame(sh.body)),          # ← new
     "journal":        ("Voucher Entry",       lambda sh: JournalFrame(sh.body, sh.con, sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
     "sales":          ("Sales Invoice",       lambda sh: TradeFrame(sh.body, sh.con, "Sales", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
     "purchase":       ("Purchase Bill",       lambda sh: TradeFrame(sh.body, sh.con, "Purchase", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
@@ -42,7 +45,7 @@ PAGES = {
     "stockitems":     ("Stock Items",         lambda sh: StockItemsFrame(sh.body, sh.con)),
     "salesreg":       ("Sales Register",      lambda sh: InvoiceRegisterFrame(sh.body, sh.con, "Sales", sh.open_voucher)),
     "purchasereg":    ("Purchase Register",   lambda sh: InvoiceRegisterFrame(sh.body, sh.con, "Purchase", sh.open_voucher)),
-    "salesreturnreg":    ("Sales Return Register",   lambda sh: ReturnsRegisterFrame(sh.body, sh.con, "Sales Return",    sh.open_voucher)),
+    "salesreturnreg":    ("Sales Return Register",    lambda sh: ReturnsRegisterFrame(sh.body, sh.con, "Sales Return",    sh.open_voucher)),
     "purchasereturnreg": ("Purchase Return Register", lambda sh: ReturnsRegisterFrame(sh.body, sh.con, "Purchase Return", sh.open_voucher)),
     "stocksummary":   ("Stock Summary",       lambda sh: StockSummaryFrame(sh.body, sh.con)),
     "itemprofit":     ("Item-wise Profit",    lambda sh: ItemWiseProfitFrame(sh.body, sh.con)),
@@ -136,7 +139,8 @@ class Shell(ctk.CTkFrame):
         right.pack(side="right", padx=20)
         self.company_lbl = ctk.CTkLabel(right, text="", font=T.f(13, "bold"), text_color="white")
         self.company_lbl.pack(anchor="e")
-        ctk.CTkLabel(right, text=f"FY {s.fy_of(date.today())}  ·  {username}",
+        from datetime import date as _d
+        ctk.CTkLabel(right, text=f"FY {s.fy_of(_d.today())}  ·  {username}",
                      font=T.f(11), text_color="#9FB3D9").pack(anchor="e")
 
         self.status = ctk.CTkLabel(self, text=HINT, font=T.f(11), text_color=T.MUTED,
@@ -152,6 +156,11 @@ class Shell(ctk.CTkFrame):
         self.push(("menu", "gateway"))
 
     def destroy(self):
+        """Clean exit: auto-backup before destroying the shell."""
+        try:
+            self._do_auto_backup()
+        except Exception:
+            pass
         try:
             self.top.unbind("<Key>")
             self.top.unbind("<Control-s>")
@@ -159,6 +168,15 @@ class Shell(ctk.CTkFrame):
         except Exception:
             pass
         super().destroy()
+
+    def _do_auto_backup(self):
+        """Silently copy the DB to the backup folder and stamp last_backup."""
+        st = settings.load_settings()
+        company = st.get("company_name", "company")
+        path = bkup.auto_backup(self.con, company, st)
+        if path:
+            st = bkup.record_backup(st)
+            settings.save_settings(st)
 
     def push(self, node):
         self.stack.append(node)
@@ -264,12 +282,24 @@ class Shell(ctk.CTkFrame):
         row("Customers owe you", inr(receivable), T.OK if receivable else T.TEXT)
         row("You owe suppliers", inr(payable), "#B26A00" if payable else T.TEXT)
         row("Vouchers", str(c["vouchers"]))
+
         last = st.get("last_backup")
+        nag  = bkup.should_nag(st)
         if last:
             days = (date.today() - date.fromisoformat(last)).days
-            row("Last backup", disp_date(last), T.DANGER if days > 7 else T.OK)
+            row("Last backup", disp_date(last), T.DANGER if nag else T.OK)
         else:
             row("Last backup", "never", T.DANGER)
+
+        # Backup nag banner (only shown when overdue)
+        if nag:
+            banner = ctk.CTkFrame(card, fg_color="#FFF3CD", corner_radius=6)
+            banner.pack(fill="x", padx=24, pady=(8, 4))
+            ctk.CTkLabel(banner,
+                         text="⚠  No backup in over 7 days — go to Utilities > Backup Data",
+                         font=T.f(11), text_color="#7A4F00",
+                         wraplength=240, justify="left").pack(padx=10, pady=6)
+
         steps = [
             ("Set up your company",       bool(st.get("company_name")), "Utilities > Company Details"),
             ("Add a customer or supplier", c["parties"] > 0,            "Masters > Party Master"),
@@ -290,6 +320,7 @@ class Shell(ctk.CTkFrame):
         return card
 
     def backup(self):
+        st = settings.load_settings()
         folder = filedialog.askdirectory(title="Choose a folder for the backup")
         if not folder:
             return
@@ -298,8 +329,7 @@ class Shell(ctk.CTkFrame):
         except Exception as e:
             messagebox.showerror("MUNIM", f"Backup failed:\n{e}")
             return
-        st = settings.load_settings()
-        st["last_backup"] = date.today().isoformat()
+        st = bkup.record_backup(st)
         settings.save_settings(st)
         messagebox.showinfo("MUNIM", f"Backup saved:\n{path}\n\n"
                             "Keep a copy on a USB drive or cloud folder, not only on this PC.")

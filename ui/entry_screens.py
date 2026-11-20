@@ -11,9 +11,7 @@ from utils.fmt import inr, parse_amount, parse_date, today_str, disp_date
 
 GHOST = dict(fg_color="#E7ECF5", text_color=T.TEXT, hover_color="#DCE3F0")
 
-# Grid rows reserved for the footer inside item cards, so item rows can grow
-# underneath without re-gridding anything.
-ADDBAR_ROW = 998
+ADDBAR_ROW  = 998
 SUMMARY_ROW = 999
 
 
@@ -24,7 +22,6 @@ def _lbl(parent, text, **grid):
 
 
 class EntryBase(ctk.CTkFrame):
-    """Shared behaviour: message line, 'View' button after saving, unsaved-work check."""
     def _init_base(self, con, username, opener):
         self.con, self.username, self.opener, self._last_vid = con, username, opener, None
 
@@ -32,7 +29,7 @@ class EntryBase(ctk.CTkFrame):
         self.msg = ctk.CTkLabel(foot, text="", font=T.f(13))
         self.msg.pack(side="left", padx=16)
         self.view_btn = T.button(foot, "View", self._view, width=70, height=30, **GHOST)
-        self.pdf_btn = T.button(foot, "Save PDF", self._save_pdf, width=90, height=30, **GHOST)
+        self.pdf_btn  = T.button(foot, "Save PDF", self._save_pdf, width=90, height=30, **GHOST)
 
     def ok(self, text, vtype=None, vno=None, vdate=None):
         self.msg.configure(text=text, text_color=T.OK)
@@ -75,7 +72,7 @@ class EntryBase(ctk.CTkFrame):
         return False
 
 
-# ── JournalFrame ────────────────────────────────────────────────────────────
+# ── JournalFrame ─────────────────────────────────────────────────────────────
 
 class JournalFrame(EntryBase):
     VTYPES = ["Journal", "Payment", "Receipt", "Contra"]
@@ -93,15 +90,15 @@ class JournalFrame(EntryBase):
         card = T.card(self)
         card.pack(fill="x", padx=28)
         self.vtype = T.option_menu(card, self.VTYPES, width=150)
-        self.date = T.entry(card, width=150)
+        self.date  = T.entry(card, width=150)
         self.date.insert(0, today_str())
-        self.narr = T.entry(card, "Narration (optional)", width=420)
+        self.narr  = T.entry(card, "Narration (optional)", width=420)
         _lbl(card, "Voucher type", row=0, column=0, sticky="w", padx=(20, 8), pady=(14, 2))
         _lbl(card, "Date (type 15 or 1511 or 15-11-2026)", row=0, column=1, sticky="w", padx=8, pady=(14, 2))
         _lbl(card, "Narration", row=0, column=2, sticky="w", padx=8, pady=(14, 2))
         self.vtype.grid(row=1, column=0, padx=(20, 8), pady=(0, 14))
-        self.date.grid(row=1, column=1, padx=8, pady=(0, 14))
-        self.narr.grid(row=1, column=2, padx=8, pady=(0, 14))
+        self.date.grid( row=1, column=1, padx=8,       pady=(0, 14))
+        self.narr.grid( row=1, column=2, padx=8,       pady=(0, 14))
 
         lines = T.card(self)
         lines.pack(fill="x", padx=28, pady=14)
@@ -109,7 +106,7 @@ class JournalFrame(EntryBase):
         self.area = ctk.CTkScrollableFrame(lines, fg_color="transparent", height=250)
         self.area.grid(row=1, column=0, columnspan=3, sticky="ew", padx=8, pady=(10, 4))
         _lbl(self.area, "Account (type to search)", row=0, column=0, sticky="w", padx=(10, 6))
-        _lbl(self.area, "Debit (Rs)", row=0, column=1, sticky="w", padx=8)
+        _lbl(self.area, "Debit (Rs)",  row=0, column=1, sticky="w", padx=8)
         _lbl(self.area, "Credit (Rs)", row=0, column=2, sticky="w", padx=8)
         for _ in range(4):
             self.add_line(rechain=False)
@@ -121,7 +118,8 @@ class JournalFrame(EntryBase):
 
         foot = ctk.CTkFrame(self, fg_color="transparent")
         foot.pack(fill="x", padx=28)
-        T.button(foot, "Update voucher" if edit_id else "Save voucher", self.save, width=170).pack(side="left")
+        T.button(foot, "Update voucher" if edit_id else "Save voucher",
+                 self.save, width=170).pack(side="left")
         self._make_msg(foot)
         self._rechain()
         if edit_id:
@@ -162,8 +160,8 @@ class JournalFrame(EntryBase):
         Autocomplete(acc, self.names)
         dr, cr = T.entry(self.area, "0.00", width=160), T.entry(self.area, "0.00", width=160)
         acc.grid(row=r, column=0, padx=(8, 6), pady=4)
-        dr.grid(row=r, column=1, padx=6, pady=4)
-        cr.grid(row=r, column=2, padx=6, pady=4)
+        dr.grid( row=r, column=1, padx=6,       pady=4)
+        cr.grid( row=r, column=2, padx=6,       pady=4)
         for e in (dr, cr):
             e.bind("<KeyRelease>", self.update_totals)
         self.rows.append((acc, dr, cr))
@@ -214,12 +212,12 @@ class JournalFrame(EntryBase):
             if td != tc:
                 raise ValueError(f"Not balanced: debit {inr(td)} vs credit {inr(tc)}")
             if self.edit_id:
-                s.update_voucher(self.con, self.edit_id, self.vtype.get(), d, self.narr.get().strip(),
-                                 lines, self.username)
+                s.update_voucher(self.con, self.edit_id, self.vtype.get(), d,
+                                 self.narr.get().strip(), lines, self.username)
                 vno = None
             else:
-                vno = s.post_voucher(self.con, self.vtype.get(), d, self.narr.get().strip(), lines,
-                                     self.username)
+                vno = s.post_voucher(self.con, self.vtype.get(), d,
+                                     self.narr.get().strip(), lines, self.username)
         except ValueError as e:
             self.err(str(e))
             return
@@ -238,7 +236,7 @@ class JournalFrame(EntryBase):
         focus_later(self.rows[0][0], 50)
 
 
-# ── TradeFrame ───────────────────────────────────────────────────────────────
+# ── TradeFrame ────────────────────────────────────────────────────────────────
 
 class TradeFrame(EntryBase):
     """Sales invoice or purchase bill with GST. kind is 'Sales' or 'Purchase'."""
@@ -254,8 +252,7 @@ class TradeFrame(EntryBase):
         self.ptype = "Customer" if self.sales else "Supplier"
         self.parties = self._party_names()
         self.company_gstin = settings.load_settings().get("gstin", "")
-        # load stock items for autocomplete
-        self._stock_map = self._load_stock_map()
+        self._stock_map   = self._load_stock_map()
         self._stock_names = list(self._stock_map.keys())
 
         T.title(self, ("Edit " if edit_id else "") + ("Sales Invoice" if self.sales else "Purchase Bill"),
@@ -271,18 +268,29 @@ class TradeFrame(EntryBase):
         self.party.pack(side="left")
         T.button(pw, "+ New", self.new_party, width=64, **GHOST).pack(side="left", padx=(6, 0))
         self.ac = Autocomplete(self.party, self.parties, on_pick=self.party_chosen)
-        self.inter = ctk.CTkCheckBox(top, text="Inter-state (IGST)", command=self.calc, font=T.f(13),
-                                     text_color=T.TEXT, fg_color=T.ACCENT, hover_color=T.ACCENT_HOVER)
+        self.inter = ctk.CTkCheckBox(top, text="Inter-state (IGST)", command=self.calc,
+                                     font=T.f(13), text_color=T.TEXT,
+                                     fg_color=T.ACCENT, hover_color=T.ACCENT_HOVER)
+        # RCM checkbox — purchase bills only
+        self.rcm = None
+        if not self.sales:
+            self.rcm = ctk.CTkCheckBox(top, text="Reverse Charge (RCM)",
+                                       font=T.f(13), text_color=T.TEXT,
+                                       fg_color=T.ACCENT, hover_color=T.ACCENT_HOVER)
         self.narr = T.entry(top, "Narration (optional)", width=300)
+
         _lbl(top, "Date", row=0, column=0, sticky="w", padx=(20, 8), pady=(14, 2))
-        _lbl(top, "Customer" if self.sales else "Supplier", row=0, column=1, sticky="w", padx=8, pady=(14, 2))
+        _lbl(top, "Customer" if self.sales else "Supplier",
+             row=0, column=1, sticky="w", padx=8, pady=(14, 2))
         _lbl(top, "Narration", row=0, column=3, sticky="w", padx=8, pady=(14, 2))
         self.date.grid(row=1, column=0, padx=(20, 8), pady=(0, 14))
-        pw.grid(row=1, column=1, padx=8, pady=(0, 14))
-        self.inter.grid(row=1, column=2, padx=12, pady=(0, 14))
-        self.narr.grid(row=1, column=3, padx=8, pady=(0, 14))
+        pw.grid(        row=1, column=1, padx=8,       pady=(0, 14))
+        self.inter.grid(row=1, column=2, padx=12,      pady=(0, 14))
+        if self.rcm is not None:
+            _lbl(top, "RCM", row=0, column=4, sticky="w", padx=8, pady=(14, 2))
+            self.rcm.grid(row=1, column=4, padx=8, pady=(0, 14))
+        self.narr.grid( row=1, column=3, padx=8,       pady=(0, 14))
 
-        # Item rows live in a scrollable area so a long bill stays usable.
         items_wrap = T.card(self)
         items_wrap.pack(fill="both", expand=True, padx=28, pady=14)
         items_wrap.grid_columnconfigure(0, weight=1)
@@ -291,7 +299,8 @@ class TradeFrame(EntryBase):
         self.items_card.grid(row=0, column=0, sticky="nsew", padx=8, pady=(10, 4))
         items = self.items_card
         for c, h in enumerate(("Item", "HSN/SAC", "Qty", "Rate (Rs)", "GST %", "", "Amount")):
-            _lbl(items, h, row=0, column=c, sticky="w", padx=(20 if c == 0 else 6, 6), pady=(2, 0))
+            _lbl(items, h, row=0, column=c,
+                 sticky="w", padx=(20 if c == 0 else 6, 6), pady=(2, 0))
 
         for _ in range(self.ROWS):
             self._add_row(rechain=False)
@@ -303,22 +312,28 @@ class TradeFrame(EntryBase):
         self.row_count_lbl.pack(side="left", padx=10)
 
         self.summary = ctk.CTkLabel(items, text="", font=T.f(13, "bold"), text_color=T.TEXT)
-        self.summary.grid(row=SUMMARY_ROW, column=0, columnspan=7, sticky="e", padx=20, pady=(8, 14))
+        self.summary.grid(row=SUMMARY_ROW, column=0, columnspan=7,
+                          sticky="e", padx=20, pady=(8, 14))
 
         foot = ctk.CTkFrame(self, fg_color="transparent")
         foot.pack(fill="x", padx=28)
         self.paid = self.mode = self.paid_lbl = None
         if not edit_id:
-            self.paid_lbl = ctk.CTkLabel(foot, text="Received now (Rs)" if self.sales else "Paid now (Rs)",
-                                         font=T.f(12), text_color=T.MUTED)
+            self.paid_lbl = ctk.CTkLabel(
+                foot, text="Received now (Rs)" if self.sales else "Paid now (Rs)",
+                font=T.f(12), text_color=T.MUTED)
             self.paid = T.entry(foot, "0.00", width=120)
             self.paid.bind("<KeyRelease>", self.calc)
             self.mode = T.option_menu(foot, ["Cash", "Bank"], width=90)
-        self.bill_lbl = ctk.CTkLabel(foot, text="Customer name on bill" if self.sales else "Supplier name on bill",
-                                     font=T.f(12), text_color=T.MUTED)
+        self.bill_lbl = ctk.CTkLabel(
+            foot,
+            text="Customer name on bill" if self.sales else "Supplier name on bill",
+            font=T.f(12), text_color=T.MUTED)
         self.bill_name = T.entry(foot, "(optional)", width=200)
-        self.save_btn = T.button(foot, ("Update " if edit_id else "Save ") + ("invoice" if self.sales else "bill"),
-                                 self.save, width=160)
+        self.save_btn = T.button(
+            foot,
+            ("Update " if edit_id else "Save ") + ("invoice" if self.sales else "bill"),
+            self.save, width=160)
         self.save_btn.pack(side="left")
         self._make_msg(foot)
         self._rechain()
@@ -330,21 +345,21 @@ class TradeFrame(EntryBase):
             focus_later(self.rows[0][0])
         self._cash_mode()
 
-    # ---- row management -----------------------------------------------------
+    # ── row management ────────────────────────────────────────────────────────
 
     def _add_row(self, rechain=True):
-        """Append one item row. Grid row = position, footer sits at fixed rows below."""
         items = self.items_card
-        idx = len(self.rows)
-        r = idx + 1
-        desc = T.combo(items, self._stock_names, width=260)
+        idx   = len(self.rows)
+        r     = idx + 1
+        desc  = T.combo(items, self._stock_names, width=260)
         desc.set("")
         hsn  = T.entry(items, "HSN/SAC", width=90)
         qty  = T.entry(items, "1",       width=80)
         rate = T.entry(items, "0.00",    width=120)
         gst  = T.option_menu(items, self.GST_RATES, width=90, command=lambda _v: self.calc())
         gst.set("18")
-        amt  = ctk.CTkLabel(items, text="", width=110, anchor="e", font=T.f(13), text_color=T.TEXT)
+        amt  = ctk.CTkLabel(items, text="", width=110, anchor="e",
+                            font=T.f(13), text_color=T.TEXT)
         desc.grid(row=r, column=0, padx=(20, 6), pady=4)
         hsn.grid( row=r, column=1, padx=6,       pady=4)
         qty.grid( row=r, column=2, padx=6,       pady=4)
@@ -380,10 +395,9 @@ class TradeFrame(EntryBase):
             order.append(self.paid)
         chain_enter(order, self.save if not self.edit_id else None)
 
-    # ---- stock master -------------------------------------------------------
+    # ── stock master ──────────────────────────────────────────────────────────
 
     def _load_stock_map(self):
-        """Returns dict of {name: {id, hsn, unit, gst_rate}} from stock_items table."""
         try:
             rows = self.con.execute(
                 "SELECT id, name, hsn, unit, gst_rate FROM stock_items ORDER BY name COLLATE NOCASE"
@@ -393,7 +407,6 @@ class TradeFrame(EntryBase):
             return {}
 
     def _on_item_pick(self, row_idx, name):
-        """Auto-fill HSN and GST when a stock item is selected from dropdown."""
         if row_idx >= len(self.rows):
             return
         if name in self._stock_map:
@@ -404,7 +417,7 @@ class TradeFrame(EntryBase):
             gst.set(str(it["gst_rate"] or "18"))
             self.calc()
 
-    # ---- party / mode -------------------------------------------------------
+    # ── party / mode ──────────────────────────────────────────────────────────
 
     def _is_cash(self):
         return self.party.get().strip() in ("Cash", "Bank")
@@ -414,12 +427,12 @@ class TradeFrame(EntryBase):
             if w is not None:
                 w.pack_forget()
         if self._is_cash():
-            self.bill_lbl.pack(side="left", padx=(0, 8), before=self.save_btn)
+            self.bill_lbl.pack(side="left",  padx=(0, 8),  before=self.save_btn)
             self.bill_name.pack(side="left", padx=(0, 18), before=self.save_btn)
         elif self.paid is not None:
-            self.paid_lbl.pack(side="left", padx=(0, 8), before=self.save_btn)
-            self.paid.pack(side="left", padx=(0, 8), before=self.save_btn)
-            self.mode.pack(side="left", padx=(0, 18), before=self.save_btn)
+            self.paid_lbl.pack(side="left", padx=(0, 8),  before=self.save_btn)
+            self.paid.pack(    side="left", padx=(0, 8),  before=self.save_btn)
+            self.mode.pack(    side="left", padx=(0, 18), before=self.save_btn)
 
     def _party_names(self):
         return [p["name"] for p in s.list_parties(self.con, self.ptype)] + ["Cash"]
@@ -436,18 +449,20 @@ class TradeFrame(EntryBase):
 
     def _prefill(self):
         snap = s.voucher_snapshot(self.con, self.edit_id)
-        inv = snap["invoice"]
-        self.date.delete(0, "end"); self.date.insert(0, disp_date(snap["vdate"]))
+        inv  = snap["invoice"]
+        self.date.delete(0, "end")
+        self.date.insert(0, disp_date(snap["vdate"]))
         self.party.set(inv["party"])
         (self.inter.select if inv["interstate"] else self.inter.deselect)()
+        if self.rcm is not None:
+            (self.rcm.select if inv.get("rcm") else self.rcm.deselect)()
         self.narr.insert(0, snap["narration"] or "")
         self.bill_name.insert(0, inv.get("customer_name", ""))
-        # Grow the form if the saved bill has more items than the default rows
         for i, it in enumerate(inv["items"]):
             while len(self.rows) <= i:
                 self._add_row(rechain=False)
             desc, hsn, qty, rate, gst, _a = self.rows[i]
-            desc.set(it["description"])          # combo box: set(), not insert()
+            desc.set(it["description"])
             hsn.delete(0, "end");  hsn.insert(0, it.get("hsn", "") or "")
             qty.delete(0, "end");  qty.insert(0, _num(it["qty"]))
             rate.delete(0, "end"); rate.insert(0, _num(it["rate"]))
@@ -474,14 +489,15 @@ class TradeFrame(EntryBase):
     def _collect(self):
         items = []
         for desc, hsn, qty, rate, gst, _amt in self.rows:
-            d, h, q, r = desc.get().strip(), hsn.get().strip(), qty.get().strip(), rate.get().strip()
+            d, h, q, r = (desc.get().strip(), hsn.get().strip(),
+                          qty.get().strip(),  rate.get().strip())
             if not (d or q or r):
                 continue
             if not q or not r:
                 raise ValueError("Every item needs a quantity and a rate")
-            # look up stock_item_id if name matches master
             sid = self._stock_map[d]["id"] if d in self._stock_map else None
-            items.append((d or "Item", h, parse_amount(q), parse_amount(r), float(gst.get()), sid))
+            items.append((d or "Item", h, parse_amount(q), parse_amount(r),
+                          float(gst.get()), sid))
         return items
 
     def calc(self, _e=None):
@@ -492,14 +508,15 @@ class TradeFrame(EntryBase):
             except ValueError:
                 amt.configure(text="")
         try:
-            items = self._collect()
+            items    = self._collect()
             tax_items = [(d, q, r, g) for d, _h, q, r, g, _sid in items]
             t = b.compute_tax(tax_items, bool(self.inter.get()))
         except ValueError:
             self.summary.configure(text="")
             return
         k = lambda v: inr(v / 100)
-        tax = f"IGST {k(t['igst'])}" if self.inter.get() else f"CGST {k(t['cgst'])}   SGST {k(t['sgst'])}"
+        tax = (f"IGST {k(t['igst'])}" if self.inter.get()
+               else f"CGST {k(t['cgst'])}   SGST {k(t['sgst'])}")
         extra = ""
         if self.paid is not None:
             try:
@@ -509,32 +526,53 @@ class TradeFrame(EntryBase):
             if p:
                 word = "Received" if self.sales else "Paid"
                 extra = f"     {word} {inr(p)}     Due {inr(t['total'] / 100 - p)}"
-        self.summary.configure(text=f"Taxable {k(t['taxable'])}     {tax}     Total {k(t['total'])}{extra}")
+        self.summary.configure(
+            text=f"Taxable {k(t['taxable'])}     {tax}     Total {k(t['total'])}{extra}")
+
+    def _stamp_rcm(self, vid):
+        """Set the rcm flag on the saved invoice row (purchase only)."""
+        if self.rcm is None or vid is None:
+            return
+        flag = 1 if self.rcm.get() else 0
+        try:
+            self.con.execute(
+                "UPDATE invoices SET rcm=? WHERE voucher_id=?", (flag, vid))
+            self.con.commit()
+        except Exception:
+            pass
 
     def save(self):
         try:
-            d = parse_date(self.date.get())
+            d  = parse_date(self.date.get())
             ac = getattr(self.party, "_ac", None)
             if ac:
                 ac.commit()
             party = self.party.get().strip()
             bn = self.bill_name.get().strip() if party in ("Cash", "Bank") else ""
             if self.edit_id:
-                res = b.update_invoice(self.con, self.edit_id, d, party, self._collect(),
-                                       bool(self.inter.get()), self.narr.get().strip(), self.username, bn)
+                res = b.update_invoice(
+                    self.con, self.edit_id, d, party, self._collect(),
+                    bool(self.inter.get()), self.narr.get().strip(),
+                    self.username, bn)
             else:
                 post = b.post_sale if self.sales else b.post_purchase
-                got = parse_amount(self.paid.get()) if (self.paid and party not in ("Cash", "Bank")) else 0
-                res = post(self.con, d, party, self._collect(), bool(self.inter.get()),
-                           self.narr.get().strip(), self.username, got, self.mode.get() if self.mode else "Cash", bn)
+                got  = (parse_amount(self.paid.get())
+                        if (self.paid and party not in ("Cash", "Bank")) else 0)
+                res  = post(self.con, d, party, self._collect(),
+                            bool(self.inter.get()), self.narr.get().strip(),
+                            self.username, got,
+                            self.mode.get() if self.mode else "Cash", bn)
         except ValueError as e:
             self.err(str(e))
             return
+
         if self.edit_id:
             self.ok(f"{self.kind} no. {res['vno']} updated. Total Rs {inr(res['total'])}")
+            self._stamp_rcm(self.edit_id)
             if self.on_done:
                 self.after(60, self.on_done)
             return
+
         for desc, hsn, qty, rate, _g, amt in self.rows:
             desc.set("")
             for e in (hsn, qty, rate):
@@ -547,15 +585,16 @@ class TradeFrame(EntryBase):
         self.summary.configure(text="")
         text = f"{self.kind} no. {res['vno']} saved. Total Rs {inr(res['total'])}"
         if res["received"]:
-            text += f", {'received' if self.sales else 'paid'} Rs {inr(res['received'])}, balance Rs {inr(res['balance'])}"
+            text += (f", {'received' if self.sales else 'paid'} Rs {inr(res['received'])}"
+                     f", balance Rs {inr(res['balance'])}")
         self.ok(text, self.kind, res["vno"], d)
+        self._stamp_rcm(s.find_voucher(self.con, self.kind, res["vno"], d))
         focus_later(self.rows[0][0], 50)
 
 
-# ── SummaryFrame ─────────────────────────────────────────────────────────────
+# ── SummaryFrame ──────────────────────────────────────────────────────────────
 
 class SummaryFrame(EntryBase):
-    """Daily sales summary for counter / retail sales that do not need an invoice each."""
     RATES = ["0", "5", "12", "18", "28"]
 
     def __init__(self, master, con, username="", opener=None):
@@ -570,34 +609,39 @@ class SummaryFrame(EntryBase):
         self.date = T.entry(top, width=140)
         self.date.insert(0, today_str())
         self.mode = T.option_menu(top, ["Cash", "Bank"], width=110)
-        self.incl = ctk.CTkCheckBox(top, text="Amounts include GST", command=self.calc, font=T.f(13),
-                                    text_color=T.TEXT, fg_color=T.ACCENT, hover_color=T.ACCENT_HOVER)
+        self.incl = ctk.CTkCheckBox(top, text="Amounts include GST", command=self.calc,
+                                    font=T.f(13), text_color=T.TEXT,
+                                    fg_color=T.ACCENT, hover_color=T.ACCENT_HOVER)
         self.incl.select()
         self.narr = T.entry(top, "Narration (optional)", width=300)
-        _lbl(top, "Date", row=0, column=0, sticky="w", padx=(20, 8), pady=(14, 2))
-        _lbl(top, "Received in", row=0, column=1, sticky="w", padx=8, pady=(14, 2))
-        _lbl(top, "Narration", row=0, column=3, sticky="w", padx=8, pady=(14, 2))
+        _lbl(top, "Date",         row=0, column=0, sticky="w", padx=(20, 8), pady=(14, 2))
+        _lbl(top, "Received in",  row=0, column=1, sticky="w", padx=8,       pady=(14, 2))
+        _lbl(top, "Narration",    row=0, column=3, sticky="w", padx=8,       pady=(14, 2))
         self.date.grid(row=1, column=0, padx=(20, 8), pady=(0, 14))
-        self.mode.grid(row=1, column=1, padx=8, pady=(0, 14))
-        self.incl.grid(row=1, column=2, padx=14, pady=(0, 14))
-        self.narr.grid(row=1, column=3, padx=8, pady=(0, 14))
+        self.mode.grid(row=1, column=1, padx=8,       pady=(0, 14))
+        self.incl.grid(row=1, column=2, padx=14,      pady=(0, 14))
+        self.narr.grid(row=1, column=3, padx=8,       pady=(0, 14))
 
         card = T.card(self)
         card.pack(fill="x", padx=28, pady=14)
         for c, h in enumerate(("GST rate", "Sales amount (Rs)", "Tax in it (Rs)")):
-            _lbl(card, h, row=0, column=c, sticky="w", padx=(20 if c == 0 else 8, 8), pady=(12, 0))
+            _lbl(card, h, row=0, column=c,
+                 sticky="w", padx=(20 if c == 0 else 8, 8), pady=(12, 0))
         self.rows = []
         for i, rate in enumerate(self.RATES):
-            ctk.CTkLabel(card, text=f"{rate}%", font=T.f(14, "bold"), text_color=T.TEXT, width=60,
-                         anchor="w").grid(row=i + 1, column=0, padx=(20, 8), pady=4, sticky="w")
+            ctk.CTkLabel(card, text=f"{rate}%", font=T.f(14, "bold"),
+                         text_color=T.TEXT, width=60, anchor="w"
+                         ).grid(row=i + 1, column=0, padx=(20, 8), pady=4, sticky="w")
             e = T.entry(card, "0.00", width=180)
             e.grid(row=i + 1, column=1, padx=8, pady=4)
             e.bind("<KeyRelease>", self.calc)
-            tax = ctk.CTkLabel(card, text="", width=140, anchor="e", font=T.f(13), text_color=T.MUTED)
+            tax = ctk.CTkLabel(card, text="", width=140, anchor="e",
+                               font=T.f(13), text_color=T.MUTED)
             tax.grid(row=i + 1, column=2, padx=8, pady=4)
             self.rows.append((rate, e, tax))
         self.summary = ctk.CTkLabel(card, text="", font=T.f(13, "bold"), text_color=T.TEXT)
-        self.summary.grid(row=len(self.RATES) + 1, column=0, columnspan=3, sticky="e", padx=20, pady=(8, 14))
+        self.summary.grid(row=len(self.RATES) + 1, column=0, columnspan=3,
+                          sticky="e", padx=20, pady=(8, 14))
 
         foot = ctk.CTkFrame(self, fg_color="transparent")
         foot.pack(fill="x", padx=28)
@@ -615,8 +659,8 @@ class SummaryFrame(EntryBase):
     def calc(self, _e=None):
         try:
             entered = self._entered()
-            items = b.summary_items(entered, bool(self.incl.get()))
-            t = b.compute_tax(items, False)
+            items   = b.summary_items(entered, bool(self.incl.get()))
+            t       = b.compute_tax(items, False)
         except ValueError:
             self.summary.configure(text="")
             for _r, _e2, tax in self.rows:
@@ -633,14 +677,16 @@ class SummaryFrame(EntryBase):
                 tax.configure(text="")
         k = lambda v: inr(v / 100)
         self.summary.configure(
-            text=f"Taxable {k(t['taxable'])}     CGST {k(t['cgst'])}     SGST {k(t['sgst'])}     Total {k(t['total'])}")
+            text=(f"Taxable {k(t['taxable'])}     CGST {k(t['cgst'])}"
+                  f"     SGST {k(t['sgst'])}     Total {k(t['total'])}"))
 
     def save(self):
         try:
-            d = parse_date(self.date.get())
+            d     = parse_date(self.date.get())
             items = b.summary_items(self._entered(), bool(self.incl.get()))
-            res = b.post_sale(self.con, d, self.mode.get(), items, False,
-                              self.narr.get().strip() or "Daily sales summary", self.username)
+            res   = b.post_sale(self.con, d, self.mode.get(), items, False,
+                                self.narr.get().strip() or "Daily sales summary",
+                                self.username)
         except ValueError as e:
             self.err(str(e))
             return
@@ -648,7 +694,8 @@ class SummaryFrame(EntryBase):
             e.delete(0, "end"); tax.configure(text="")
         self.narr.delete(0, "end")
         self.summary.configure(text="")
-        self.ok(f"Saved as Sales no. {res['vno']}. Total Rs {inr(res['total'])} received in {self.mode.get()}",
+        self.ok(f"Saved as Sales no. {res['vno']}. "
+                f"Total Rs {inr(res['total'])} received in {self.mode.get()}",
                 "Sales", res["vno"], d)
         focus_later(self.rows[0][1], 50)
 
@@ -656,9 +703,8 @@ class SummaryFrame(EntryBase):
 # ── PaymentFrame ──────────────────────────────────────────────────────────────
 
 class PaymentFrame(EntryBase):
-    """Money received from a customer, or paid to a supplier.
-    User types amount against each bill (Agst Ref style)."""
-    KINDS = {"Receipt from customer": ("Receipt", "Customer"), "Payment to supplier": ("Payment", "Supplier")}
+    KINDS = {"Receipt from customer": ("Receipt", "Customer"),
+             "Payment to supplier":   ("Payment", "Supplier")}
 
     def __init__(self, master, con, username="", opener=None):
         super().__init__(master, fg_color="transparent")
@@ -672,12 +718,13 @@ class PaymentFrame(EntryBase):
 
         card = T.card(self)
         card.pack(fill="x", padx=28)
-        self.kind = T.option_menu(card, list(self.KINDS), width=220, command=lambda _v: self.kind_changed())
+        self.kind = T.option_menu(card, list(self.KINDS), width=220,
+                                  command=lambda _v: self.kind_changed())
         pw = ctk.CTkFrame(card, fg_color="transparent")
         self.party = T.combo(pw, [], width=240, command=lambda _v: self.show_bills())
         self.party.pack(side="left")
         T.button(pw, "+ New", self.new_party, width=64, **GHOST).pack(side="left", padx=(6, 0))
-        self.ac = Autocomplete(self.party, [], on_pick=lambda _n: self.show_bills())
+        self.ac   = Autocomplete(self.party, [], on_pick=lambda _n: self.show_bills())
         self.date = T.entry(card, width=130)
         self.date.insert(0, today_str())
         self.mode = T.option_menu(card, ["Cash", "Bank"], width=100)
@@ -685,22 +732,25 @@ class PaymentFrame(EntryBase):
         heads   = ("Type", "Party", "Date", "Paid by / into", "Narration")
         widgets = (self.kind, pw, self.date, self.mode, self.narr)
         for c, (h, w) in enumerate(zip(heads, widgets)):
-            _lbl(card, h, row=0, column=c, sticky="w", padx=(20 if c == 0 else 8, 8), pady=(14, 2))
+            _lbl(card, h, row=0, column=c,
+                 sticky="w", padx=(20 if c == 0 else 8, 8), pady=(14, 2))
             w.grid(row=1, column=c, padx=(20 if c == 0 else 8, 8), pady=(0, 14))
 
         ctk.CTkLabel(self, text="Unpaid bills — type amount to settle against each",
-                     font=T.f(14, "bold"), text_color=T.TEXT).pack(anchor="w", padx=28, pady=(14, 4))
+                     font=T.f(14, "bold"), text_color=T.TEXT).pack(
+            anchor="w", padx=28, pady=(14, 4))
 
         hdr = ctk.CTkFrame(self, fg_color="#E8EDF5", corner_radius=0, height=28)
         hdr.pack(fill="x", padx=28)
         hdr.pack_propagate(False)
-        for txt, w in (("Date", 110), ("Bill", 120), ("Bill Total", 160), ("Balance", 160), ("Now Paying", 160)):
+        for txt, w in (("Date", 110), ("Bill", 120), ("Bill Total", 160),
+                       ("Balance", 160), ("Now Paying", 160)):
             ctk.CTkLabel(hdr, text=txt, font=T.f(11, "bold"), text_color=T.MUTED,
                          width=w, anchor="w").pack(side="left", padx=(12, 4))
 
-        self.bills_frame = ctk.CTkScrollableFrame(self, fg_color="white",
-                                                   border_width=1, border_color="#D1D5DB",
-                                                   corner_radius=0, height=180)
+        self.bills_frame = ctk.CTkScrollableFrame(
+            self, fg_color="white", border_width=1, border_color="#D1D5DB",
+            corner_radius=0, height=180)
         self.bills_frame.pack(fill="x", padx=28)
 
         tot_bar = ctk.CTkFrame(self, fg_color="#EEF2FF", corner_radius=0, height=32)
@@ -741,13 +791,11 @@ class PaymentFrame(EntryBase):
         for w in self.bills_frame.winfo_children():
             w.destroy()
         self._bill_entries = []
-
         pkind, _pt = self._ctx()
-        inv_kind = "Sales" if pkind == "Receipt" else "Purchase"
+        inv_kind   = "Sales" if pkind == "Receipt" else "Purchase"
         self._open_bills = b.open_invoices(self.con, self.party.get().strip(), inv_kind)
-
         for i, o in enumerate(self._open_bills):
-            bg = "white" if i % 2 == 0 else "#F8FAFD"
+            bg  = "white" if i % 2 == 0 else "#F8FAFD"
             row = ctk.CTkFrame(self.bills_frame, fg_color=bg, corner_radius=0, height=34)
             row.pack(fill="x")
             row.pack_propagate(False)
@@ -763,7 +811,6 @@ class PaymentFrame(EntryBase):
             entry.pack(side="left", padx=(8, 12))
             entry.bind("<KeyRelease>", self._update_total)
             self._bill_entries.append(entry)
-
         self._update_total()
 
     def _update_total(self, _e=None):
@@ -799,20 +846,21 @@ class PaymentFrame(EntryBase):
             if ac:
                 ac.commit()
             pkind, _pt = self._ctx()
-            d = parse_date(self.date.get())
-            party = self.party.get().strip()
+            d      = parse_date(self.date.get())
+            party  = self.party.get().strip()
             if not allocs:
                 raise ValueError("Enter amount against at least one bill")
             total_amt = sum(a for _, a in allocs)
-            res = b.record_payment(self.con, pkind, party, d, total_amt,
-                                   self.mode.get(), self.narr.get().strip(),
-                                   self.username, allocations=allocs)
+            res = b.record_payment(
+                self.con, pkind, party, d, total_amt,
+                self.mode.get(), self.narr.get().strip(),
+                self.username, allocations=allocs)
         except ValueError as e:
             self.err(str(e))
             return
         inv_kind = "Sales" if pkind == "Receipt" else "Purchase"
         parts = [f"{inv_kind} #{n} Rs {inr(a)}" for n, a in res["settled_bills"]]
-        text = f"{pkind} no. {res['vno']} saved. Settled " + ", ".join(parts)
+        text  = f"{pkind} no. {res['vno']} saved. Settled " + ", ".join(parts)
         if res["on_account"]:
             text += f". Rs {inr(res['on_account'])} on account"
         self.narr.delete(0, "end")
@@ -821,23 +869,23 @@ class PaymentFrame(EntryBase):
         focus_later(self.party, 50)
 
 
-# ── ReturnBase (shared by Sales Return and Purchase Return) ───────────────────
+# ── _ReturnRowsMixin ──────────────────────────────────────────────────────────
 
 class _ReturnRowsMixin:
     """Dynamic item rows for the credit / debit note screens."""
 
     def _add_row(self, rechain=True):
         items = self.items_card
-        r = len(self.rows) + 1
-        desc = T.entry(items, "Description", width=260)
-        hsn  = T.entry(items, "HSN/SAC",     width=90)
-        qty  = T.entry(items, "1",            width=80)
-        rate = T.entry(items, "0.00",         width=120)
-        gst  = T.option_menu(items, self.GST_RATES, width=90,
-                             command=lambda _v: self.calc())
+        r     = len(self.rows) + 1
+        desc  = T.entry(items, "Description", width=260)
+        hsn   = T.entry(items, "HSN/SAC",     width=90)
+        qty   = T.entry(items, "1",            width=80)
+        rate  = T.entry(items, "0.00",         width=120)
+        gst   = T.option_menu(items, self.GST_RATES, width=90,
+                              command=lambda _v: self.calc())
         gst.set("18")
-        amt  = ctk.CTkLabel(items, text="", width=110, anchor="e",
-                            font=T.f(13), text_color=T.TEXT)
+        amt   = ctk.CTkLabel(items, text="", width=110, anchor="e",
+                             font=T.f(13), text_color=T.TEXT)
         desc.grid(row=r, column=0, padx=(20, 6), pady=4)
         hsn.grid( row=r, column=1, padx=6,       pady=4)
         qty.grid( row=r, column=2, padx=6,       pady=4)
@@ -860,7 +908,6 @@ class _ReturnRowsMixin:
             self.row_count_lbl.configure(text=f"{len(self.rows)} rows")
 
     def _build_rows_area(self, parent):
-        """Item header, rows, add button and summary. Returns the scrollable card."""
         wrap = T.card(parent)
         wrap.pack(fill="both", expand=True, padx=28, pady=(6, 14))
         wrap.grid_columnconfigure(0, weight=1)
@@ -875,7 +922,8 @@ class _ReturnRowsMixin:
             self._add_row(rechain=False)
         addbar = ctk.CTkFrame(items, fg_color="transparent")
         addbar.grid(row=ADDBAR_ROW, column=0, columnspan=7, sticky="w", padx=20, pady=(8, 0))
-        T.button(addbar, "+ Add item", self.add_row_and_focus, width=110, **GHOST).pack(side="left")
+        T.button(addbar, "+ Add item", self.add_row_and_focus,
+                 width=110, **GHOST).pack(side="left")
         self.row_count_lbl = ctk.CTkLabel(addbar, text="", font=T.f(11), text_color=T.MUTED)
         self.row_count_lbl.pack(side="left", padx=10)
         self.summary = ctk.CTkLabel(items, text="", font=T.f(13, "bold"), text_color=T.TEXT)
@@ -888,7 +936,6 @@ class _ReturnRowsMixin:
 # ── SalesReturnFrame ──────────────────────────────────────────────────────────
 
 class SalesReturnFrame(_ReturnRowsMixin, EntryBase):
-    """Credit note against a specific sales invoice."""
     GST_RATES = ["0", "0.25", "1.5", "3", "5", "12", "18", "28", "40"]
     ROWS = 3
 
@@ -896,7 +943,7 @@ class SalesReturnFrame(_ReturnRowsMixin, EntryBase):
         super().__init__(master, fg_color="transparent")
         self._init_base(con, username, opener)
         self.rows = []
-        self._open_bills = []
+        self._open_bills   = []
         self.company_gstin = settings.load_settings().get("gstin", "")
 
         scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
@@ -922,15 +969,15 @@ class SalesReturnFrame(_ReturnRowsMixin, EntryBase):
         self.inter = ctk.CTkCheckBox(top, text="Inter-state (IGST)", font=T.f(13),
                                      text_color=T.TEXT, fg_color=T.ACCENT,
                                      hover_color=T.ACCENT_HOVER, command=self.calc)
-        self.narr = T.entry(top, "Reason for return (optional)", width=300)
+        self.narr  = T.entry(top, "Reason for return (optional)", width=300)
 
-        _lbl(top, "Date", row=0, column=0, sticky="w", padx=(20, 8), pady=(14, 2))
-        _lbl(top, "Customer", row=0, column=1, sticky="w", padx=8, pady=(14, 2))
-        _lbl(top, "Narration", row=0, column=3, sticky="w", padx=8, pady=(14, 2))
+        _lbl(top, "Date",     row=0, column=0, sticky="w", padx=(20, 8), pady=(14, 2))
+        _lbl(top, "Customer", row=0, column=1, sticky="w", padx=8,       pady=(14, 2))
+        _lbl(top, "Narration",row=0, column=3, sticky="w", padx=8,       pady=(14, 2))
         self.date.grid(row=1, column=0, padx=(20, 8), pady=(0, 14))
-        pw.grid(row=1, column=1, padx=8, pady=(0, 14))
-        self.inter.grid(row=1, column=2, padx=12, pady=(0, 14))
-        self.narr.grid(row=1, column=3, padx=8, pady=(0, 14))
+        pw.grid(        row=1, column=1, padx=8,       pady=(0, 14))
+        self.inter.grid(row=1, column=2, padx=12,      pady=(0, 14))
+        self.narr.grid( row=1, column=3, padx=8,       pady=(0, 14))
 
         ctk.CTkLabel(scroll, text="Select invoice to return against",
                      font=T.f(14, "bold"), text_color=T.TEXT).pack(
@@ -939,16 +986,17 @@ class SalesReturnFrame(_ReturnRowsMixin, EntryBase):
         hdr = ctk.CTkFrame(scroll, fg_color="#E8EDF5", corner_radius=0, height=28)
         hdr.pack(fill="x", padx=28)
         hdr.pack_propagate(False)
-        for txt, w in (("Date", 110), ("Invoice", 120), ("Total", 160), ("Balance", 160), ("Select", 80)):
+        for txt, w in (("Date", 110), ("Invoice", 120), ("Total", 160),
+                       ("Balance", 160), ("Select", 80)):
             ctk.CTkLabel(hdr, text=txt, font=T.f(11, "bold"), text_color=T.MUTED,
                          width=w, anchor="w").pack(side="left", padx=(12, 4))
 
-        self.inv_frame = ctk.CTkScrollableFrame(scroll, fg_color="white",
-                                                 border_width=1, border_color="#D1D5DB",
-                                                 corner_radius=0, height=130)
+        self.inv_frame = ctk.CTkScrollableFrame(
+            scroll, fg_color="white", border_width=1, border_color="#D1D5DB",
+            corner_radius=0, height=130)
         self.inv_frame.pack(fill="x", padx=28)
-        self._selected_inv_id = None
-        self._inv_radio_var = ctk.StringVar(value="")
+        self._selected_inv_id  = None
+        self._inv_radio_var    = ctk.StringVar(value="")
 
         foot = ctk.CTkFrame(scroll, fg_color="transparent")
         foot.pack(fill="x", padx=28, pady=10)
@@ -956,7 +1004,6 @@ class SalesReturnFrame(_ReturnRowsMixin, EntryBase):
         self._make_msg(foot)
 
         self._build_rows_area(scroll)
-
         self._party_changed(self.party.get())
         focus_later(self.rows[0][0])
 
@@ -977,9 +1024,8 @@ class SalesReturnFrame(_ReturnRowsMixin, EntryBase):
         self._selected_inv_id = None
         self._inv_radio_var.set("")
         self._open_bills = b.open_invoices(self.con, party, "Sales")
-
         for i, o in enumerate(self._open_bills):
-            bg = "white" if i % 2 == 0 else "#F8FAFD"
+            bg  = "white" if i % 2 == 0 else "#F8FAFD"
             row = ctk.CTkFrame(self.inv_frame, fg_color=bg, corner_radius=0, height=32)
             row.pack(fill="x")
             row.pack_propagate(False)
@@ -1003,7 +1049,8 @@ class SalesReturnFrame(_ReturnRowsMixin, EntryBase):
     def _collect(self):
         items = []
         for desc, hsn, qty, rate, gst, _amt in self.rows:
-            d, h, q, r = desc.get().strip(), hsn.get().strip(), qty.get().strip(), rate.get().strip()
+            d, h, q, r = (desc.get().strip(), hsn.get().strip(),
+                          qty.get().strip(),  rate.get().strip())
             if not (d or q or r):
                 continue
             if not q or not r:
@@ -1019,15 +1066,15 @@ class SalesReturnFrame(_ReturnRowsMixin, EntryBase):
             except ValueError:
                 amt.configure(text="")
         try:
-            items = self._collect()
+            items     = self._collect()
             tax_items = [(d, q, r, g) for d, _h, q, r, g in items]
             t = b.compute_tax(tax_items, bool(self.inter.get()))
         except ValueError:
             self.summary.configure(text="")
             return
-        k = lambda v: inr(v / 100)
-        tax = f"IGST {k(t['igst'])}" if self.inter.get() else \
-              f"CGST {k(t['cgst'])}   SGST {k(t['sgst'])}"
+        k   = lambda v: inr(v / 100)
+        tax = (f"IGST {k(t['igst'])}" if self.inter.get()
+               else f"CGST {k(t['cgst'])}   SGST {k(t['sgst'])}")
         self.summary.configure(
             text=f"Taxable {k(t['taxable'])}     {tax}     Total {k(t['total'])}")
 
@@ -1039,7 +1086,7 @@ class SalesReturnFrame(_ReturnRowsMixin, EntryBase):
         try:
             if not self._selected_inv_id:
                 raise ValueError("Select the invoice to return against")
-            d = parse_date(self.date.get())
+            d     = parse_date(self.date.get())
             items = self._collect()
             if not items:
                 raise ValueError("Enter at least one item to return")
@@ -1066,7 +1113,6 @@ class SalesReturnFrame(_ReturnRowsMixin, EntryBase):
 # ── PurchaseReturnFrame ───────────────────────────────────────────────────────
 
 class PurchaseReturnFrame(_ReturnRowsMixin, EntryBase):
-    """Debit note against a specific purchase bill."""
     GST_RATES = ["0", "0.25", "1.5", "3", "5", "12", "18", "28", "40"]
     ROWS = 3
 
@@ -1074,7 +1120,7 @@ class PurchaseReturnFrame(_ReturnRowsMixin, EntryBase):
         super().__init__(master, fg_color="transparent")
         self._init_base(con, username, opener)
         self.rows = []
-        self._open_bills = []
+        self._open_bills   = []
         self.company_gstin = settings.load_settings().get("gstin", "")
 
         scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
@@ -1100,15 +1146,15 @@ class PurchaseReturnFrame(_ReturnRowsMixin, EntryBase):
         self.inter = ctk.CTkCheckBox(top, text="Inter-state (IGST)", font=T.f(13),
                                      text_color=T.TEXT, fg_color=T.ACCENT,
                                      hover_color=T.ACCENT_HOVER, command=self.calc)
-        self.narr = T.entry(top, "Reason for return (optional)", width=300)
+        self.narr  = T.entry(top, "Reason for return (optional)", width=300)
 
-        _lbl(top, "Date", row=0, column=0, sticky="w", padx=(20, 8), pady=(14, 2))
-        _lbl(top, "Supplier", row=0, column=1, sticky="w", padx=8, pady=(14, 2))
-        _lbl(top, "Narration", row=0, column=3, sticky="w", padx=8, pady=(14, 2))
+        _lbl(top, "Date",     row=0, column=0, sticky="w", padx=(20, 8), pady=(14, 2))
+        _lbl(top, "Supplier", row=0, column=1, sticky="w", padx=8,       pady=(14, 2))
+        _lbl(top, "Narration",row=0, column=3, sticky="w", padx=8,       pady=(14, 2))
         self.date.grid(row=1, column=0, padx=(20, 8), pady=(0, 14))
-        pw.grid(row=1, column=1, padx=8, pady=(0, 14))
-        self.inter.grid(row=1, column=2, padx=12, pady=(0, 14))
-        self.narr.grid(row=1, column=3, padx=8, pady=(0, 14))
+        pw.grid(        row=1, column=1, padx=8,       pady=(0, 14))
+        self.inter.grid(row=1, column=2, padx=12,      pady=(0, 14))
+        self.narr.grid( row=1, column=3, padx=8,       pady=(0, 14))
 
         ctk.CTkLabel(scroll, text="Select bill to return against",
                      font=T.f(14, "bold"), text_color=T.TEXT).pack(
@@ -1117,16 +1163,17 @@ class PurchaseReturnFrame(_ReturnRowsMixin, EntryBase):
         hdr = ctk.CTkFrame(scroll, fg_color="#E8EDF5", corner_radius=0, height=28)
         hdr.pack(fill="x", padx=28)
         hdr.pack_propagate(False)
-        for txt, w in (("Date", 110), ("Bill", 120), ("Total", 160), ("Balance", 160), ("Select", 80)):
+        for txt, w in (("Date", 110), ("Bill", 120), ("Total", 160),
+                       ("Balance", 160), ("Select", 80)):
             ctk.CTkLabel(hdr, text=txt, font=T.f(11, "bold"), text_color=T.MUTED,
                          width=w, anchor="w").pack(side="left", padx=(12, 4))
 
-        self.inv_frame = ctk.CTkScrollableFrame(scroll, fg_color="white",
-                                                 border_width=1, border_color="#D1D5DB",
-                                                 corner_radius=0, height=130)
+        self.inv_frame = ctk.CTkScrollableFrame(
+            scroll, fg_color="white", border_width=1, border_color="#D1D5DB",
+            corner_radius=0, height=130)
         self.inv_frame.pack(fill="x", padx=28)
         self._selected_inv_id = None
-        self._inv_radio_var = ctk.StringVar(value="")
+        self._inv_radio_var   = ctk.StringVar(value="")
 
         foot = ctk.CTkFrame(scroll, fg_color="transparent")
         foot.pack(fill="x", padx=28, pady=10)
@@ -1134,7 +1181,6 @@ class PurchaseReturnFrame(_ReturnRowsMixin, EntryBase):
         self._make_msg(foot)
 
         self._build_rows_area(scroll)
-
         self._party_changed(self.party.get())
         focus_later(self.rows[0][0])
 
@@ -1155,9 +1201,8 @@ class PurchaseReturnFrame(_ReturnRowsMixin, EntryBase):
         self._selected_inv_id = None
         self._inv_radio_var.set("")
         self._open_bills = b.open_invoices(self.con, party, "Purchase")
-
         for i, o in enumerate(self._open_bills):
-            bg = "white" if i % 2 == 0 else "#F8FAFD"
+            bg  = "white" if i % 2 == 0 else "#F8FAFD"
             row = ctk.CTkFrame(self.inv_frame, fg_color=bg, corner_radius=0, height=32)
             row.pack(fill="x")
             row.pack_propagate(False)
@@ -1181,7 +1226,8 @@ class PurchaseReturnFrame(_ReturnRowsMixin, EntryBase):
     def _collect(self):
         items = []
         for desc, hsn, qty, rate, gst, _amt in self.rows:
-            d, h, q, r = desc.get().strip(), hsn.get().strip(), qty.get().strip(), rate.get().strip()
+            d, h, q, r = (desc.get().strip(), hsn.get().strip(),
+                          qty.get().strip(),  rate.get().strip())
             if not (d or q or r):
                 continue
             if not q or not r:
@@ -1197,15 +1243,15 @@ class PurchaseReturnFrame(_ReturnRowsMixin, EntryBase):
             except ValueError:
                 amt.configure(text="")
         try:
-            items = self._collect()
+            items     = self._collect()
             tax_items = [(d, q, r, g) for d, _h, q, r, g in items]
             t = b.compute_tax(tax_items, bool(self.inter.get()))
         except ValueError:
             self.summary.configure(text="")
             return
-        k = lambda v: inr(v / 100)
-        tax = f"IGST {k(t['igst'])}" if self.inter.get() else \
-              f"CGST {k(t['cgst'])}   SGST {k(t['sgst'])}"
+        k   = lambda v: inr(v / 100)
+        tax = (f"IGST {k(t['igst'])}" if self.inter.get()
+               else f"CGST {k(t['cgst'])}   SGST {k(t['sgst'])}")
         self.summary.configure(
             text=f"Taxable {k(t['taxable'])}     {tax}     Total {k(t['total'])}")
 
@@ -1217,7 +1263,7 @@ class PurchaseReturnFrame(_ReturnRowsMixin, EntryBase):
         try:
             if not self._selected_inv_id:
                 raise ValueError("Select the bill to return against")
-            d = parse_date(self.date.get())
+            d     = parse_date(self.date.get())
             items = self._collect()
             if not items:
                 raise ValueError("Enter at least one item to return")

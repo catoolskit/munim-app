@@ -87,13 +87,16 @@ class LedgerFrame(ReportBase):
         names = accounts or [x["name"] for x in con.execute(
             "SELECT name FROM accounts ORDER BY name COLLATE NOCASE")]
         if accounts:
-            self.acct = T.option_menu(self.bar, names, width=160, command=lambda _v: self.refresh())
+            self.acct = T.option_menu(self.bar, names, width=160,
+                                      command=lambda _v: self.refresh())
         else:
-            self.acct = T.combo(self.bar, names, width=260, command=lambda _v: self.refresh())
+            self.acct = T.combo(self.bar, names, width=260,
+                                command=lambda _v: self.refresh())
         self.acct.set("Cash" if "Cash" in names else names[0])
         self.acct.pack(side="right", padx=(10, 0))
         if not accounts:
-            T.button(self.bar, "Show", self.refresh, width=70).pack(side="right", padx=(10, 0))
+            T.button(self.bar, "Show", self.refresh, width=70).pack(
+                side="right", padx=(10, 0))
         if self._is_cashbook:
             today = date.today()
             self.d2 = T.entry(self.bar, width=120)
@@ -106,17 +109,18 @@ class LedgerFrame(ReportBase):
             self.d1.pack(side="right", padx=6)
         self.summary = ctk.CTkLabel(self, text="", font=T.f(13, "bold"), text_color=T.TEXT)
         self.summary.pack(anchor="w", padx=28, pady=(0, 8))
-        self.table = DataTable(self, [("dt", "Date", 100, L), ("v", "Voucher", 120, L),
-                                      ("n", "Narration", 300, L), ("d", "Debit (Rs)", 130, R),
-                                      ("c", "Credit (Rs)", 130, R), ("b", "Balance", 150, R)], height=14)
+        self.table = DataTable(self, [
+            ("dt", "Date",        100, L), ("v",  "Voucher",    120, L),
+            ("n",  "Narration",   300, L), ("d",  "Debit (Rs)", 130, R),
+            ("c",  "Credit (Rs)", 130, R), ("b",  "Balance",    150, R)], height=14)
         self.table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
         self.refresh()
 
     def refresh(self):
         try:
             if self._is_cashbook:
-                d1 = parse_date(self.d1.get())
-                d2 = parse_date(self.d2.get())
+                d1  = parse_date(self.d1.get())
+                d2  = parse_date(self.d2.get())
                 led = r.ledger_view(self.con, self.acct.get().strip(),
                                     self.fy.get(), date_from=d1, date_to=d2)
             else:
@@ -125,20 +129,24 @@ class LedgerFrame(ReportBase):
             self.summary.configure(text=str(e), text_color=T.DANGER)
             self.table.set_rows([])
             return
-        rows = [(("", "", "Opening balance", "", "", f"{inr(led['opening'])} {led['opening_side']}"), "head")]
+        rows = [(("", "", "Opening balance", "", "",
+                  f"{inr(led['opening'])} {led['opening_side']}"), "head")]
         for x in led["rows"]:
             rows.append((disp_date(x["date"]), f"{x['vtype']} #{x['vno']}", x["narration"],
-                         _amt(x["dr"]), _amt(x["cr"]), f"{inr(x['balance'])} {x['side']}"))
+                         _amt(x["dr"]), _amt(x["cr"]),
+                         f"{inr(x['balance'])} {x['side']}"))
         rows.append((("", "", "Total", inr(led["total_dr"]), inr(led["total_cr"]),
                       f"{inr(led['closing'])} {led['closing_side']}"), "total"))
         self.table.set_rows(rows)
         self.summary.configure(
-            text=f"{led['account']}   |   Closing balance: Rs {inr(led['closing'])} {led['closing_side']}",
-            text_color=T.TEXT)        
+            text=(f"{led['account']}   |   "
+                  f"Closing balance: Rs {inr(led['closing'])} {led['closing_side']}"),
+            text_color=T.TEXT)
+
     def export_data(self):
         try:
-            d1 = parse_date(self.d1.get())
-            d2 = parse_date(self.d2.get())
+            d1  = parse_date(self.d1.get())
+            d2  = parse_date(self.d2.get())
             led = r.ledger_view(self.con, self.acct.get().strip(),
                                 self.fy.get(), date_from=d1, date_to=d2)
         except ValueError:
@@ -167,11 +175,10 @@ class DayBookFrame(ReportBase):
         self.d1.pack(side="right", padx=6)
         self.msg = ctk.CTkLabel(self, text="", font=T.f(13), text_color=T.DANGER)
         self.msg.pack(anchor="w", padx=28)
-        self.table = DataTable(self, [("dt", "Date", 100, L),
-                                      ("v",  "Voucher", 130, L),
-                                      ("p",  "Particulars", 380, L),
-                                      ("d",  "Debit (Rs)", 130, R),
-                                      ("c",  "Credit (Rs)", 130, R)], height=14)
+        self.table = DataTable(self, [
+            ("dt", "Date",         100, L), ("v",  "Voucher",    130, L),
+            ("p",  "Particulars",  380, L), ("d",  "Debit (Rs)", 130, R),
+            ("c",  "Credit (Rs)", 130, R)], height=14)
         self.table.pack(fill="both", expand=True, padx=28, pady=(4, 24))
         if opener:
             self.table.on_open(lambda vid: self.opener(vid, self.refresh))
@@ -206,15 +213,13 @@ class TwoSideReport(ReportBase):
         body.grid_columnconfigure((0, 1), weight=1, uniform="s")
         body.grid_rowconfigure(1, weight=1)
         cols = [("p", "Particulars", 260, L), ("a", "Amount (Rs)", 130, R)]
-        self.ltitle = ctk.CTkLabel(body, text="", font=T.f(14, "bold"),
-                                   text_color=T.TEXT)
-        self.rtitle = ctk.CTkLabel(body, text="", font=T.f(14, "bold"),
-                                   text_color=T.TEXT)
+        self.ltitle = ctk.CTkLabel(body, text="", font=T.f(14, "bold"), text_color=T.TEXT)
+        self.rtitle = ctk.CTkLabel(body, text="", font=T.f(14, "bold"), text_color=T.TEXT)
         self.ltitle.grid(row=0, column=0, sticky="w", pady=(0, 6))
         self.rtitle.grid(row=0, column=1, sticky="w", padx=(10, 0), pady=(0, 6))
         self.left  = DataTable(body, cols, height=10)
         self.right = DataTable(body, cols, height=10)
-        self.left.grid(row=1,  column=0, sticky="nsew", padx=(0, 10))
+        self.left.grid( row=1, column=0, sticky="nsew", padx=(0, 10))
         self.right.grid(row=1, column=1, sticky="nsew", padx=(10, 0))
         self.refresh()
 
@@ -259,17 +264,14 @@ class ProfitLossFrame(TwoSideReport):
                                         ("Opening stock (Rs)", self.opening),
                                         ("Closing stock (Rs)", self.closing))):
             if label != "Show":
-                ctk.CTkLabel(row, text=label, font=T.f(12),
-                             text_color=T.MUTED).grid(
+                ctk.CTkLabel(row, text=label, font=T.f(12), text_color=T.MUTED).grid(
                     row=0, column=c, sticky="w",
                     padx=(18 if c == 0 else 10, 10), pady=(12, 2))
-            w.grid(row=1, column=c, padx=(18 if c == 0 else 10, 10),
-                   pady=(0, 14))
+            w.grid(row=1, column=c, padx=(18 if c == 0 else 10, 10), pady=(0, 14))
         ctk.CTkLabel(row,
                      text="Opening stock follows last year's closing unless you change it.",
                      font=T.f(11), text_color=T.MUTED, wraplength=330,
-                     justify="left").grid(row=1, column=3, padx=14,
-                                          pady=(0, 14), sticky="w")
+                     justify="left").grid(row=1, column=3, padx=14, pady=(0, 14), sticky="w")
         for w in (self.closing, self.opening):
             w._entry.bind("<FocusOut>", lambda _e: self._save_stock(), add="+")
             w._entry.bind("<Return>",   lambda _e: self._save_stock(), add="+")
@@ -291,8 +293,7 @@ class ProfitLossFrame(TwoSideReport):
             o_val = parse_amount(self.opening.get())
             c_val = parse_amount(self.closing.get())
         except ValueError:
-            self.footer.configure(text="Stock values must be numbers",
-                                  text_color=T.DANGER)
+            self.footer.configure(text="Stock values must be numbers", text_color=T.DANGER)
             return
         auto = s.get_stock(self.con, s.prev_fy(fy))[1] / 100
         s.set_stock(self.con, fy,
@@ -367,11 +368,11 @@ class InvoiceRegisterFrame(ReportBase):
         self.sub_text = ("Every bill in the year, with payment status. "
                          "Double-click a bill to open, edit or delete it.")
         super().__init__(master, con)
-        cols = [("dt", "Date", 90, L), ("no", "No.", 50, L),
-                ("p",  "Party", 190, L), ("tx", "Taxable", 110, R),
-                ("cg", "CGST", 85, R),  ("sg", "SGST", 85, R),
-                ("ig", "IGST", 85, R),  ("t",  "Total", 110, R),
-                ("b",  "Balance due", 110, R), ("st", "Status", 95, L)]
+        cols = [("dt", "Date",        90,  L), ("no", "No.",      50,  L),
+                ("p",  "Party",      190,  L), ("tx", "Taxable", 110,  R),
+                ("cg", "CGST",        85,  R), ("sg", "SGST",     85,  R),
+                ("ig", "IGST",        85,  R), ("t",  "Total",   110,  R),
+                ("b",  "Balance due", 110, R), ("st", "Status",   95,  L)]
         self.table = DataTable(self, cols, height=14)
         self.table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
         if opener:
@@ -393,7 +394,7 @@ class InvoiceRegisterFrame(ReportBase):
         for x in reg:
             vals = [x["taxable"], x["cgst"], x["sgst"],
                     x["igst"], x["total"], x["balance"]]
-            tot = [a + b for a, b in zip(tot, vals)]
+            tot  = [a + b for a, b in zip(tot, vals)]
             rows.append(((disp_date(x["date"]), x["vno"], x["party"],
                           *[_amt(v) for v in vals], x["status"]), None, x["id"]))
         rows.append((("", "", f"Total ({len(reg)} bills)",
@@ -433,8 +434,7 @@ class OutstandingFrame(ReportBase):
                  ("Ranges (days)", self.ranges))
         for c, (label, w) in enumerate(items):
             if label != "Show":
-                ctk.CTkLabel(ctrl, text=label, font=T.f(12),
-                             text_color=T.MUTED).grid(
+                ctk.CTkLabel(ctrl, text=label, font=T.f(12), text_color=T.MUTED).grid(
                     row=0, column=c, sticky="w",
                     padx=(18 if c == 0 else 8, 8), pady=(12, 2))
             w.grid(row=1, column=c, padx=(18 if c == 0 else 8, 8), pady=(0, 14))
@@ -443,8 +443,7 @@ class OutstandingFrame(ReportBase):
         T.button(ctrl, "Export Excel", self.export, width=120,
                  fg_color="#E7ECF5", text_color=T.TEXT,
                  hover_color="#DCE3F0").grid(row=1, column=6, padx=8, pady=(0, 14))
-        self.summary = ctk.CTkLabel(self, text="", font=T.f(13, "bold"),
-                                    text_color=T.TEXT)
+        self.summary = ctk.CTkLabel(self, text="", font=T.f(13, "bold"), text_color=T.TEXT)
         self.summary.pack(anchor="w", padx=28, pady=(0, 8))
         self.holder = ctk.CTkFrame(self, fg_color="transparent")
         self.holder.pack(fill="both", expand=True, padx=28, pady=(0, 24))
@@ -485,8 +484,7 @@ class OutstandingFrame(ReportBase):
             text=f"Total Rs {inr(rep['total'])}    |    " +
                  "    ".join(
                      f"{l} days: {inr(rep['buckets'][l])}"
-                     if l != "Not due" else
-                     f"Not due: {inr(rep['buckets'][l])}"
+                     if l != "Not due" else f"Not due: {inr(rep['buckets'][l])}"
                      for l in rep["labels"]))
         if self.view.get() == "Ageing":
             cols = ([("p", "Party", 250, L)] +
@@ -505,9 +503,9 @@ class OutstandingFrame(ReportBase):
                           inr(on_acc), inr(rep["total"])), "total"))
         else:
             self._set_table([
-                ("p",  "Party / bill", 270, L), ("dt", "Bill date",  95, L),
-                ("du", "Due on",        95, L), ("t",  "Bill total", 120, R),
-                ("s",  "Settled",      115, R), ("b",  "Balance",   125, R),
+                ("p",  "Party / bill",  270, L), ("dt", "Bill date",  95, L),
+                ("du", "Due on",         95, L), ("t",  "Bill total", 120, R),
+                ("s",  "Settled",       115, R), ("b",  "Balance",   125, R),
                 ("d",  f"Days {word}" if due else "Days old", 90, R),
                 ("k",  "Range", 90, L)])
             rows = []
@@ -537,8 +535,7 @@ class OutstandingFrame(ReportBase):
                  f"as on {disp_date(rep['as_of'])} ({basis})")
         if self.view.get() == "Ageing":
             headers = (["Party"] +
-                       [l if l == "Not due" else f"{l} days"
-                        for l in rep["labels"]] +
+                       [l if l == "Not due" else f"{l} days" for l in rep["labels"]] +
                        ["On account", "Total"])
             rows = ([[p["party"]] +
                      [p["bucket_amounts"][l] for l in rep["labels"]] +
@@ -562,13 +559,11 @@ class OutstandingFrame(ReportBase):
             rows.append(["Total","","","","","",rep["total"],"",""])
         return title, headers, rows
 
+
 class ReturnsRegisterFrame(ReportBase):
     own_controls = True
-    
-    """Sales Return or Purchase Return register with date filter and Excel export."""
 
     def __init__(self, master, con, kind, opener=None):
-        # kind = 'Sales Return' or 'Purchase Return'
         self.kind, self.opener = kind, opener
         label = "Sales Return" if kind == "Sales Return" else "Purchase Return"
         self.title_text = f"{label} Register"
@@ -576,8 +571,6 @@ class ReturnsRegisterFrame(ReportBase):
                          else "Debit Notes raised on suppliers.")
         self.with_fy = False
         super().__init__(master, con)
-
-        # date filter controls in the bar
         today = date.today()
         self.d1 = T.entry(self.bar, width=120)
         self.d1.insert(0, today.replace(day=1).strftime("%d-%m-%Y"))
@@ -590,18 +583,12 @@ class ReturnsRegisterFrame(ReportBase):
         T.button(self.bar, "Export Excel", self.export, width=120,
                  fg_color="#E7ECF5", text_color=T.TEXT,
                  hover_color="#DCE3F0").pack(side="right", padx=(10, 0))
-
         self.msg = ctk.CTkLabel(self, text="", font=T.f(13), text_color=T.DANGER)
         self.msg.pack(anchor="w", padx=28)
-
-        cols = [("dt", "Date",        90,  L),
-                ("no", "No.",         50,  L),
-                ("p",  "Party",      190,  L),
-                ("tx", "Taxable",    110,  R),
-                ("cg", "CGST",        85,  R),
-                ("sg", "SGST",        85,  R),
-                ("ig", "IGST",        85,  R),
-                ("t",  "Total",      110,  R)]
+        cols = [("dt", "Date",    90,  L), ("no", "No.",    50,  L),
+                ("p",  "Party",  190,  L), ("tx", "Taxable",110, R),
+                ("cg", "CGST",    85,  R), ("sg", "SGST",    85, R),
+                ("ig", "IGST",    85,  R), ("t",  "Total",  110, R)]
         self.table = DataTable(self, cols, height=14)
         self.table.pack(fill="both", expand=True, padx=28, pady=(4, 24))
         if opener:
@@ -609,7 +596,6 @@ class ReturnsRegisterFrame(ReportBase):
         self.refresh()
 
     def _get_rows(self):
-        """Fetch filtered rows from DB. Returns list of dicts."""
         try:
             d1 = parse_date(self.d1.get())
             d2 = parse_date(self.d2.get())
@@ -617,14 +603,14 @@ class ReturnsRegisterFrame(ReportBase):
             self.msg.configure(text=str(e))
             return None, None, None
         self.msg.configure(text="")
-        # pull all rows for the full FY range, then filter by date
-        # (reuse the same query pattern as invoice_register but with date params)
-        from db.setup import fy_range, to_rupees
-        q = """SELECT v.id, v.vdate, v.vno, v.narration, i.party, i.taxable, i.cgst, i.sgst, i.igst, i.total,
-                      i.customer_name
+        from db.setup import to_rupees
+        q = """SELECT v.id, v.vdate, v.vno, v.narration, i.party, i.taxable,
+                      i.cgst, i.sgst, i.igst, i.total, i.customer_name
                FROM vouchers v LEFT JOIN invoices i ON i.voucher_id=v.id
-               WHERE v.vtype=? AND v.vdate BETWEEN ? AND ? ORDER BY v.vdate, v.vno"""
-        rows = self.con.execute(q, (self.kind, d1.isoformat(), d2.isoformat())).fetchall()
+               WHERE v.vtype=? AND v.vdate BETWEEN ? AND ?
+               ORDER BY v.vdate, v.vno"""
+        rows = self.con.execute(
+            q, (self.kind, d1.isoformat(), d2.isoformat())).fetchall()
         return rows, d1, d2
 
     def refresh(self):
@@ -632,23 +618,24 @@ class ReturnsRegisterFrame(ReportBase):
         if rows is None:
             return
         from db.setup import to_rupees
-        out, tot = [], [0] * 6
+        out, tot = [], [0] * 5
         for x in rows:
-            has = x["party"] is not None
-            party = ((f"{x['party']} ({x['customer_name']})" if x["customer_name"] else x["party"])
+            has   = x["party"] is not None
+            party = ((f"{x['party']} ({x['customer_name']})"
+                      if x["customer_name"] else x["party"])
                      if has else "(details not stored)")
             vals = [to_rupees(x["taxable"]) if has else 0,
                     to_rupees(x["cgst"])    if has else 0,
                     to_rupees(x["sgst"])    if has else 0,
                     to_rupees(x["igst"])    if has else 0,
                     to_rupees(x["total"])   if has else 0]
-            tot[0] += vals[0]; tot[1] += vals[1]; tot[2] += vals[2]
-            tot[3] += vals[3]; tot[4] += vals[4]
+            for i in range(5):
+                tot[i] += vals[i]
             out.append(((disp_date(x["vdate"]), x["vno"], party,
                          *[_amt(v) for v in vals]), None, x["id"]))
-        label = "Sales Return" if self.kind == "Sales Return" else "Purchase Return"
         out.append((("", "", f"Total ({len(rows)} vouchers)",
-                     inr(tot[0]), inr(tot[1]), inr(tot[2]), inr(tot[3]), inr(tot[4])), "total"))
+                     inr(tot[0]), inr(tot[1]), inr(tot[2]), inr(tot[3]), inr(tot[4])),
+                    "total"))
         self.table.set_rows(out)
 
     def export_data(self):
@@ -657,12 +644,14 @@ class ReturnsRegisterFrame(ReportBase):
             return f"{self.title_text}", [], []
         from db.setup import to_rupees
         label = "Sales Return" if self.kind == "Sales Return" else "Purchase Return"
-        title = f"{label} Register {disp_date(d1.isoformat())} to {disp_date(d2.isoformat())}"
+        title = (f"{label} Register "
+                 f"{disp_date(d1.isoformat())} to {disp_date(d2.isoformat())}")
         headers = ["Date", "No.", "Party", "Taxable", "CGST", "SGST", "IGST", "Total"]
         out = []
         for x in rows:
-            has = x["party"] is not None
-            party = ((f"{x['party']} ({x['customer_name']})" if x["customer_name"] else x["party"])
+            has   = x["party"] is not None
+            party = ((f"{x['party']} ({x['customer_name']})"
+                      if x["customer_name"] else x["party"])
                      if has else "(details not stored)")
             out.append([disp_date(x["vdate"]), x["vno"], party,
                         to_rupees(x["taxable"]) if has else 0,
@@ -672,17 +661,19 @@ class ReturnsRegisterFrame(ReportBase):
                         to_rupees(x["total"])   if has else 0])
         return title, headers, out
 
+
 class StockSummaryFrame(ReportBase):
-    """Item-wise stock: opening + purchased - sold = closing."""
     title_text = "Stock Summary"
-    sub_text = "Item-wise stock position for the financial year."
+    sub_text   = "Item-wise stock position and value for the financial year."
 
     def __init__(self, master, con):
         super().__init__(master, con)
         self.table = DataTable(self, [
-            ("n", "Item", 220, L), ("h", "HSN", 90, L), ("u", "Unit", 70, L),
-            ("o", "Opening", 100, "e"), ("p", "Purchased", 110, "e"),
-            ("s", "Sold", 100, "e"), ("c", "Closing", 110, "e")], height=14)
+            ("n", "Item",        200, L), ("h", "HSN",         80, L),
+            ("u", "Unit",         60, L), ("o", "Opening",     90, "c"),
+            ("p", "Purchased",  100, "c"), ("s", "Sold",        90, "c"),
+            ("c", "Closing",    100, "c"), ("r", "Avg Rate",   110, R),
+            ("v", "Stock Value",130, R)], height=14)
         self.table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
         self.refresh()
 
@@ -693,56 +684,8 @@ class StockSummaryFrame(ReportBase):
         from db.setup import stock_summary
         rows = stock_summary(self.con, self.fy.get())
         out = []
-        totals = [0.0] * 4
-        for it in rows:
-            vals = [it["opening"], it["purchased"], it["sold"], it["closing"]]
-            for i, v in enumerate(vals):
-                totals[i] += v
-            out.append((it["name"], it["hsn"] or "-", it["unit"],
-                        self._fmt(it["opening"]), self._fmt(it["purchased"]),
-                        self._fmt(it["sold"]), self._fmt(it["closing"])))
-        out.append((("", "", "Total",
-                     self._fmt(totals[0]), self._fmt(totals[1]),
-                     self._fmt(totals[2]), self._fmt(totals[3])), "total"))
-        self.table.set_rows(out)
-
-    def export_data(self):
-        from db.setup import stock_summary
-        rows = stock_summary(self.con, self.fy.get())
-        headers = ["Item", "HSN", "Unit", "Opening", "Purchased", "Sold", "Closing"]
-        data = [[it["name"], it["hsn"], it["unit"], it["opening"],
-                 it["purchased"], it["sold"], it["closing"]] for it in rows]
-        return f"Stock Summary {self.fy.get()}", headers, data
-
-class StockSummaryFrame(ReportBase):
-    """Item-wise stock: opening + purchased - sold = closing, with weighted-avg valuation."""
-    title_text = "Stock Summary"
-    sub_text = "Item-wise stock position and value for the financial year."
-
-    def __init__(self, master, con):
-        super().__init__(master, con)
-        self.table = DataTable(self, [
-            ("n", "Item",        200, L),
-            ("h", "HSN",          80, L),
-            ("u", "Unit",         60, L),
-            ("o", "Opening",      90, "c"),
-            ("p", "Purchased",   100, "c"),
-            ("s", "Sold",         90, "c"),
-            ("c", "Closing",     100, "c"),
-            ("r", "Avg Rate",    110, R),
-            ("v", "Stock Value", 130, R)], height=14)
-        self.table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
-        self.refresh()
-
-    def _fmt(self, v):
-        return f"{v:,.3f}".rstrip("0").rstrip(".")
-
-    def refresh(self):
-        from db.setup import stock_summary
-        rows = stock_summary(self.con, self.fy.get())
-        out = []
-        totals = [0.0] * 4        # opening, purchased, sold, closing (qty)
-        total_value = 0.0          # stock value in Rs
+        totals      = [0.0] * 4
+        total_value = 0.0
         for it in rows:
             vals = [it["opening"], it["purchased"], it["sold"], it["closing"]]
             for i, v in enumerate(vals):
@@ -751,7 +694,7 @@ class StockSummaryFrame(ReportBase):
             out.append((it["name"], it["hsn"] or "-", it["unit"],
                         self._fmt(it["opening"]), self._fmt(it["purchased"]),
                         self._fmt(it["sold"]),    self._fmt(it["closing"]),
-                        inr(it.get("avg_rate", 0.0)) if it.get("avg_rate") else "",
+                        inr(it.get("avg_rate",    0.0)) if it.get("avg_rate")    else "",
                         inr(it.get("stock_value", 0.0)) if it.get("stock_value") else ""))
         out.append((("", "", "Total",
                      self._fmt(totals[0]), self._fmt(totals[1]),
@@ -770,22 +713,18 @@ class StockSummaryFrame(ReportBase):
                 for it in rows]
         return f"Stock Summary {self.fy.get()}", headers, data
 
+
 class ItemWiseProfitFrame(ReportBase):
-    """Item-wise profit: sale value minus weighted-avg cost of goods sold."""
     title_text = "Item-wise Profit"
-    sub_text = "Profit per item based on weighted-average cost of goods sold."
+    sub_text   = "Profit per item based on weighted-average cost of goods sold."
 
     def __init__(self, master, con):
         super().__init__(master, con)
         self.table = DataTable(self, [
-            ("n", "Item",          200, L),
-            ("u", "Unit",           60, L),
-            ("q", "Sold Qty",      100, "e"),
-            ("s", "Sale Value",    140, R),
-            ("a", "Avg Cost",      120, R),
-            ("c", "Cost of Sold",  140, R),
-            ("p", "Profit",        140, R),
-            ("m", "Margin %",       90, R)], height=14)
+            ("n", "Item",         200, L), ("u", "Unit",          60, L),
+            ("q", "Sold Qty",     100, "e"), ("s", "Sale Value",  140, R),
+            ("a", "Avg Cost",     120, R),  ("c", "Cost of Sold", 140, R),
+            ("p", "Profit",       140, R),  ("m", "Margin %",      90, R)], height=14)
         self.table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
         self.refresh()
 
@@ -824,16 +763,16 @@ class ItemWiseProfitFrame(ReportBase):
                  round(it["margin"], 2)] for it in rows]
         return f"Item-wise Profit {self.fy.get()}", headers, data
 
-# ---- GST Reports ----
+
+# ── GST Reports ───────────────────────────────────────────────────────────────
 
 _MONTHS = ["April","May","June","July","August","September",
            "October","November","December","January","February","March"]
 
 
 class GSTR1Frame(ReportBase):
-    """GSTR-1: outward supplies summary + invoice-wise detail."""
     title_text = "GSTR-1 (Outward)"
-    sub_text = "Monthly outward supply summary and invoice-wise detail."
+    sub_text   = "Monthly outward supply summary and invoice-wise detail."
 
     def __init__(self, master, con):
         super().__init__(master, con)
@@ -844,26 +783,30 @@ class GSTR1Frame(ReportBase):
                                    command=lambda _v: self.refresh())
         self.month.set(_MONTHS[default_month - 1])
         self.month.pack(side="right", padx=(10, 0))
+        # JSON export button
+        T.button(self.bar, "Export JSON", self._export_json, width=120,
+                 fg_color="#E7ECF5", text_color=T.TEXT,
+                 hover_color="#DCE3F0").pack(side="right", padx=(10, 0))
 
         self.summary_lbl = ctk.CTkLabel(self, text="SUMMARY (by GST rate)",
                                         font=T.f(12, "bold"), text_color=T.MUTED)
         self.summary_lbl.pack(anchor="w", padx=28, pady=(4, 4))
         self.summary_tbl = DataTable(self, [
-            ("k",  "Type",          70, L), ("r",  "Rate %",       70, R),
-            ("tx", "Taxable",      140, R), ("cg", "CGST",         110, R),
-            ("sg", "SGST",         110, R), ("ig", "IGST",         110, R),
-            ("t",  "Total",        140, R)], height=6)
+            ("k",  "Type",     70, L), ("r",  "Rate %",  70, R),
+            ("tx", "Taxable", 140, R), ("cg", "CGST",   110, R),
+            ("sg", "SGST",    110, R), ("ig", "IGST",   110, R),
+            ("t",  "Total",   140, R)], height=6)
         self.summary_tbl.pack(fill="x", padx=28, pady=(0, 10))
 
         self.detail_lbl = ctk.CTkLabel(self, text="INVOICE DETAIL",
                                        font=T.f(12, "bold"), text_color=T.MUTED)
         self.detail_lbl.pack(anchor="w", padx=28, pady=(4, 4))
         self.detail_tbl = DataTable(self, [
-            ("dt", "Date",         90,  L), ("no", "No.",          50,  L),
-            ("p",  "Party",       170,  L), ("g",  "GSTIN",       140,  L),
-            ("s",  "Supply",       70,  L), ("tx", "Taxable",     110,  R),
-            ("cg", "CGST",         90,  R), ("sg", "SGST",         90,  R),
-            ("ig", "IGST",         90,  R), ("t",  "Total",       110,  R)], height=10)
+            ("dt", "Date",    90, L), ("no", "No.",     50, L),
+            ("p",  "Party",  170, L), ("g",  "GSTIN",  140, L),
+            ("s",  "Supply",  70, L), ("tx", "Taxable",110, R),
+            ("cg", "CGST",    90, R), ("sg", "SGST",    90, R),
+            ("ig", "IGST",    90, R), ("t",  "Total",  110, R)], height=10)
         self.detail_tbl.pack(fill="both", expand=True, padx=28, pady=(0, 24))
         self.refresh()
 
@@ -872,7 +815,7 @@ class GSTR1Frame(ReportBase):
 
     def refresh(self):
         from db.setup import gstr1_report
-        rep = gstr1_report(self.con, self.fy.get(), self._mnum())
+        rep   = gstr1_report(self.con, self.fy.get(), self._mnum())
         srows = [(s["kind"], s["rate"], inr(s["taxable"]), inr(s["cgst"]),
                   inr(s["sgst"]), inr(s["igst"]), inr(s["total"]))
                  for s in rep["summary"]]
@@ -890,9 +833,34 @@ class GSTR1Frame(ReportBase):
                        inr(t["igst"]), inr(t["total"])), "total"))
         self.detail_tbl.set_rows(drows)
 
+    def _export_json(self):
+        import json
+        from db.setup import gstr1_json
+        from utils import settings as _st
+        st    = _st.load_settings()
+        gstin = (st.get("gstin") or "GSTIN").strip().upper().replace("/", "")
+        default_name = f"GSTR1_{gstin}_{self.month.get()}_{self.fy.get()}.json"
+        path = filedialog.asksaveasfilename(
+            title="Save GSTR-1 JSON",
+            defaultextension=".json",
+            filetypes=[("JSON file", "*.json")],
+            initialfile=default_name)
+        if not path:
+            return
+        try:
+            data = gstr1_json(self.con, self.fy.get(), self._mnum())
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            messagebox.showerror("MUNIM", f"Could not save JSON:\n{e}")
+            return
+        messagebox.showinfo("MUNIM",
+                            f"GSTR-1 JSON saved:\n{path}\n\n"
+                            "Upload this file in the GST portal offline tool.")
+
     def export_data(self):
         from db.setup import gstr1_report
-        rep = gstr1_report(self.con, self.fy.get(), self._mnum())
+        rep  = gstr1_report(self.con, self.fy.get(), self._mnum())
         rows = [["SUMMARY", "", "", "", "", "", ""]]
         rows.append(["Type", "Rate %", "Taxable", "CGST", "SGST", "IGST", "Total"])
         for s in rep["summary"]:
@@ -904,16 +872,15 @@ class GSTR1Frame(ReportBase):
         rows.append(["INVOICE DETAIL", "", "", "", "", "", ""])
         rows.append(["Date", "No.", "Party", "GSTIN", "Supply", "Taxable", "Total"])
         for i in rep["invoices"]:
-            rows.append([disp_date(i["date"]), i["vno"], i["party"], i["gstin"] or "",
-                         i["supply"], i["taxable"], i["total"]])
+            rows.append([disp_date(i["date"]), i["vno"], i["party"],
+                         i["gstin"] or "", i["supply"], i["taxable"], i["total"]])
         title = f"GSTR-1 {self.month.get()} {self.fy.get()}"
         return title, ["Col1","Col2","Col3","Col4","Col5","Col6","Col7"], rows
 
 
 class GSTR3BFrame(ReportBase):
-    """GSTR-3B: full summary of tax liability, ITC, payment plan, and stock reference."""
     title_text = "GSTR-3B (Summary)"
-    sub_text = "Monthly GST: outward tax, ITC, net payable, and suggested payment breakdown."
+    sub_text   = "Monthly GST: outward tax, ITC, net payable, and suggested payment breakdown."
 
     def __init__(self, master, con):
         super().__init__(master, con)
@@ -924,13 +891,12 @@ class GSTR3BFrame(ReportBase):
                                    command=lambda _v: self.refresh())
         self.month.set(_MONTHS[default_month - 1])
         self.month.pack(side="right", padx=(10, 0))
-
         self.table = DataTable(self, [
-            ("s",  "Section",                 380, L),
-            ("tx", "Taxable / Amount (Rs)",   180, R),
-            ("cg", "CGST (Rs)",               140, R),
-            ("sg", "SGST (Rs)",               140, R),
-            ("ig", "IGST (Rs)",               140, R)], height=22)
+            ("s",  "Section",               380, L),
+            ("tx", "Taxable / Amount (Rs)", 180, R),
+            ("cg", "CGST (Rs)",             140, R),
+            ("sg", "SGST (Rs)",             140, R),
+            ("ig", "IGST (Rs)",             140, R)], height=26)
         self.table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
         self.refresh()
 
@@ -940,41 +906,64 @@ class GSTR3BFrame(ReportBase):
     def refresh(self):
         from db.setup import gstr3b_report
         rep = gstr3b_report(self.con, self.fy.get(), self._mnum())
-        o, i, n = rep["outward"], rep["itc"], rep["net"]
+        o   = rep["outward"]
+        i   = rep["net_itc"]
+        ir  = rep["itc_reversed"]
+        rcm = rep["rcm_liability"]
+        n   = rep["net"]
         itc_used, cash, bal = rep["paid_by_itc"], rep["paid_by_cash"], rep["itc_balance"]
+
         rows = [
             # 3.1 OUTWARD
             (("3.1  OUTWARD SUPPLIES", "", "", "", ""), "head"),
             (("     (a) Outward taxable supplies (other than zero-rated, nil, exempted)",
               inr(o["taxable"]), inr(o["cgst"]), inr(o["sgst"]), inr(o["igst"])), None),
+            (("     (b) Zero-rated / exports (not applicable)",
+              "", "", "", ""), None),
             (("     (c) Other outward supplies (nil-rated, exempt)",
               inr(rep["nil_exempt"]), "", "", ""), None),
+            (("     (d) Inward supplies liable to reverse charge (RCM)",
+              inr(rcm["taxable"]), inr(rcm["cgst"]), inr(rcm["sgst"]), inr(rcm["igst"])), None),
 
             # 3.2 INTER-STATE B2C
             (("3.2  INTER-STATE SUPPLIES TO UNREGISTERED PERSONS",
-              inr(rep["b2c_inter"]["taxable"]), "", "", inr(rep["b2c_inter"]["igst"])), "head"),
+              inr(rep["b2c_inter"]["taxable"]), "", "",
+              inr(rep["b2c_inter"]["igst"])), "head"),
 
             # 4 ITC
             (("4    ELIGIBLE ITC", "", "", "", ""), "head"),
-            (("     (A) ITC available (from purchases)",
-              "", inr(i["cgst"]), inr(i["sgst"]), inr(i["igst"])), None),
+            (("     (A) ITC available — normal purchases",
+              "", inr(rep["itc"]["cgst"]), inr(rep["itc"]["sgst"]),
+              inr(rep["itc"]["igst"])), None),
+            (("     (B) ITC reversed — RCM (self-assessed)",
+              "", inr(ir["cgst"]), inr(ir["sgst"]), inr(ir["igst"])), None),
             (("     (C) Net ITC available (A − B)",
               "", inr(i["cgst"]), inr(i["sgst"]), inr(i["igst"])), None),
+            (("     (D) Ineligible ITC",
+              "", "—", "—", "—"), None),
 
             # NET PAYABLE
-            (("     Net GST payable (Output − ITC)",
+            (("     Net GST payable after cross-utilisation",
               "", inr(n["cgst"]), inr(n["sgst"]), inr(n["igst"])), "total"),
             (("     Total net payable", inr(n["total"]), "", "", ""), "total"),
 
-            # 6.1 SUGGESTED PAYMENT
+            # 5 EXEMPT INWARD
+            (("5    Exempt / nil-rated inward supplies", "", "—", "—", "—"), "head"),
+
+            # 6.1 PAYMENT
             (("", "", "", "", ""), None),
-            (("6.1  SUGGESTED PAYMENT BREAKDOWN", "", "", "", ""), "head"),
+            (("6.1  SUGGESTED PAYMENT BREAKDOWN (ITC cross-utilisation applied)",
+              "", "", "", ""), "head"),
             (("     Paid through ITC",
-              "", inr(itc_used["cgst"]), inr(itc_used["sgst"]), inr(itc_used["igst"])), None),
+              "", inr(itc_used["cgst"]), inr(itc_used["sgst"]),
+              inr(itc_used["igst"])), None),
             (("     Paid in cash",
               "", inr(cash["cgst"]), inr(cash["sgst"]), inr(cash["igst"])), None),
             (("     Unused ITC balance (c/f)",
               "", inr(bal["cgst"]), inr(bal["sgst"]), inr(bal["igst"])), None),
+
+            # 6.2 TDS/TCS
+            (("6.2  TDS / TCS credits", "", "—", "—", "—"), "head"),
 
             # REFERENCE
             (("", "", "", "", ""), None),
@@ -986,25 +975,38 @@ class GSTR3BFrame(ReportBase):
     def export_data(self):
         from db.setup import gstr3b_report
         rep = gstr3b_report(self.con, self.fy.get(), self._mnum())
-        o, i, n = rep["outward"], rep["itc"], rep["net"]
+        o   = rep["outward"]
+        i   = rep["net_itc"]
+        ir  = rep["itc_reversed"]
+        rcm = rep["rcm_liability"]
+        n   = rep["net"]
         itc_used, cash, bal = rep["paid_by_itc"], rep["paid_by_cash"], rep["itc_balance"]
         rows = [
-            ["3.1  OUTWARD SUPPLIES", "", "", "", ""],
-            ["(a) Outward taxable supplies", o["taxable"], o["cgst"], o["sgst"], o["igst"]],
-            ["(c) Nil-rated, exempt", rep["nil_exempt"], "", "", ""],
-            ["3.2  Inter-state supplies to unregistered",
-             rep["b2c_inter"]["taxable"], "", "", rep["b2c_inter"]["igst"]],
-            ["4    ELIGIBLE ITC", "", "", "", ""],
-            ["(A) ITC available", "", i["cgst"], i["sgst"], i["igst"]],
-            ["(C) Net ITC available", "", i["cgst"], i["sgst"], i["igst"]],
-            ["Net GST payable", "", n["cgst"], n["sgst"], n["igst"]],
-            ["Total net payable", n["total"], "", "", ""],
-            ["6.1  SUGGESTED PAYMENT", "", "", "", ""],
-            ["Paid through ITC", "", itc_used["cgst"], itc_used["sgst"], itc_used["igst"]],
-            ["Paid in cash", "", cash["cgst"], cash["sgst"], cash["igst"]],
-            ["Unused ITC balance (c/f)", "", bal["cgst"], bal["sgst"], bal["igst"]],
-            ["Closing stock value (reference)", rep["stock_value"], "", "", ""],
+            ["3.1  OUTWARD SUPPLIES",    "", "", "", ""],
+            ["(a) Outward taxable",       o["taxable"], o["cgst"],  o["sgst"],  o["igst"]],
+            ["(b) Zero-rated / exports",  0,            0,          0,          0],
+            ["(c) Nil-rated, exempt",     rep["nil_exempt"], "",    "",         ""],
+            ["(d) RCM inward",            rcm["taxable"], rcm["cgst"], rcm["sgst"], rcm["igst"]],
+            ["3.2  Inter-state B2C",      rep["b2c_inter"]["taxable"], "", "",
+                                          rep["b2c_inter"]["igst"]],
+            ["4    ELIGIBLE ITC",         "", "", "", ""],
+            ["(A) ITC available",         "",
+             rep["itc"]["cgst"], rep["itc"]["sgst"], rep["itc"]["igst"]],
+            ["(B) ITC reversed (RCM)",    "", ir["cgst"],  ir["sgst"],  ir["igst"]],
+            ["(C) Net ITC",               "", i["cgst"],   i["sgst"],   i["igst"]],
+            ["(D) Ineligible ITC",        "", 0,           0,           0],
+            ["Net payable",               "", n["cgst"],   n["sgst"],   n["igst"]],
+            ["Total net payable",         n["total"],      "", "",       ""],
+            ["5    Exempt inward",        0,  0,           0,           0],
+            ["6.1  Paid through ITC",     "",
+             itc_used["cgst"], itc_used["sgst"], itc_used["igst"]],
+            ["6.1  Paid in cash",         "",
+             cash["cgst"],     cash["sgst"],     cash["igst"]],
+            ["6.1  Unused ITC (c/f)",     "",
+             bal["cgst"],      bal["sgst"],      bal["igst"]],
+            ["6.2  TDS/TCS",             0, 0, 0, 0],
+            ["Closing stock (reference)", rep["stock_value"], "", "", ""],
         ]
         headers = ["Section", "Amount (Rs)", "CGST", "SGST", "IGST"]
-        title = f"GSTR-3B {self.month.get()} {self.fy.get()}"
+        title   = f"GSTR-3B {self.month.get()} {self.fy.get()}"
         return title, headers, rows
