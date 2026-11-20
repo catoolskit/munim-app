@@ -1,9 +1,9 @@
 """Auto-backup and backup-nag logic for MUNIM.
 
 Auto-backup: called on clean exit. Silently copies the active company's
-SQLite file to C:\\MUNIM\\backups\\ (or the configured folder).
+SQLite file to data_dir()\\backups\\ (or the configured folder).
 
-Nag: returns True when the last backup is more than NAGNAG_DAYS old,
+Nag: returns True when the last backup is more than NAG_DAYS old,
 so the gateway can show a warning.
 """
 import os
@@ -11,12 +11,15 @@ import sqlite3
 from datetime import date, datetime
 
 NAG_DAYS = 7          # warn if no backup in this many days
-_DEFAULT_BACKUP_ROOT = r"C:\MUNIM\backups"
+_BACKUP_SUBDIR = "backups"
 
 
 def backup_root(st: dict) -> str:
     """Return the configured backup folder, creating it if needed."""
-    folder = (st.get("backup_folder") or "").strip() or _DEFAULT_BACKUP_ROOT
+    from db.setup import data_dir
+    folder = (st.get("backup_folder") or "").strip()
+    if not folder:
+        folder = os.path.join(data_dir(), _BACKUP_SUBDIR)
     os.makedirs(folder, exist_ok=True)
     return folder
 
