@@ -19,7 +19,9 @@ from db import setup as s, billing as b
 from utils import settings
 from utils.fmt import disp_date
 
-INVOICE_DIR = r"C:\MUNIM\Invoices"
+import os as _os
+from db.setup import data_dir as _data_dir
+INVOICE_DIR = _os.path.join(_data_dir(), "Invoices")
 
 # ── colours ───────────────────────────────────────────────────────────────────
 NAVY  = colors.HexColor("#1A2B4A")
