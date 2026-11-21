@@ -72,7 +72,7 @@ PAGES = {
     "tallyimport":    ("Import from Tally",   lambda sh: TallyImportFrame(sh.body, sh.con)),
 }
 
-SEL_BG, HINT = "#E6EEFA", "↑ ↓ move     Enter open     Letter jump     Esc back"
+SEL_BG, HINT = "#E6EEFA", "↑ ↓ move     Enter open     Letter jump     Esc back     Alt+H home"
 
 
 class MenuView(ctk.CTkFrame):
@@ -288,6 +288,8 @@ class Shell(ctk.CTkFrame):
     def _on_key(self, event):
         if event.keysym == "Escape":
             self.go_back()
+        elif event.keysym == "h" and event.state & 0x8:  # Alt+H
+            self._go_to_gateway()
         elif isinstance(self.current, MenuView):
             self.current.handle(event)
 
