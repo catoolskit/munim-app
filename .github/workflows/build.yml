@@ -29,8 +29,10 @@ jobs:
           pyinstaller --onefile --windowed --name MUNIM `
             --icon assets/munim.ico `
             --collect-all customtkinter `
-            --collect-all ui `
-            --collect-all utils `
+            --add-data "ui;ui" `
+            --add-data "utils;utils" `
+            --add-data "db;db" `
+            --add-data "assets;assets" `
             main.py
 
       - name: Upload artifact
