@@ -731,3 +731,221 @@ class TallyImportFrame(ctk.CTkFrame):
             self.msg.configure(
                 text=f"Done with {len(result['errors'])} errors — see below.",
                 text_color="#B26A00")
+
+# ── NEW v0.18: Mobile Config Export ──────────────────────────────────────────
+
+class MobileExportFrame(ctk.CTkFrame):
+    """Utilities → Export Mobile Config.
+    Creates a JSON file the mobile APK reads to know your company,
+    parties and stock items."""
+
+    def __init__(self, master, con):
+        super().__init__(master, fg_color="transparent")
+        self.con = con
+
+        T.title(self, "Export Mobile Config",
+                "Create a config file for the MUNIM mobile app. "
+                "Send this file to your phone once — the app reads your company, "
+                "parties and stock items from it."
+                ).pack(anchor="w", padx=28, pady=(24, 14))
+
+        how = T.card(self)
+        how.pack(fill="x", padx=28, pady=(0, 14))
+        ctk.CTkLabel(how, text="How to set up the mobile app",
+                     font=T.f(13, "bold"), text_color=T.TEXT).pack(
+            anchor="w", padx=20, pady=(14, 6))
+        for step in [
+            "1.  Click Export Config below — saves a munim_config.json file.",
+            "2.  Send that file to your phone via WhatsApp or USB.",
+            "3.  Open the MUNIM mobile app and import the config file.",
+            "4.  The app now knows your company, parties and items.",
+            "5.  After creating invoices on mobile, export an invoices JSON.",
+            "6.  Come back here → Import Mobile Invoices to bring them in.",
+        ]:
+            ctk.CTkLabel(how, text=step, font=T.f(12), text_color=T.MUTED,
+                         anchor="w").pack(anchor="w", padx=20, pady=1)
+        ctk.CTkFrame(how, fg_color=T.CARD, height=12).pack()
+
+        btn_row = ctk.CTkFrame(self, fg_color="transparent")
+        btn_row.pack(anchor="w", padx=28, pady=(0, 14))
+        T.button(btn_row, "Export Config", self._export, width=160).pack(side="left")
+        self.msg = ctk.CTkLabel(btn_row, text="", font=T.f(13))
+        self.msg.pack(side="left", padx=14)
+
+        # Info card
+        info = T.card(self)
+        info.pack(fill="x", padx=28, pady=(0, 16))
+        st = settings.load_settings()
+        parties_count = con.execute("SELECT COUNT(*) FROM parties").fetchone()[0]
+        items_count   = con.execute("SELECT COUNT(*) FROM stock_items").fetchone()[0]
+        for label, value in [
+            ("Company",      st.get("company_name", "Not set")),
+            ("Parties",      f"{parties_count} active"),
+            ("Stock items",  f"{items_count} items"),
+            ("Financial year", s.fy_of(date.today())),
+        ]:
+            row = ctk.CTkFrame(info, fg_color="transparent")
+            row.pack(fill="x", padx=20, pady=4)
+            ctk.CTkLabel(row, text=label + ":", font=T.f(12),
+                         text_color=T.MUTED, width=120, anchor="w").pack(side="left")
+            ctk.CTkLabel(row, text=value, font=T.f(12, "bold"),
+                         text_color=T.TEXT).pack(side="left")
+        ctk.CTkFrame(info, fg_color=T.CARD, height=8).pack()
+
+    def _export(self):
+        from tkinter import filedialog
+        from utils.mobile_export import export_mobile_config
+        st = settings.load_settings()
+        company = st.get("company_name", "company").replace(" ", "_")
+        path = filedialog.asksaveasfilename(
+            title="Save Mobile Config",
+            initialfile=f"munim_config_{company}.json",
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            initialdir=s.data_dir())
+        if not path:
+            return
+        try:
+            export_mobile_config(self.con, path)
+            self.msg.configure(
+                text=f"✓ Saved — send this file to your phone",
+                text_color=T.OK)
+        except Exception as e:
+            self.msg.configure(text=f"Error: {e}", text_color=T.DANGER)
+
+
+class MobileImportFrame(ctk.CTkFrame):
+    """Utilities → Import Mobile Invoices.
+    Reads a JSON file from the mobile APK and creates Sales invoices."""
+
+    def __init__(self, master, con):
+        super().__init__(master, fg_color="transparent")
+        self.con = con
+
+        T.title(self, "Import Mobile Invoices",
+                "Import sales invoices created on the MUNIM mobile app. "
+                "New parties are created automatically. Duplicates are skipped."
+                ).pack(anchor="w", padx=28, pady=(24, 14))
+
+        file_card = T.card(self)
+        file_card.pack(fill="x", padx=28, pady=(0, 14))
+        ctk.CTkLabel(file_card, text="Mobile invoices JSON file",
+                     font=T.f(12), text_color=T.MUTED).pack(
+            anchor="w", padx=20, pady=(14, 4))
+        row = ctk.CTkFrame(file_card, fg_color="transparent")
+        row.pack(fill="x", padx=20, pady=(0, 14))
+        self.path_entry = T.entry(row, "Select file…", width=460)
+        self.path_entry.pack(side="left", padx=(0, 10))
+        T.button(row, "Browse…", self._browse, width=100).pack(side="left")
+
+        # Preview area
+        self.preview_card = T.card(self)
+        self.preview_card.pack(fill="x", padx=28, pady=(0, 14))
+        self.preview_lbl = ctk.CTkLabel(
+            self.preview_card,
+            text="Select a file and click Preview to see invoices before importing.",
+            font=T.f(12), text_color=T.MUTED)
+        self.preview_lbl.pack(anchor="w", padx=20, pady=14)
+
+        btn_row = ctk.CTkFrame(self, fg_color="transparent")
+        btn_row.pack(anchor="w", padx=28, pady=(0, 10))
+        T.button(btn_row, "Preview", self._preview, width=120).pack(side="left")
+        T.button(btn_row, "Import All", self._import, width=120,
+                 fg_color=T.OK, hover_color="#166b44").pack(side="left", padx=10)
+        self.msg = ctk.CTkLabel(btn_row, text="", font=T.f(13))
+        self.msg.pack(side="left", padx=10)
+
+        self.results = ctk.CTkScrollableFrame(self, fg_color="transparent", height=260)
+        self.results.pack(fill="both", expand=True, padx=28, pady=(0, 16))
+        self._pending = None
+
+    def _browse(self):
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            title="Select mobile invoices JSON",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")])
+        if path:
+            self.path_entry.delete(0, "end")
+            self.path_entry.insert(0, path)
+            self._preview()
+
+    def _load_file(self):
+        import json
+        path = self.path_entry.get().strip()
+        if not path or not os.path.exists(path):
+            self.msg.configure(text="File not found.", text_color=T.DANGER)
+            return None
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def _preview(self):
+        data = self._load_file()
+        if not data:
+            return
+        for w in self.preview_card.winfo_children():
+            w.destroy()
+        for w in self.results.winfo_children():
+            w.destroy()
+        invoices = data.get("invoices", [])
+        if not invoices:
+            self.preview_lbl = ctk.CTkLabel(
+                self.preview_card, text="No invoices found in this file.",
+                font=T.f(12), text_color=T.MUTED)
+            self.preview_lbl.pack(anchor="w", padx=20, pady=14)
+            return
+        ctk.CTkLabel(self.preview_card,
+                     text=f"{len(invoices)} invoice(s) ready to import:",
+                     font=T.f(13, "bold"), text_color=T.TEXT).pack(
+            anchor="w", padx=20, pady=(14, 6))
+        for inv in invoices:
+            items     = inv.get("items", [])
+            total_val = sum(float(it.get("qty", 0)) * float(it.get("rate", 0))
+                            for it in items)
+            ctk.CTkLabel(self.preview_card,
+                         text=f"  • {inv.get('inv_no','?')}  —  "
+                              f"{inv.get('party','?')}  —  "
+                              f"Rs {total_val:,.2f}  —  {inv.get('date','')}",
+                         font=T.f(12), text_color=T.TEXT, anchor="w").pack(
+                anchor="w", padx=20, pady=1)
+        ctk.CTkFrame(self.preview_card, fg_color=T.CARD, height=10).pack()
+        self._pending = data
+        self.msg.configure(text="", text_color=T.TEXT)
+
+    def _import(self):
+        if not self._pending:
+            self._preview()
+            if not self._pending:
+                return
+        from utils.mobile_export import import_mobile_invoices
+        path = self.path_entry.get().strip()
+        self.msg.configure(text="Importing…", text_color=T.MUTED)
+        self.update()
+        try:
+            result = import_mobile_invoices(self.con, path)
+        except Exception as e:
+            self.msg.configure(text=f"Error: {e}", text_color=T.DANGER)
+            return
+        for w in self.results.winfo_children():
+            w.destroy()
+
+        def _section(title, items, color):
+            if not items:
+                return
+            ctk.CTkLabel(self.results, text=title,
+                         font=T.f(13, "bold"), text_color=color).pack(
+                anchor="w", pady=(10, 2))
+            for item in items:
+                ctk.CTkLabel(self.results, text=f"  • {item}",
+                             font=T.f(12), text_color=T.TEXT,
+                             anchor="w", wraplength=700).pack(anchor="w", pady=1)
+
+        _section(f"✓ Imported ({len(result['imported'])})", result["imported"], T.OK)
+        _section(f"⚠ Skipped ({len(result['skipped'])})",  result["skipped"],  T.MUTED)
+        _section(f"✗ Errors ({len(result['errors'])})",    result["errors"],   T.DANGER)
+
+        n = len(result["imported"])
+        self.msg.configure(
+            text=f"✓ {n} imported, {len(result['skipped'])} skipped, "
+                 f"{len(result['errors'])} errors",
+            text_color=T.OK if n else T.MUTED)
+        self._pending = None
