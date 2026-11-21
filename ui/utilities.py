@@ -871,6 +871,7 @@ class MobileImportFrame(ctk.CTkFrame):
 
     def _load_file(self):
         import json
+        import os
         path = self.path_entry.get().strip()
         if not path or not os.path.exists(path):
             self.msg.configure(text="File not found.", text_color=T.DANGER)
