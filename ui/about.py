@@ -1,48 +1,78 @@
-"""About dialog — version, licence expiry, support contact."""
 import customtkinter as ctk
-from ui import theme as T
-from utils import settings
+from ui.theme import COLOURS, FONTS
 
-VERSION = "v0.16"
-SUPPORT = "support@munim.in"
+VERSION = "v0.17"
+BUILD_DATE = "November 2026"
 
 
 class AboutFrame(ctk.CTkFrame):
-    def __init__(self, master):
-        super().__init__(master, fg_color="transparent")
-        st = settings.load_settings()
-        licence = st.get("licence_key", "")
-        expiry  = st.get("licence_expiry", "15-11-2028")
+    def __init__(self, master, **kwargs):
+        super().__init__(master, fg_color=COLOURS["bg"], **kwargs)
+        self._build()
 
-        T.title(self, "About MUNIM", "Version info, licence, and support.").pack(
-            anchor="w", padx=28, pady=(24, 16))
-
-        card = T.card(self)
-        card.pack(fill="x", padx=28)
-
-        def row(label, value, color=T.TEXT):
-            f = ctk.CTkFrame(card, fg_color="transparent")
-            f.pack(fill="x", padx=24, pady=(10, 0))
-            ctk.CTkLabel(f, text=label, font=T.f(12), text_color=T.MUTED,
-                         width=200, anchor="w").pack(side="left")
-            ctk.CTkLabel(f, text=value, font=T.f(13, "bold"),
-                         text_color=color).pack(side="left")
-
-        ctk.CTkLabel(card, text="MUNIM", font=T.f(28, "bold"),
-                     text_color=T.NAVY).pack(anchor="w", padx=24, pady=(24, 4))
-        ctk.CTkLabel(card, text="GST Accounting for Indian Traders",
-                     font=T.f(13), text_color=T.MUTED).pack(anchor="w", padx=24, pady=(0, 16))
-
-        row("Version",         VERSION)
-        row("Licence key",     licence[:28] + "…" if len(licence) > 28 else licence or "—")
-        row("Licence valid to", expiry or "—")
-        row("Support",         SUPPORT, T.ACCENT)
-        row("Built with",      "Python 3.11 · CustomTkinter · SQLite")
-
-        ctk.CTkFrame(card, fg_color=T.CARD, corner_radius=0, height=20).pack()
-
-        note = ctk.CTkLabel(
+    def _build(self):
+        ctk.CTkLabel(
             self,
-            text="To renew your licence go to Utilities > Renew Licence.",
-            font=T.f(12), text_color=T.MUTED)
-        note.pack(anchor="w", padx=28, pady=(14, 0))
+            text="MUNIM",
+            font=FONTS["heading"],
+            text_color=COLOURS["accent"],
+        ).pack(pady=(40, 4))
+
+        ctk.CTkLabel(
+            self,
+            text=f"Version {VERSION}  •  {BUILD_DATE}",
+            font=FONTS["sub"],
+            text_color=COLOURS["muted"],
+        ).pack(pady=(0, 24))
+
+        ctk.CTkLabel(
+            self,
+            text="GST Accounting Software for Trading Businesses",
+            font=FONTS["body"],
+            text_color=COLOURS["fg"],
+        ).pack(pady=(0, 8))
+
+        ctk.CTkLabel(
+            self,
+            text="Designed for gold, silver & metals traders",
+            font=FONTS["body"],
+            text_color=COLOURS["muted"],
+        ).pack(pady=(0, 32))
+
+        info = [
+            ("Stack",   "Python 3.11  •  CustomTkinter 5.2.2  •  SQLite"),
+            ("Builder", "PyInstaller  •  GitHub Actions"),
+            ("Licence", "Single-company perpetual licence"),
+        ]
+        for label, value in info:
+            row = ctk.CTkFrame(self, fg_color="transparent")
+            row.pack(pady=2)
+            ctk.CTkLabel(
+                row,
+                text=f"{label}:",
+                font=FONTS["sub"],
+                text_color=COLOURS["muted"],
+                width=80,
+                anchor="e",
+            ).pack(side="left", padx=(0, 8))
+            ctk.CTkLabel(
+                row,
+                text=value,
+                font=FONTS["body"],
+                text_color=COLOURS["fg"],
+                anchor="w",
+            ).pack(side="left")
+
+        ctk.CTkLabel(
+            self,
+            text="© 2026 Sumit Verma, Ludhiana",
+            font=FONTS["sub"],
+            text_color=COLOURS["muted"],
+        ).pack(pady=(40, 8))
+
+        ctk.CTkLabel(
+            self,
+            text="Built with ❤ for real-world Indian GST compliance",
+            font=FONTS["sub"],
+            text_color=COLOURS["muted"],
+        ).pack(pady=(0, 40))
