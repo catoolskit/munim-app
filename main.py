@@ -5,6 +5,32 @@ from ui import theme as T
 from utils import shortcut, errlog, settings
 from tkinter import messagebox, simpledialog
 
+# --- PyInstaller hidden imports — do not remove ---
+import ui.dashboard        # noqa
+import ui.utilities        # noqa
+import ui.about            # noqa
+import ui.party            # noqa
+import ui.help             # noqa
+import ui.account_master   # noqa
+import ui.stock_items      # noqa
+import ui.entry_screens    # noqa
+import ui.report_screens   # noqa
+import ui.voucher_dialog   # noqa
+import ui.widgets          # noqa
+import ui.menus            # noqa
+import ui.ux               # noqa
+import ui.dialogs          # noqa
+import utils.tally_import  # noqa
+import utils.backup        # noqa
+import utils.logger        # noqa
+import utils.errlog        # noqa
+import utils.pdf_invoice   # noqa
+import utils.settings      # noqa
+import utils.fmt           # noqa
+import utils.export        # noqa
+import utils.licence       # noqa
+# --- end hidden imports ---
+
 
 class MunimApp(ctk.CTk):
     def __init__(self):
