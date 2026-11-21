@@ -23,7 +23,7 @@ from ui.widgets import ErrorPanel
 from ui.utilities import (CompanyFrame, PasswordFrame, AuditFrame, ResetDataFrame,
                            RenewLicenceFrame, DataLocationFrame, ManageCompaniesFrame,
                            TallyImportFrame)
-from ui.dashboard import DashboardFrame
+# ui.dashboard loaded lazily below — do NOT import at top level (PyInstaller)
 from utils import errlog, logger
 from utils import settings
 from utils import backup as bkup
@@ -65,8 +65,7 @@ PAGES = {
     "daybook":        ("Day Book",            lambda sh: DayBookFrame(sh.body, sh.con, sh.open_voucher)),
     "pl":             ("Trading & P&L",       lambda sh: ProfitLossFrame(sh.body, sh.con)),
     "bs":             ("Balance Sheet",       lambda sh: BalanceSheetFrame(sh.body, sh.con)),
-    # v0.17 new pages
-    "dashboard":      ("Dashboard",           lambda sh: DashboardFrame(sh.body, sh.con)),
+    "dashboard":      ("Dashboard",           lambda sh: __import__('ui.dashboard', fromlist=['DashboardFrame']).DashboardFrame(sh.body, sh.con)),
     "cashflow":       ("Cash Flow",           lambda sh: CashFlowFrame(sh.body, sh.con)),
     "partystatement": ("Party Statement",     lambda sh: PartyStatementFrame(sh.body, sh.con)),
     "bankrecon":      ("Bank Reconciliation", lambda sh: BankReconFrame(sh.body, sh.con)),
