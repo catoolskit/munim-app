@@ -23,7 +23,7 @@ from ui.widgets import ErrorPanel
 from ui.utilities import (CompanyFrame, PasswordFrame, AuditFrame, ResetDataFrame,
                            RenewLicenceFrame, DataLocationFrame, ManageCompaniesFrame,
                            TallyImportFrame)
-# ui.dashboard loaded lazily below — do NOT import at top level (PyInstaller)
+# ui.dashboard loaded lazily — do NOT import at top level (PyInstaller)
 from utils import errlog, logger
 from utils import settings
 from utils import backup as bkup
@@ -150,6 +150,10 @@ class Shell(ctk.CTkFrame):
             bar, text="←  Back", width=84, height=32, corner_radius=8,
             fg_color=T.NAVY_HOVER, hover_color=T.NAVY_ACTIVE,
             font=T.f(12, "bold"), command=self.go_back)
+        self.home_btn = ctk.CTkButton(
+            bar, text="⌂  Home", width=84, height=32, corner_radius=8,
+            fg_color=T.NAVY_HOVER, hover_color=T.NAVY_ACTIVE,
+            font=T.f(12, "bold"), command=self._go_to_gateway)
         self.crumb = ctk.CTkLabel(bar, text="", font=T.f(13), text_color="#9FB3D9")
         self.crumb.pack(side="left", padx=14)
         right = ctk.CTkFrame(bar, fg_color="transparent")
@@ -175,7 +179,6 @@ class Shell(ctk.CTkFrame):
         self.push(("menu", "gateway"))
 
     def destroy(self):
-        """Clean exit: auto-backup before destroying the shell."""
         try:
             self._do_auto_backup()
         except Exception:
@@ -242,10 +245,13 @@ class Shell(ctk.CTkFrame):
             MENUS[n][0] if k == "menu" else PAGES[n][0]
             for k, n in self.stack[1:]]
         self.crumb.configure(text="  ›  ".join(labels))
+        # Show Back and Home only when not at gateway
         if len(self.stack) > 1:
             self.back_btn.pack(side="left", before=self.crumb)
+            self.home_btn.pack(side="left", before=self.crumb)
         else:
             self.back_btn.pack_forget()
+            self.home_btn.pack_forget()
 
     def pick(self, item):
         go = item["go"]
@@ -333,7 +339,7 @@ class Shell(ctk.CTkFrame):
         try:
             month_num = (date.today().month - 3) % 12 or 12
             from db.setup import gstr3b_report
-            gst_rep    = gstr3b_report(self.con, fy, month_num)
+            gst_rep     = gstr3b_report(self.con, fy, month_num)
             gst_payable = gst_rep["net"]["total"]
         except Exception:
             gst_payable = 0.0
@@ -354,17 +360,17 @@ class Shell(ctk.CTkFrame):
         def row(label, value, color=T.TEXT, bold=False):
             r = ctk.CTkFrame(card, fg_color=T.CARD, corner_radius=0)
             r.pack(fill="x", padx=24, pady=2)
-            ctk.CTkLabel(r, text=label, font=T.f(12),
-                         text_color=T.MUTED).pack(side="left")
+            ctk.CTkLabel(r, text=label, font=T.f(12), text_color=T.MUTED,
+                         anchor="w", width=160).pack(side="left")
             ctk.CTkLabel(r, text=value,
-                         font=T.f(13, "bold" if bold else "normal"),
-                         text_color=color).pack(side="right")
+                         font=T.f(12, "bold" if bold else "normal"),
+                         text_color=color, anchor="e").pack(side="right")
 
         ctk.CTkLabel(card, text="TODAY", font=T.f(10, "bold"),
                      text_color=T.MUTED).pack(anchor="w", padx=24, pady=(12, 2))
-        row("Today's sales",  f"Rs {inr(today_sales / 100)}",
+        row("Today's sales",  f"Rs {inr(s.to_rupees(today_sales))}",
             T.OK if today_sales else T.TEXT)
-        row("This month",     f"Rs {inr(month_sales / 100)}")
+        row("This month",     f"Rs {inr(s.to_rupees(month_sales))}")
 
         ctk.CTkLabel(card, text="OUTSTANDING", font=T.f(10, "bold"),
                      text_color=T.MUTED).pack(anchor="w", padx=24, pady=(12, 2))
@@ -375,8 +381,8 @@ class Shell(ctk.CTkFrame):
 
         ctk.CTkLabel(card, text="STOCK & GST", font=T.f(10, "bold"),
                      text_color=T.MUTED).pack(anchor="w", padx=24, pady=(12, 2))
-        row("Stock value",  f"Rs {inr(stock_value)}")
-        row("GST payable",  f"Rs {inr(gst_payable)}",
+        row("Stock value", f"Rs {inr(stock_value)}")
+        row("GST payable", f"Rs {inr(gst_payable)}",
             T.DANGER if gst_payable > 0 else T.TEXT)
 
         if top5:
