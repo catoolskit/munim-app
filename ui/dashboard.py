@@ -206,8 +206,8 @@ class DashboardFrame(ctk.CTkFrame):
                                corner_radius=0, height=28)
             hdr.pack(fill="x", padx=20)
             hdr.pack_propagate(False)
-            for txt, w in (("Item", 180), ("Closing Qty", 110),
-                           ("Avg Rate (Rs)", 140), ("Stock Value (Rs)", 160)):
+            for txt, w in [("Item", 180), ("Closing Qty", 110),
+                           ("Avg Rate (Rs)", 140), ("Stock Value (Rs)", 160)]:
                 ctk.CTkLabel(hdr, text=txt, font=T.f(11, "bold"),
                              text_color=T.MUTED, width=w, anchor="w").pack(
                     side="left", padx=(12, 4))
@@ -217,12 +217,13 @@ class DashboardFrame(ctk.CTkFrame):
                 srow.pack(fill="x", padx=20, pady=2)
                 sv = it.get("stock_value", 0.0)
                 total_val += sv
-                for txt, w in (
-                    (it["name"],
-                     f"{it['closing']:,.3f}".rstrip("0").rstrip("."),
-                     inr(it.get("avg_rate", 0.0)),
-                     inr(sv),
-                ):
+                closing_str = f"{it['closing']:,.3f}".rstrip("0").rstrip(".")
+                for txt, w in [
+                    (it["name"],                    180),
+                    (closing_str,                   110),
+                    (inr(it.get("avg_rate", 0.0)),  140),
+                    (inr(sv),                       160),
+                ]:
                     ctk.CTkLabel(srow, text=txt, font=T.f(12),
                                  text_color=T.TEXT, width=w, anchor="w").pack(
                         side="left", padx=(12, 4))
