@@ -70,6 +70,8 @@ PAGES = {
     "partystatement": ("Party Statement",     lambda sh: PartyStatementFrame(sh.body, sh.con)),
     "bankrecon":      ("Bank Reconciliation", lambda sh: BankReconFrame(sh.body, sh.con)),
     "tallyimport":    ("Import from Tally",   lambda sh: TallyImportFrame(sh.body, sh.con)),
+    "mobileexport": ("Export Mobile Config",   lambda sh: __import__('ui.utilities', fromlist=['MobileExportFrame']).MobileExportFrame(sh.body, sh.con)),
+    "mobileimport": ("Import Mobile Invoices", lambda sh: __import__('ui.utilities', fromlist=['MobileImportFrame']).MobileImportFrame(sh.body, sh.con)),
 }
 
 SEL_BG, HINT = "#E6EEFA", "↑ ↓ move     Enter open     Letter jump     Esc back     Alt+H home"
