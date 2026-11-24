@@ -1,0 +1,94 @@
+"""Tally-style menu tree. go=None means 'not built yet' (shown dimmed)."""
+def M(label, key, go=None):
+    return {"label": label, "key": key, "go": go}
+
+MENUS = {
+    "gateway": ("Gateway of MUNIM", [
+        M("Masters",      "M", ("menu", "masters")),
+        M("Transactions", "T", ("menu", "transactions")),
+        M("Reports",      "R", ("menu", "reports")),
+        M("Utilities",    "U", ("menu", "utilities")),
+        M("Log out",      "Q", ("quit",)),
+    ]),
+    "masters": ("Masters", [
+        M("Party Master",    "P", ("page", "party")),
+        M("Ledger Accounts", "L", ("page", "accounts")),
+        M("Stock Items",     "I", ("page", "stockitems")),
+    ]),
+    "transactions": ("Transactions", [
+        M("Sales Invoice",                "S", ("page", "sales")),
+        M("Sales Return / Credit Note",   "N", ("page", "salesreturn")),
+        M("Daily Sales Summary",          "D", ("page", "summary")),
+        M("Purchase Bill",                "P", ("page", "purchase")),
+        M("Purchase Return / Debit Note", "E", ("page", "purchasereturn")),
+        M("Receipt / Payment",            "R", ("page", "payment")),
+        M("Voucher Entry (journal etc.)", "V", ("page", "journal")),
+        M("GST Invoice (print)",          "G"),
+    ]),
+    "reports": ("Reports", [
+        M("Dashboard",  "D", ("page", "dashboard")),
+        M("Accounting", "A", ("menu", "reports_acct")),
+        M("Registers",  "R", ("menu", "reports_reg")),
+        M("Financial",  "F", ("menu", "reports_fin")),
+        M("Stock",      "S", ("menu", "reports_stk")),
+        M("GST",        "G", ("menu", "reports_gst")),
+    ]),
+    "reports_acct": ("Accounting Reports", [
+        M("Ledger View",         "L", ("page", "ledger")),
+        M("Trial Balance",       "T", ("page", "trial")),
+        M("Cash Book",           "C", ("page", "cashbook")),
+        M("Day Book",            "D", ("page", "daybook")),
+        M("Party Statement",     "S", ("page", "partystatement")),
+        M("Bank Reconciliation", "B", ("page", "bankrecon")),
+    ]),
+    "reports_reg": ("Registers", [
+        M("Sales Register",           "S", ("page", "salesreg")),
+        M("Purchase Register",        "P", ("page", "purchasereg")),
+        M("Sales Return Register",    "E", ("page", "salesreturnreg")),
+        M("Purchase Return Register", "N", ("page", "purchasereturnreg")),
+    ]),
+    "reports_fin": ("Financial Reports", [
+        M("Balance Sheet", "B", ("page", "bs")),
+        M("Trading & P&L", "P", ("page", "pl")),
+        M("Outstanding",   "O", ("page", "outstanding")),
+        M("Cash Flow",     "W", ("page", "cashflow")),
+    ]),
+    "reports_stk": ("Stock Reports", [
+        M("Stock Summary",    "K", ("page", "stocksummary")),
+        M("Item-wise Profit", "I", ("page", "itemprofit")),
+    ]),
+    "reports_gst": ("GST Reports", [
+        M("GSTR-1 (Outward)",  "G", ("page", "gstr1")),
+        M("GSTR-3B (Summary)", "3", ("page", "gstr3b")),
+    ]),
+    "utilities": ("Utilities", [
+        M("Company & Settings", "C", ("menu", "utilities_company")),
+        M("Data Management",    "D", ("menu", "utilities_data")),
+        M("Import & Export",    "I", ("menu", "utilities_import")),
+        M("Security & Users",   "S", ("menu", "utilities_security")),
+        M("Support & Information", "H", ("menu", "utilities_support")),
+    ]),
+    "utilities_company": ("Company & Settings", [
+        M("Company Details",  "C", ("page", "company")),
+        M("Data Location",    "D", ("page", "datalocation")),
+        M("Manage Companies", "M", ("page", "companies")),
+    ]),
+    "utilities_data": ("Data Management", [
+        M("Backup Data",   "B", ("fn", "backup")),
+        M("Reset All Data", "X", ("page", "reset")),
+    ]),
+    "utilities_import": ("Import & Export", [
+        M("Import from Tally",      "T", ("page", "tallyimport")),
+        M("Export Mobile Config",   "E", ("page", "mobileexport")),
+        M("Import Mobile Invoices", "V", ("page", "mobileimport")),
+    ]),
+    "utilities_security": ("Security & Users", [
+        M("Audit Log",       "A", ("page", "audit")),
+        M("Change Password", "P", ("page", "password")),
+        M("Renew Licence",   "R", ("page", "renew")),
+    ]),
+    "utilities_support": ("Support & Information", [
+        M("Help & Shortcuts", "H", ("page", "help")),
+        M("About MUNIM",      "I", ("page", "about")),
+    ]),
+}
