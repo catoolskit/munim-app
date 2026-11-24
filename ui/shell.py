@@ -118,7 +118,7 @@ class MenuView(ctk.CTkFrame):
         for n, r in enumerate(self.rows):
             r.configure(fg_color=SEL_BG if n == i else "transparent",
                         border_width=1 if n == i else 0,
-                        border_color="#D7E3F8" if n == i else "transparent")
+                        border_color="#D7E3F8" if n == i else SEL_BG)
 
     def pick(self, i):
         self.select(i)
