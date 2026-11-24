@@ -79,7 +79,7 @@ SEL_BG, HINT = "#EAF0FC", "↑ ↓ Navigate    Enter Open    Alt+G Go To    Alt+
 
 
 class MenuView(ctk.CTkFrame):
-    def __init__(self, master, title, items, on_pick, side=None):
+    def __init__(self, master, title, items, on_pick, side=None, selected_index=0):
         super().__init__(master, fg_color="transparent")
         self.items, self.on_pick, self.sel, self.rows = items, on_pick, 0, []
         wrap = ctk.CTkFrame(self, fg_color="transparent")
@@ -111,7 +111,7 @@ class MenuView(ctk.CTkFrame):
                 w.bind("<Button-1>", lambda _e, i=i: self.pick(i))
                 w.bind("<Motion>",   lambda _e, i=i: self.select(i))
             self.rows.append(row)
-        self.select(0)
+        self.select(max(0, min(selected_index, len(self.items) - 1)))
 
     def select(self, i):
         self.sel = i
@@ -145,6 +145,8 @@ class Shell(ctk.CTkFrame):
         self.con, self.username, self.role, self.on_logout = con, username, role, on_logout
         self.stack, self.current, self._edit_id = [], None, None
         self._ledger_account = None
+        # Remember each menu's highlighted row while navigating into submenus/pages.
+        self._menu_selection = {}
         self.top = self.winfo_toplevel()
 
         bar = ctk.CTkFrame(self, fg_color=T.NAVY, corner_radius=0, height=64)
@@ -208,7 +210,12 @@ class Shell(ctk.CTkFrame):
             st = bkup.record_backup(st)
             settings.save_settings(st)
 
+    def _remember_menu_selection(self):
+        if self.stack and isinstance(self.current, MenuView):
+            self._menu_selection[self.stack[-1][1]] = self.current.sel
+
     def push(self, node):
+        self._remember_menu_selection()
         self.stack.append(node)
         self.render()
 
@@ -221,6 +228,7 @@ class Shell(ctk.CTkFrame):
                         "You have typed something that is not saved yet.\n\n"
                         "Leave this screen and lose it?"):
                     return
+            self._remember_menu_selection()
             self.stack.pop()
             self.render()
 
@@ -236,7 +244,9 @@ class Shell(ctk.CTkFrame):
         if kind == "menu":
             title, items = MENUS[name]
             side = self._info_card if name == "gateway" else None
-            self.current = MenuView(self.body, title, items, self.pick, side)
+            self.current = MenuView(
+                self.body, title, items, self.pick, side,
+                selected_index=self._menu_selection.get(name, 0))
             self.top.focus_set()
         else:
             try:
@@ -439,7 +449,20 @@ class Shell(ctk.CTkFrame):
         return "break"
 
     def _on_alt_key(self, event):
+        key = (event.keysym or "").casefold()
         action = alt_shortcut_action(event.keysym)
+        if key == "o":
+            # Alt+O is a context-specific shortcut for the Ledger View selector.
+            picker = getattr(self.current, "picker", None)
+            if picker is not None:
+                picker.open()
+                return "break"
+            return None
+        if key == "s":
+            picker = getattr(self.current, "picker", None)
+            if picker is not None and picker.focus_search():
+                return "break"
+            return None
         if action == "home":
             self._go_to_gateway()
         elif action == "help":

@@ -221,6 +221,20 @@ class _LedgerDropdown(ctk.CTkFrame):
         self.selected_label = label or "Select group / ledger"
         self.button.configure(text=self.selected_label + "  ▾")
 
+    def open(self):
+        """Public keyboard/mouse entry point for opening the selector."""
+        self._open()
+
+    def focus_search(self):
+        """Focus the search field when the selector is already open."""
+        popup = getattr(self, "_popup", None)
+        search = getattr(self, "_search_widget", None)
+        if popup is not None and popup.winfo_exists() and search is not None:
+            search.focus_set()
+            search.select_range(0, "end")
+            return True
+        return False
+
     def _open(self):
         if getattr(self, "_popup", None) and self._popup.winfo_exists():
             self._popup.focus_force()
@@ -241,6 +255,7 @@ class _LedgerDropdown(ctk.CTkFrame):
         popup.grab_set()
 
         search = T.entry(popup, "Search groups or ledgers")
+        self._search_widget = search
         search.pack(fill="x", padx=8, pady=8)
         listing = ctk.CTkScrollableFrame(
             popup, fg_color="white", scrollbar_button_color="#C5CEE0")
@@ -257,6 +272,7 @@ class _LedgerDropdown(ctk.CTkFrame):
             except Exception:
                 pass
             self._popup = None
+            self._search_widget = None
             self.button.focus_set()
 
         def choose(kind, value, label):
