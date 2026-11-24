@@ -18,6 +18,7 @@ class FmtTests(unittest.TestCase):
         self.assertEqual(fmt.parse_date("14/11/2026"), date(2026, 11, 14))
         with self.assertRaises(ValueError): fmt.parse_date("31-02-2026")
         self.assertEqual(fmt.disp_date("2026-11-14"), "14-11-2026")
+        self.assertEqual(fmt.disp_date(date(2026, 11, 14)), "14-11-2026")
     def test_date_shortcuts(self):
         today = date(2026, 11, 15)
         pd = lambda x: fmt.parse_date(x, today)

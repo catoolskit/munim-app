@@ -202,13 +202,14 @@ class TrialBalanceFrame(ReportBase):
 
 
 class _LedgerDropdown(ctk.CTkFrame):
-    """Compact searchable group/ledger picker used by Ledger View."""
+    """Searchable group/ledger picker with complete keyboard and mouse support."""
     def __init__(self, master, groups, command, width=270):
         super().__init__(master, fg_color="transparent", width=width)
         self.groups = groups
         self.command = command
         self.width = width
         self.selected_label = "Select group / ledger"
+        self._expanded = {group for group, _accounts in groups}
         self.button = ctk.CTkButton(
             self, text=self.selected_label + "  ▾", command=self._open,
             width=width, height=38, corner_radius=8, font=T.f(13),
@@ -222,7 +223,8 @@ class _LedgerDropdown(ctk.CTkFrame):
 
     def _open(self):
         if getattr(self, "_popup", None) and self._popup.winfo_exists():
-            self._popup.destroy()
+            self._popup.focus_force()
+            return
         popup = ctk.CTkToplevel(self)
         self._popup = popup
         popup.title("Select group or ledger")
@@ -235,54 +237,153 @@ class _LedgerDropdown(ctk.CTkFrame):
             y = max(8, self.winfo_rooty() - h)
         popup.geometry(f"{self.width}x{h}+{x}+{y}")
         popup.configure(fg_color="white")
-        popup.lift()
+        popup.transient(self.winfo_toplevel())
+        popup.grab_set()
+
         search = T.entry(popup, "Search groups or ledgers")
         search.pack(fill="x", padx=8, pady=8)
-        listing = ctk.CTkScrollableFrame(popup, fg_color="white",
-                                         scrollbar_button_color="#C5CEE0")
+        listing = ctk.CTkScrollableFrame(
+            popup, fg_color="white", scrollbar_button_color="#C5CEE0")
         listing.pack(fill="both", expand=True, padx=6, pady=(0, 6))
 
-        def populate(_event=None):
-            for child in listing.winfo_children():
-                child.destroy()
-            query = search.get().strip().casefold()
-            any_match = False
-            for group, accounts in self.groups:
-                matches = [account for account in accounts
-                           if query in (account[0] if isinstance(account, tuple)
-                                        else account).casefold()
-                           or (isinstance(account, tuple) and
-                               query in account[1].casefold())]
-                group_match = query in group.casefold()
-                if query and not group_match and not matches:
-                    continue
-                any_match = True
-                ctk.CTkButton(
-                    listing, text=f"▸  {group}",
-                    command=lambda g=group, label=group: choose("group", g, label),
-                    height=30, corner_radius=7, font=T.f(12, "bold"),
-                    fg_color="#EEF2F8", text_color=T.TEXT,
-                    hover_color="#E0E7F2", anchor="w").pack(fill="x", pady=(2, 1))
-                for account in accounts:
-                    name, display = account if isinstance(account, tuple) else (account, account)
-                    if query and not group_match and query not in name.casefold() and query not in display.casefold():
-                        continue
-                    ctk.CTkButton(
-                        listing, text=f"     {display}",
-                        command=lambda n=name, g=group, d=display: choose("ledger", n, f"{g}  /  {d}"),
-                        height=28, corner_radius=7, font=T.f(12),
-                        fg_color="white", text_color=T.TEXT,
-                        hover_color="#F1F4F9", anchor="w").pack(fill="x", pady=1)
-            if not any_match:
-                ctk.CTkLabel(listing, text="No matching groups or ledgers",
-                             text_color=T.MUTED).pack(pady=12)
+        visible = []
+        selected_index = 0
+
+        def close():
+            try:
+                if popup.winfo_exists():
+                    popup.grab_release()
+                    popup.destroy()
+            except Exception:
+                pass
+            self._popup = None
+            self.button.focus_set()
 
         def choose(kind, value, label):
             self.set_selection(label)
-            popup.destroy()
+            close()
             self.command(kind, value)
 
+        def populate(_event=None):
+            nonlocal visible, selected_index
+            for child in listing.winfo_children():
+                child.destroy()
+            query = search.get().strip().casefold()
+            visible = []
+            for group, accounts in self.groups:
+                matched = [
+                    account for account in accounts
+                    if query in (account[0] if isinstance(account, tuple) else account).casefold()
+                    or (isinstance(account, tuple) and query in account[1].casefold())
+                ]
+                group_match = query in group.casefold()
+                if query and not group_match and not matched:
+                    continue
+                visible.append(("group", group, group))
+                if group in self._expanded or query:
+                    for account in accounts:
+                        name, display = account if isinstance(account, tuple) else (account, account)
+                        if query and not group_match and query not in name.casefold() and query not in display.casefold():
+                            continue
+                        visible.append(("ledger", name, f"{group}  /  {display}"))
+            if not visible:
+                ctk.CTkLabel(listing, text="No matching groups or ledgers",
+                             text_color=T.MUTED).pack(pady=12)
+                selected_index = 0
+                return
+            selected_index = min(selected_index, len(visible) - 1)
+            for index, (kind, value, label) in enumerate(visible):
+                if kind == "group":
+                    expanded = value in self._expanded or bool(query)
+                    text = ("▾  " if expanded else "▸  ") + value
+                    btn = ctk.CTkButton(
+                        listing, text=text,
+                        command=lambda v=value: choose("group", v, v),
+                        height=30, corner_radius=7, font=T.f(12, "bold"),
+                        fg_color="#EEF2F8", text_color=T.TEXT,
+                        hover_color="#E0E7F2", anchor="w")
+                else:
+                    btn = ctk.CTkButton(
+                        listing, text=f"     {label.split('  /  ', 1)[-1]}",
+                        command=lambda v=value, lab=label: choose("ledger", v, lab),
+                        height=28, corner_radius=7, font=T.f(12),
+                        fg_color="white", text_color=T.TEXT,
+                        hover_color="#F1F4F9", anchor="w")
+                btn.pack(fill="x", pady=(2, 1) if kind == "group" else 1)
+                if index == selected_index:
+                    btn.configure(border_width=1, border_color="#9DB7E8")
+            try:
+                listing.update_idletasks()
+                canvas = listing._parent_canvas
+                canvas_height = max(1, canvas.winfo_height())
+                row_height = 32
+                visible_count = max(1, canvas_height // row_height)
+                first_index = max(0, selected_index - visible_count // 2)
+                fraction = first_index / max(1, len(visible))
+                canvas.yview_moveto(min(1.0, fraction))
+            except Exception:
+                pass
+
+        def move_selection(delta):
+            nonlocal selected_index
+            if visible:
+                selected_index = (selected_index + delta) % len(visible)
+                populate()
+
+        def on_key(event):
+            nonlocal selected_index
+            key = event.keysym
+            if key == "Escape":
+                close()
+                return "break"
+            if key == "Down":
+                move_selection(1)
+                return "break"
+            if key == "Up":
+                move_selection(-1)
+                return "break"
+            if key == "Right" and visible:
+                kind, value, _label = visible[selected_index]
+                if kind == "group":
+                    was_collapsed = value not in self._expanded
+                    self._expanded.add(value)
+                    populate()
+                    # Right-arrow follows a tree convention: expand, then move
+                    # to the first ledger inside the group.
+                    if was_collapsed:
+                        for index in range(selected_index + 1, len(visible)):
+                            if visible[index][0] == "ledger":
+                                selected_index = index
+                                break
+                        populate()
+                    else:
+                        for index in range(selected_index + 1, len(visible)):
+                            if visible[index][0] == "ledger":
+                                selected_index = index
+                                populate()
+                                break
+                return "break"
+            if key == "Left" and visible:
+                kind, value, _label = visible[selected_index]
+                if kind == "group" and value in self._expanded:
+                    self._expanded.discard(value)
+                    populate()
+                elif kind == "ledger":
+                    for group, accounts in self.groups:
+                        if any((a[0] if isinstance(a, tuple) else a) == value for a in accounts):
+                            self._expanded.discard(group)
+                            populate()
+                            break
+                return "break"
+            if key in ("Return", "KP_Enter") and visible:
+                kind, value, label = visible[selected_index]
+                choose(kind, value, label)
+                return "break"
+            return None
+
         search.bind("<KeyRelease>", populate)
+        popup.bind("<KeyPress>", on_key)
+        popup.protocol("WM_DELETE_WINDOW", close)
         populate()
         search.focus_set()
 

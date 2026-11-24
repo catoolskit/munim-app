@@ -24,6 +24,9 @@ class VoucherDialog(ctk.CTkToplevel):
         # Delete is scoped to the open voucher detail window and still uses
         # the existing confirmation dialog in delete().
         self.bind("<Delete>", lambda _event: self.delete())
+        # Escape closes the voucher detail and reveals the originating register
+        # without navigating away from that register.
+        self.bind("<Escape>", self._escape_close)
         self.minsize(760, 600)
         self.configure(fg_color=T.BG)
 
@@ -98,6 +101,10 @@ class VoucherDialog(ctk.CTkToplevel):
         lines.set_rows(rows)
 
         self.after(150, self._front)
+
+    def _escape_close(self, _event=None):
+        self.destroy()
+        return "break"
 
     def _front(self):
         try:

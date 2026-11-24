@@ -59,5 +59,21 @@ def parse_date(text, today=None):
 def today_str():
     return date.today().strftime("%d-%m-%Y")
 
-def disp_date(iso):
-    return datetime.strptime(iso, "%Y-%m-%d").strftime("%d-%m-%Y")
+def disp_date(value):
+    """Format a date/datetime or ISO date string as DD-MM-YYYY."""
+    if isinstance(value, datetime):
+        return value.strftime("%d-%m-%Y")
+    if isinstance(value, date):
+        return value.strftime("%d-%m-%Y")
+    if not isinstance(value, str):
+        raise TypeError("Date must be a date, datetime, or ISO date string")
+    value = value.strip()
+    if not value:
+        return ""
+    # Accept the application's ISO storage format and existing display format.
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(value, fmt).strftime("%d-%m-%Y")
+        except ValueError:
+            continue
+    raise ValueError(f"Unsupported date format: {value!r}")
