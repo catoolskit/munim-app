@@ -35,8 +35,7 @@ def entry(master, placeholder="", **kw):
     kw.setdefault("corner_radius", 8)
     kw.setdefault("font", f(13))
     return ctk.CTkEntry(master, placeholder_text=placeholder, fg_color="white",
-                        border_color=BORDER, text_color=TEXT, font=f(13),
-                        **kw)
+                        border_color=BORDER, text_color=TEXT, **kw)
 
 
 def button(master, text, command=None, **kw):
@@ -45,8 +44,7 @@ def button(master, text, command=None, **kw):
     kw.setdefault("hover_color", ACCENT_HOVER)
     kw.setdefault("corner_radius", 8)
     kw.setdefault("font", f(13, "bold"))
-    return ctk.CTkButton(master, text=text, command=command,
-                         font=f(13, "bold"), **kw)
+    return ctk.CTkButton(master, text=text, command=command, **kw)
 
 
 def option_menu(master, values, **kw):
@@ -54,10 +52,11 @@ def option_menu(master, values, **kw):
     kw.setdefault("corner_radius", 8)
     kw.setdefault("dropdown_font", f(12))
     kw.setdefault("dropdown_hover_color", "#EAF0FC")
+    kw.setdefault("font", f(13))
     return ctk.CTkOptionMenu(master, values=values, fg_color="white", text_color=TEXT,
                              button_color=ACCENT, button_hover_color=ACCENT_HOVER,
                              dropdown_fg_color="white", dropdown_text_color=TEXT,
-                             font=f(13), **kw)
+                             **kw)
 
 
 def title(master, text, sub=None):
@@ -142,7 +141,7 @@ def combo(master, values, **kw):
     kw.setdefault("corner_radius", 8)
     kw.setdefault("dropdown_font", f(12))
     kw.setdefault("dropdown_hover_color", "#EAF0FC")
+    kw.setdefault("font", f(13))
     return ctk.CTkComboBox(master, values=values, fg_color="white", border_color=BORDER,
                            border_width=1, button_color=ACCENT, button_hover_color=ACCENT_HOVER,
-                           dropdown_fg_color="white", dropdown_text_color=TEXT, text_color=TEXT,
-                           font=f(13), **kw)
+                           dropdown_fg_color="white", dropdown_text_color=TEXT, **kw)
