@@ -342,7 +342,7 @@ class MenuView(ctk.CTkFrame):
 
         # Common routes are direct, explicit shortcuts without changing the menu tree.
         quick = T.card(page)
-        quick.pack(fill="x", pady=(12, 0))
+        quick.pack(side="bottom", fill="x", pady=(12, 0), before=content)
         ctk.CTkLabel(quick, text="QUICK ACTIONS", font=T.f(10, "bold"),
                      text_color=T.MUTED).pack(anchor="w", padx=18, pady=(10, 7))
         actions = ctk.CTkFrame(quick, fg_color="transparent")
