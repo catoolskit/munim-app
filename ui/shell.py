@@ -1,3 +1,4 @@
+import re
 import sys
 from datetime import date
 from tkinter import filedialog, messagebox, ttk
@@ -88,16 +89,161 @@ TILE_BG, TILE_BG_SEL, TILE_BORDER = "#FFFFFF", "#EEF4FF", "#DDE3EE"
 ENTRY_PAGES = {"journal", "sales", "purchase", "salesreturn",
                "purchasereturn", "summary", "payment"}
 
+# Attribute names screens use for their date / period fields (checked in order).
+DATE_ATTRS = ("_d1", "d1", "asof", "_d2", "d2", "date_entry", "vdate", "date")
+DATE_RE = re.compile(r"^\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}$")
+
+# What each option does — shown in the menu Preview panel.
+ITEM_INFO = {
+    # Masters
+    "party": "Add and edit customers and suppliers: GSTIN, address, opening balance and credit days.",
+    "accounts": "Create ledgers such as bank accounts, expenses, capital and loans under the Indian chart of accounts.",
+    "stockitems": "Maintain items with HSN code, unit, GST rate and opening stock.",
+    # Transactions
+    "sales": "Create a GST tax invoice (or retail invoice if unregistered). Stock, party balance and GST update automatically.",
+    "salesreturn": "Record goods returned by a customer and issue a credit note.",
+    "summary": "Enter one day's total counter sales as a single entry.",
+    "purchase": "Record a supplier bill with items, GST and input tax credit.",
+    "purchasereturn": "Record goods returned to a supplier and raise a debit note.",
+    "payment": "Record money received from customers or paid to suppliers, by cash or bank.",
+    "journal": "Journal, contra and adjustment vouchers with free debit and credit lines.",
+    # Reports
+    "dashboard": "Sales, purchases, cash and outstanding on one screen.",
+    "reports_acct": "Ledgers, trial balance, cash book, day book, party statements and bank reconciliation.",
+    "reports_reg": "Bill-wise registers for sales, purchases and their returns.",
+    "reports_fin": "Balance Sheet, Trading & P&L, outstanding ageing and cash flow.",
+    "reports_stk": "Stock position, valuation and item-wise profit.",
+    "reports_gst": "Monthly GSTR-1 and GSTR-3B with JSON export for the GST portal.",
+    "ledger": "Every entry in one ledger, or a group summary, with a running balance.",
+    "trial": "Debit and credit balances of all ledgers, grouped by accounting head.",
+    "cashbook": "Cash and bank entries with a running balance.",
+    "daybook": "All vouchers between two dates. Open any voucher to edit or delete it.",
+    "partystatement": "Full statement for one party: opening, transactions and closing balance.",
+    "bankrecon": "Import a bank statement CSV and match it against your books.",
+    "salesreg": "Every sales bill in a period with GST split and payment status.",
+    "purchasereg": "Every purchase bill in a period with GST split and payment status.",
+    "salesreturnreg": "All credit notes issued to customers.",
+    "purchasereturnreg": "All debit notes raised on suppliers.",
+    "bs": "What the business owns and owes, as on any date.",
+    "pl": "Gross profit from the Trading Account carried to net profit in P&L.",
+    "outstanding": "Unpaid bills with ageing by bill date or due date.",
+    "cashflow": "Cash generated and used by operating, financing and investing activities.",
+    "stocksummary": "Opening, purchased, sold and closing quantity with stock value.",
+    "itemprofit": "Profit and margin per item on weighted-average cost.",
+    "gstr1": "Outward supplies by rate and invoice, ready for GSTR-1 filing.",
+    "gstr3b": "Output tax, input credit and the net GST payable for the month.",
+    # Utilities
+    "utilities_company": "Company details, data folder and switching between companies.",
+    "utilities_data": "Take a backup or reset all data.",
+    "utilities_import": "Bring data in from Tally or the MUNIM mobile app.",
+    "utilities_security": "Audit log, password and licence.",
+    "utilities_support": "Help, keyboard shortcuts and version information.",
+    "company": "Name, address, GSTIN, bank details and GST registration status.",
+    "datalocation": "Choose where MUNIM keeps its data files.",
+    "companies": "Create, rename or remove companies.",
+    "backup": "Save a copy of this company's data to a folder or USB drive.",
+    "reset": "Erase all entries for this company. Take a backup first.",
+    "tallyimport": "Import ledgers and vouchers exported from Tally.",
+    "mobileexport": "Create a config file to set up the MUNIM mobile app.",
+    "mobileimport": "Bring invoices made on the mobile app into your books.",
+    "audit": "Who created, edited or deleted each voucher, and when.",
+    "password": "Change your login password.",
+    "renew": "Enter a new licence key to extend your subscription.",
+    "help": "All keyboard shortcuts and how-to guides.",
+    "about": "Version, licence and support contact.",
+}
+
+
+class MenuPreview(ctk.CTkFrame):
+    """Right-hand panel on menu screens: what the highlighted option does,
+    what is inside it, and a few live figures."""
+
+    def __init__(self, master, facts=None):
+        super().__init__(master, fg_color=T.CARD, border_width=1,
+                         border_color=T.BORDER, corner_radius=12)
+        self.facts = facts
+        self._cache = {}
+        self._shown = None
+        ctk.CTkLabel(self, text="PREVIEW", font=T.f(10, "bold"),
+                     text_color=T.MUTED).pack(anchor="w", padx=24, pady=(18, 6))
+        self.title = ctk.CTkLabel(self, text="", font=T.f(20, "bold"),
+                                  text_color=T.TEXT, anchor="w", justify="left")
+        self.title.pack(anchor="w", padx=24)
+        self.desc = ctk.CTkLabel(self, text="", font=T.f(12), text_color=LABEL_TEXT,
+                                 anchor="w", justify="left", wraplength=440)
+        self.desc.pack(anchor="w", fill="x", padx=24, pady=(6, 10))
+        self.hint = ctk.CTkLabel(self, text="", font=T.f(11, "bold"),
+                                 text_color=T.ACCENT, fg_color=SEL_BG,
+                                 corner_radius=6, height=26)
+        self.hint.pack(anchor="w", padx=24, pady=(0, 14))
+        ctk.CTkFrame(self, fg_color=T.BORDER, height=1).pack(fill="x", padx=24)
+        self.body = ctk.CTkFrame(self, fg_color="transparent")
+        self.body.pack(fill="both", expand=True, padx=24, pady=(10, 18))
+        self.bind("<Configure>", self._rewrap)
+
+    def _rewrap(self, event):
+        try:
+            self.desc.configure(wraplength=max(240, event.width - 60))
+        except Exception:
+            pass
+
+    def show(self, item):
+        if self._shown is item:
+            return
+        self._shown = item
+        go = item.get("go")
+        target = (go[1] if len(go) > 1 else go[0]) if go else None
+        self.title.configure(text=item["label"])
+        if go is None:
+            self.desc.configure(text="This option arrives in a later release.")
+            self.hint.configure(text="  Coming soon  ")
+        else:
+            self.desc.configure(text=ITEM_INFO.get(target, "Open this option."))
+            self.hint.configure(text=f"  Press {item['key']} or Enter to open  ")
+
+        for w in self.body.winfo_children():
+            w.destroy()
+
+        sections = []
+        if go and go[0] == "menu" and target in MENUS:
+            sections.append(("INSIDE", [(c["label"], c["key"] if c["go"] else "Soon")
+                                        for c in MENUS[target][1]]))
+        if go and self.facts:
+            if target not in self._cache:
+                try:
+                    self._cache[target] = self.facts(target)
+                except Exception:
+                    self._cache[target] = None
+            if self._cache[target]:
+                sections.append(self._cache[target])
+
+        for title, rows in sections:
+            ctk.CTkLabel(self.body, text=title, font=T.f(10, "bold"),
+                         text_color=T.ACCENT).pack(anchor="w", pady=(6, 4))
+            if not rows:
+                ctk.CTkLabel(self.body, text="Nothing recorded yet.", font=T.f(12),
+                             text_color=T.MUTED).pack(anchor="w", pady=(0, 6))
+            for label, value in rows:
+                r = ctk.CTkFrame(self.body, fg_color="transparent", height=26)
+                r.pack(fill="x")
+                r.pack_propagate(False)
+                ctk.CTkLabel(r, text=str(label)[:46], font=T.f(12),
+                             text_color=T.TEXT, anchor="w").pack(side="left")
+                ctk.CTkLabel(r, text=str(value), font=T.f(12, "bold"),
+                             text_color=LABEL_TEXT, anchor="e").pack(side="right")
+
 
 class MenuView(ctk.CTkFrame):
-    """Gateway = workspace tiles. Every other menu = compact option list."""
+    """Gateway = workspace tiles. Other menus = compact list + Preview panel."""
 
     GATEWAY_COLS = 2
-    LIST_WIDTH = 620
+    LIST_WIDTH = 520
 
-    def __init__(self, master, title, items, on_pick, side=None, selected_index=0):
+    def __init__(self, master, title, items, on_pick, side=None, selected_index=0,
+                 facts=None):
         super().__init__(master, fg_color=T.BG)
         self.on_pick, self.sel, self.rows, self.chips = on_pick, 0, [], []
+        self.preview = None
         self.is_gateway = title.lower().startswith("gateway")
         if self.is_gateway:
             # Only real workspaces become tiles; Log out is a secondary action.
@@ -136,7 +282,7 @@ class MenuView(ctk.CTkFrame):
         if self.is_gateway:
             self._build_gateway(page, content, side)
         else:
-            self._build_list(content)
+            self._build_list(content, facts)
 
         if self.items:
             self.select(max(0, min(selected_index, len(self.items) - 1)))
@@ -212,10 +358,14 @@ class MenuView(ctk.CTkFrame):
                      hover_color="#DCE6F8", font=T.f(11, "bold")
                      ).pack(side="left", fill="x", expand=True, padx=4)
 
-    # ── Other menus: compact list, no side card ───────────────────────────
-    def _build_list(self, content):
+    # ── Other menus: compact list + preview ───────────────────────────────
+    def _build_list(self, content, facts):
+        content.grid_columnconfigure(0, weight=0)
+        content.grid_columnconfigure(1, weight=1)
+        content.grid_rowconfigure(0, weight=1)
+
         nav = T.card(content)
-        nav.pack(anchor="nw")
+        nav.grid(row=0, column=0, sticky="nw")
         ctk.CTkLabel(nav, text="AVAILABLE OPTIONS", font=T.f(10, "bold"),
                      text_color=T.MUTED).pack(anchor="w", padx=20, pady=(16, 8))
         if len(self.items) > 10:
@@ -247,6 +397,9 @@ class MenuView(ctk.CTkFrame):
                 w.bind("<Enter>", lambda _e, i=i: self.select(i))
             self.rows.append(row)
 
+        self.preview = MenuPreview(content, facts)
+        self.preview.grid(row=0, column=1, sticky="nsew", padx=(14, 0))
+
     # ── Selection & keys ──────────────────────────────────────────────────
     def select(self, i):
         if not self.rows:
@@ -262,6 +415,8 @@ class MenuView(ctk.CTkFrame):
             else:
                 row.configure(fg_color=SEL_BG if on else "transparent",
                               border_color="#C9D8F5" if on else T.CARD)
+        if self.preview is not None:
+            self.preview.show(self.items[i])
 
     def pick(self, i):
         self.select(i)
@@ -363,6 +518,7 @@ class Shell(ctk.CTkFrame):
         self.body.pack(fill="both", expand=True)
 
         self.top.bind("<Key>", self._on_key)
+        self.top.bind("<F2>", self._on_f2)
         self.top.bind("<Control-s>", self._on_save)
         self.top.bind("<Control-S>", self._on_save)
         self.top.bind("<Control-e>", self._on_export_excel)
@@ -390,6 +546,7 @@ class Shell(ctk.CTkFrame):
             pass
         try:
             self.top.unbind("<Key>")
+            self.top.unbind("<F2>")
             self.top.unbind("<Control-s>")
             self.top.unbind("<Control-S>")
             self.top.unbind("<Control-e>")
@@ -446,19 +603,17 @@ class Shell(ctk.CTkFrame):
             side = self._info_card if name == "gateway" else None
             self.current = MenuView(
                 self.body, title, items, self.pick, side,
-                selected_index=self._menu_selection.get(name, 0))
+                selected_index=self._menu_selection.get(name, 0),
+                facts=None if name == "gateway" else self._preview_facts)
             self.top.focus_set()
         else:
             try:
                 self.current = PAGES[name][1](self)
             except Exception:
+                # The ErrorPanel shows the details and the correct log path,
+                # so no extra popup is needed.
                 msg = logger.log_exception(*sys.exc_info())
                 self.current = ErrorPanel(self.body, msg)
-                messagebox.showerror(
-                    "MUNIM — Something went wrong",
-                    f"An error occurred opening this screen.\n\n"
-                    f"Details saved to:\n{errlog.log_path()}\n\n"
-                    f"Share this file with support if the problem continues.")
         self.current.pack(fill="both", expand=True)
         labels = ["Gateway"] + [
             MENUS[n][0] if k == "menu" else PAGES[n][0]
@@ -493,6 +648,108 @@ class Shell(ctk.CTkFrame):
         self._ledger_account = account_name
         self.push(("page", "ledger"))
 
+    # ── Menu preview figures ──────────────────────────────────────────────
+    def _cash_bank(self):
+        """Cash-in-hand and bank balances in paise, grouped by account group."""
+        try:
+            states, _prior_pl = s.account_states(
+                self.con, s.fy_of(date.today()), date_to=date.today())
+            cash = sum(x["bf"] + x["dr"] - x["cr"]
+                       for x in states if x["grp"] == "Cash-in-hand")
+            bank = sum(x["bf"] + x["dr"] - x["cr"]
+                       for x in states if x["grp"] == "Bank Accounts")
+            return cash, bank
+        except Exception:
+            return 0, 0
+
+    @staticmethod
+    def _bal(paise):
+        return f"Rs {inr(s.to_rupees(abs(paise)))} {'Dr' if paise >= 0 else 'Cr'}"
+
+    def _preview_facts(self, target):
+        """Return (section title, [(label, value)]) for the Preview panel, or None."""
+        con = self.con
+
+        def money(paise):
+            return f"Rs {inr(s.to_rupees(paise or 0))}"
+
+        vtypes = {"sales": "Sales", "salesreg": "Sales", "summary": "Sales",
+                  "salesreturn": "Sales Return", "salesreturnreg": "Sales Return",
+                  "purchase": "Purchase", "purchasereg": "Purchase",
+                  "purchasereturn": "Purchase Return",
+                  "purchasereturnreg": "Purchase Return"}
+        if target in vtypes:
+            vt = vtypes[target]
+            rows = con.execute(
+                """SELECT v.vdate, v.vno, COALESCE(i.party,'') AS party,
+                          COALESCE(i.total,0) AS total
+                   FROM vouchers v LEFT JOIN invoices i ON i.voucher_id=v.id
+                   WHERE v.vtype=? ORDER BY v.vdate DESC, v.id DESC LIMIT 6""",
+                (vt,)).fetchall()
+            return (f"RECENT {vt.upper()} ENTRIES",
+                    [(f"{disp_date(r['vdate'])}   #{r['vno']}   {r['party']}",
+                      money(r["total"])) for r in rows])
+
+        if target in ("payment", "journal", "daybook", "ledger", "cashbook", "audit"):
+            rows = con.execute(
+                "SELECT vdate, vtype, vno FROM vouchers "
+                "ORDER BY vdate DESC, id DESC LIMIT 6").fetchall()
+            return ("RECENT VOUCHERS",
+                    [(f"{disp_date(r['vdate'])}   {r['vtype']}", f"#{r['vno']}")
+                     for r in rows])
+
+        if target in ("party", "outstanding", "partystatement"):
+            receivable, payable = rep.receivable_payable(con)
+            n = con.execute("SELECT COUNT(*) FROM parties").fetchone()[0]
+            return ("AT A GLANCE", [("Parties", str(n)),
+                                    ("Customers owe you", f"Rs {inr(receivable)}"),
+                                    ("You owe suppliers", f"Rs {inr(payable)}")])
+
+        if target in ("accounts", "trial", "bs", "pl", "cashflow", "bankrecon",
+                      "reports_acct", "reports_fin"):
+            n = con.execute("SELECT COUNT(*) FROM accounts").fetchone()[0]
+            cash, bank = self._cash_bank()
+            return ("AT A GLANCE", [("Ledger accounts", str(n)),
+                                    ("Cash in hand", self._bal(cash)),
+                                    ("Bank balance", self._bal(bank))])
+
+        if target in ("stockitems", "stocksummary", "itemprofit", "reports_stk"):
+            items = s.stock_summary(con, s.fy_of(date.today()))
+            value = sum(it.get("stock_value", 0.0) for it in items)
+            out = sum(1 for it in items if (it.get("closing") or 0) <= 0)
+            return ("STOCK", [("Items", str(len(items))),
+                              ("Stock value", f"Rs {inr(value)}"),
+                              ("Out of stock", str(out))])
+
+        if target in ("gstr1", "gstr3b", "reports_gst", "dashboard", "reports_reg"):
+            start = date.today().replace(day=1).isoformat()
+            today = date.today().isoformat()
+
+            def total(vt):
+                return con.execute(
+                    """SELECT COALESCE(SUM(i.total),0) FROM invoices i
+                       JOIN vouchers v ON v.id=i.voucher_id
+                       WHERE v.vtype=? AND v.vdate BETWEEN ? AND ?""",
+                    (vt, start, today)).fetchone()[0]
+
+            return ("THIS MONTH", [("Sales", money(total("Sales"))),
+                                   ("Purchases", money(total("Purchase"))),
+                                   ("Sales returns", money(total("Sales Return")))])
+
+        if target in ("company", "datalocation", "companies", "backup", "reset",
+                      "password", "renew", "tallyimport", "mobileexport",
+                      "mobileimport", "help", "about", "utilities_company",
+                      "utilities_data", "utilities_import", "utilities_security",
+                      "utilities_support"):
+            st = settings.load_settings()
+            last = st.get("last_backup")
+            return ("COMPANY", [("Name", st.get("company_name") or "Not set"),
+                                ("Financial year", s.fy_of(date.today())),
+                                ("Last backup", disp_date(last) if last else "never"),
+                                ("Data folder", str(s.data_dir())[:40])])
+        return None
+
+    # ── Go To ─────────────────────────────────────────────────────────────
     def _goto_items(self):
         """Build searchable navigation destinations and current ledger accounts."""
         items = []
@@ -644,6 +901,61 @@ class Shell(ctk.CTkFrame):
         vid, self._edit_id = self._edit_id, None
         return vid
 
+    # ── F2: date / period ─────────────────────────────────────────────────
+    def _date_field(self, page=None):
+        """Find the screen's date or period-start entry, or None."""
+        page = self.current if page is None else page
+        if page is None or isinstance(page, (MenuView, ErrorPanel)):
+            return None
+        for attr in DATE_ATTRS:
+            w = getattr(page, attr, None)
+            if isinstance(w, ctk.CTkEntry):
+                return w
+        # Fallback: first entry that currently holds a DD-MM-YYYY value.
+        queue = [page]
+        while queue:
+            w = queue.pop(0)
+            try:
+                children = w.winfo_children()
+            except Exception:
+                continue
+            for c in children:
+                if isinstance(c, ctk.CTkEntry):
+                    try:
+                        if DATE_RE.match(c.get().strip()):
+                            return c
+                    except Exception:
+                        pass
+                queue.append(c)
+        return None
+
+    @staticmethod
+    def _has_range(page):
+        return (any(isinstance(getattr(page, a, None), ctk.CTkEntry) for a in ("_d1", "d1"))
+                and any(isinstance(getattr(page, a, None), ctk.CTkEntry) for a in ("_d2", "d2")))
+
+    def _on_f2(self, _event=None):
+        field = self._date_field()
+        if field is None:
+            self._flash("F2 · This screen has no date to change.")
+            return "break"
+        field.focus_set()
+        try:
+            field.select_range(0, "end")
+            field.icursor("end")
+        except Exception:
+            pass
+        # Make Enter apply the new date on screens that don't already do so.
+        refresh = getattr(self.current, "refresh", None)
+        try:
+            inner = field._entry
+            if callable(refresh) and not inner.bind("<Return>"):
+                inner.bind("<Return>", lambda _e: refresh())
+        except Exception:
+            pass
+        self._flash("F2 · Type the date as DD-MM-YYYY and press Enter.", 4000)
+        return "break"
+
     # ── Context-sensitive footer ──────────────────────────────────────────
     @staticmethod
     def _excel_action(page):
@@ -680,12 +992,17 @@ class Shell(ctk.CTkFrame):
             return SEP.join(parts)
 
         page, parts = self.current, []
+        has_date = self._date_field(page) is not None
         if callable(getattr(page, "save", None)):
             parts.append("Ctrl+S Save")
         if name in ENTRY_PAGES:
+            if has_date:
+                parts.append("F2 Date")
             if self._pdf_action(page):
                 parts.append("Ctrl+P Print")
         else:
+            if has_date:
+                parts.append("F2 Period" if self._has_range(page) else "F2 Date")
             if self._excel_action(page):
                 parts.append("Ctrl+E Export Excel")
             if self._pdf_action(page):
@@ -849,21 +1166,7 @@ class Shell(ctk.CTkFrame):
         except Exception:
             top_debtors = []
 
-        # Use the existing accounting engine's account states for liquidity.
-        # Values are stored in paise; aggregate by account group, not account
-        # name, so additional bank accounts are included automatically.
-        try:
-            states, _prior_pl = s.account_states(self.con, fy, date_to=date.today())
-            cash_paise = sum(x["bf"] + x["dr"] - x["cr"]
-                             for x in states if x["grp"] == "Cash-in-hand")
-            bank_paise = sum(x["bf"] + x["dr"] - x["cr"]
-                             for x in states if x["grp"] == "Bank Accounts")
-        except Exception:
-            cash_paise = bank_paise = 0
-
-        def balance_text(paise):
-            side = "Dr" if paise >= 0 else "Cr"
-            return f"Rs {inr(s.to_rupees(abs(paise)))} {side}"
+        cash_paise, bank_paise = self._cash_bank()
 
         # Keep the gateway summary inside the visible window. On shorter
         # displays the card scrolls internally instead of clipping its rounded
@@ -909,8 +1212,8 @@ class Shell(ctk.CTkFrame):
             "#B26A00" if payable else T.TEXT, bold=True)
 
         section("CASH & BANK")
-        row("Cash in hand", balance_text(cash_paise))
-        row("Bank balance", balance_text(bank_paise))
+        row("Cash in hand", self._bal(cash_paise))
+        row("Bank balance", self._bal(bank_paise))
 
         section("STOCK")
         row("Stock value", f"Rs {inr(stock_value)}")
