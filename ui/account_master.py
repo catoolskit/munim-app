@@ -19,6 +19,10 @@ class AccountMasterFrame(ctk.CTkFrame):
                 ).pack(anchor="w", padx=28, pady=(24, 12))
         card = T.card(self)
         card.pack(fill="x", padx=28)
+        for _c in range(4): card.grid_columnconfigure(_c, weight=1)
+        ctk.CTkLabel(card, text="ACCOUNT DETAILS", font=T.f(10, "bold"),
+                     text_color=T.MUTED).grid(row=0, column=0, columnspan=4,
+                                              sticky="w", padx=20, pady=(12, 0))
         self.name = T.entry(card, "e.g. Electricity", width=260)
         self.group = T.option_menu(card, [g for g, _n in s.ACCOUNT_GROUPS], width=230,
                                    command=lambda _v: self._side_default())
@@ -28,10 +32,10 @@ class AccountMasterFrame(ctk.CTkFrame):
         for c, (h, w) in enumerate((("Account name *", self.name), ("Group", self.group),
                                     ("Opening balance (Rs)", self.opening), ("Dr / Cr", self.side))):
             ctk.CTkLabel(card, text=h, font=T.f(12), text_color=T.MUTED).grid(
-                row=0, column=c, sticky="w", padx=(20 if c == 0 else 8, 8), pady=(14, 2))
-            w.grid(row=1, column=c, padx=(20 if c == 0 else 8, 8), pady=(0, 14))
+                row=1, column=c, sticky="w", padx=(20 if c == 0 else 8, 8), pady=(10, 2))
+            w.grid(row=2, column=c, padx=(20 if c == 0 else 8, 8), pady=(0, 10))
         bar = ctk.CTkFrame(card, fg_color="transparent")
-        bar.grid(row=2, column=0, columnspan=4, sticky="ew", padx=20, pady=(0, 16))
+        bar.grid(row=3, column=0, columnspan=4, sticky="ew", padx=20, pady=(0, 14))
         T.button(bar, "Save account", self.save, width=150).pack(side="left")
         T.button(bar, "Delete selected", self.delete, width=140, fg_color=T.DANGER,
                  hover_color="#A32F23").pack(side="left", padx=10)

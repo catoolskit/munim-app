@@ -18,6 +18,9 @@ class PartyFrame(ctk.CTkFrame):
 
         form = T.card(self)
         form.pack(fill="x", padx=28)
+        ctk.CTkLabel(form, text="PARTY DETAILS", font=T.f(10, "bold"),
+                     text_color=T.MUTED).grid(row=0, column=0, columnspan=3,
+                                              sticky="w", padx=18, pady=(12, 0))
         for c in range(3):
             form.grid_columnconfigure(c, weight=1, uniform="col")
         self.name    = T.entry(form, "e.g. Ram Traders")
@@ -39,12 +42,12 @@ class PartyFrame(ctk.CTkFrame):
                 label, w = spec
                 ctk.CTkLabel(form, text=label, font=T.f(12),
                              text_color=T.MUTED).grid(
-                    row=r * 2, column=c, sticky="w",
-                    padx=(18, 9), pady=(14, 2))
-                w.grid(row=r * 2 + 1, column=c, sticky="ew",
+                    row=r * 2 + 1, column=c, sticky="w",
+                    padx=(18, 9), pady=(10, 2))
+                w.grid(row=r * 2 + 2, column=c, sticky="ew",
                        padx=(18 if c == 0 else 9, 18 if c == 2 else 9))
         bar = ctk.CTkFrame(form, fg_color="transparent")
-        bar.grid(row=6, column=0, columnspan=3, sticky="ew", padx=18, pady=16)
+        bar.grid(row=7, column=0, columnspan=3, sticky="ew", padx=18, pady=(10, 14))
         T.button(bar, "Save party", self.save, width=150).pack(side="left")
         self.msg = ctk.CTkLabel(bar, text="", font=T.f(13))
         self.msg.pack(side="left", padx=16)
@@ -55,8 +58,11 @@ class PartyFrame(ctk.CTkFrame):
                      text_color=T.TEXT).pack(side="left")
         ctk.CTkLabel(top, text="(double-click a party to edit)", font=T.f(11),
                      text_color=T.MUTED).pack(side="left", padx=10)
-        self.count = ctk.CTkLabel(top, text="", font=T.f(12), text_color=T.MUTED)
+        self.count = ctk.CTkLabel(top, text="", font=T.f(11), text_color=T.MUTED)
         self.count.pack(side="left", padx=10)
+        self.search = T.entry(top, "Search name, GSTIN, phone or address…", width=280, height=34)
+        self.search.pack(side="right", padx=(8, 0))
+        self.search.bind("<KeyRelease>", lambda _e: self.refresh())
         self.filter = ctk.CTkSegmentedButton(
             top, values=["All", "Customer", "Supplier"],
             command=lambda _v: self.refresh(),
@@ -127,6 +133,9 @@ class PartyFrame(ctk.CTkFrame):
         self.tree.delete(*self.tree.get_children())
         f = self.filter.get()
         rows = s.list_parties(self.con, None if f == "All" else f)
+        query = self.search.get().strip().casefold() if hasattr(self, "search") else ""
+        if query:
+            rows = [p for p in rows if query in " ".join(str(p[k] or "") for k in ("name", "gstin", "phone", "address", "ptype")).casefold()]
         for i, p in enumerate(rows):
             amt = (f"{s.to_rupees(p['opening']):,.2f} {p['opening_side']}"
                    if p["opening"] else "-")

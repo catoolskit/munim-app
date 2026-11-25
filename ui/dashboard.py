@@ -27,25 +27,40 @@ def _bar(parent, value, max_val, color, height=18, width=220):
 
 
 class DashboardFrame(ctk.CTkFrame):
-    def __init__(self, master, con):
+    def __init__(self, master, con, shell=None):
         super().__init__(master, fg_color="transparent")
         self.con = con
+        self.shell = shell
 
-        T.title(self, "Dashboard",
-                "Business snapshot for the current financial year."
-                ).pack(anchor="w", padx=28, pady=(24, 12))
+        # Redesigned dashboard header: clear reporting scope, quick actions,
+        # and a more task-oriented dashboard rather than a passive chart page.
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.pack(fill="x", padx=28, pady=(18, 8))
+        titlebox = ctk.CTkFrame(header, fg_color="transparent")
+        titlebox.pack(side="left", fill="x", expand=True)
+        ctk.CTkLabel(titlebox, text="Business Dashboard", font=T.f(25, "bold"),
+                     text_color=T.TEXT).pack(anchor="w")
+        ctk.CTkLabel(titlebox,
+                     text="Financial snapshot · sales, purchases, receivables and stock",
+                     font=T.f(12), text_color=T.MUTED).pack(anchor="w", pady=(3, 0))
+        ctk.CTkLabel(header, text="MANAGEMENT OVERVIEW", font=T.f(10, "bold"),
+                     text_color=T.ACCENT, fg_color="#EAF0FC",
+                     corner_radius=8, padx=12, pady=8).pack(side="right", padx=(12, 0))
 
         fy_opts = s.fy_choices(con)
         self.fy = s.fy_of(date.today())
 
-        head = ctk.CTkFrame(self, fg_color="transparent")
-        head.pack(fill="x", padx=28, pady=(0, 12))
+        head = ctk.CTkFrame(self, fg_color="#FFFFFF", corner_radius=12,
+                            border_width=1, border_color=T.BORDER)
+        head.pack(fill="x", padx=28, pady=(0, 10))
+        ctk.CTkLabel(head, text="REPORTING PERIOD", font=T.f(10, "bold"),
+                     text_color=T.MUTED).pack(side="left", padx=16, pady=10)
         ctk.CTkLabel(head, text="Financial year:", font=T.f(12),
-                     text_color=T.MUTED).pack(side="right", padx=(0, 8))
+                     text_color=T.MUTED).pack(side="right", padx=(0, 8), pady=8)
         fy_menu = T.option_menu(head, fy_opts, width=120,
                                 command=lambda v: self._on_fy(v))
         fy_menu.set(self.fy)
-        fy_menu.pack(side="right")
+        fy_menu.pack(side="right", padx=(0, 14), pady=8)
 
         self.body = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self.body.pack(fill="both", expand=True, padx=20, pady=(0, 16))
@@ -59,6 +74,28 @@ class DashboardFrame(ctk.CTkFrame):
 
     def _build(self):
         con, fy = self.con, self.fy
+
+        # ── Quick actions ─────────────────────────────────────────────────────
+        quick = T.card(self.body, border_color=T.BORDER)
+        quick.pack(fill="x", padx=8, pady=(0, 12))
+        qhead = ctk.CTkFrame(quick, fg_color="transparent")
+        qhead.pack(fill="x", padx=16, pady=(10, 6))
+        ctk.CTkLabel(qhead, text="QUICK ACTIONS", font=T.f(10, "bold"),
+                     text_color=T.MUTED).pack(side="left")
+        ctk.CTkLabel(qhead, text="Create, review or navigate without returning to Gateway",
+                     font=T.f(10), text_color=T.MUTED).pack(side="right")
+        qrow = ctk.CTkFrame(quick, fg_color="transparent")
+        qrow.pack(fill="x", padx=12, pady=(0, 12))
+        actions = [("＋  Sales Invoice", "sales"), ("＋  Purchase Bill", "purchase"),
+                   ("▤  Ledger View", "ledger"), ("▦  Day Book", "daybook")]
+        for label, target in actions:
+            if self.shell is not None:
+                command = lambda target=target: self.shell.push(("page", target))
+            else:
+                command = lambda: None
+            T.button(qrow, label, command, height=34, fg_color="#EAF0FC",
+                     text_color=T.TEXT, hover_color="#DCE6F8",
+                     font=T.f(11, "bold")).pack(side="left", fill="x", expand=True, padx=4)
 
         # ── KPI cards ─────────────────────────────────────────────────────────
         kpi_row = ctk.CTkFrame(self.body, fg_color="transparent")
@@ -90,19 +127,22 @@ class DashboardFrame(ctk.CTkFrame):
             ("You owe suppliers",  inr(payable),     T.DANGER if payable else T.TEXT),
         ]
         for i, (label, value, color) in enumerate(kpis):
-            card = T.card(kpi_row)
+            card = T.card(kpi_row, border_color="#D9E3F4")
             card.grid(row=0, column=i, padx=6, pady=4, sticky="nsew")
-            ctk.CTkLabel(card, text=label, font=T.f(11),
-                         text_color=T.MUTED).pack(anchor="w", padx=16, pady=(14, 2))
-            ctk.CTkLabel(card, text=f"Rs {value}", font=T.f(16, "bold"),
+            ctk.CTkFrame(card, fg_color=color, height=4, corner_radius=2).pack(fill="x", padx=12, pady=(10, 8))
+            ctk.CTkLabel(card, text=label.upper(), font=T.f(10, "bold"),
+                         text_color=T.MUTED).pack(anchor="w", padx=16, pady=(0, 4))
+            ctk.CTkLabel(card, text=f"₹ {value}", font=T.f(18, "bold"),
                          text_color=color).pack(anchor="w", padx=16, pady=(0, 14))
 
         # ── Monthly sales vs purchases ─────────────────────────────────────────
         chart_card = T.card(self.body)
         chart_card.pack(fill="x", padx=8, pady=(0, 12))
-        ctk.CTkLabel(chart_card, text="Monthly Sales vs Purchases",
-                     font=T.f(14, "bold"), text_color=T.TEXT).pack(
-            anchor="w", padx=20, pady=(16, 12))
+        ctk.CTkLabel(chart_card, text="Sales & Purchase Trend",
+                     font=T.f(16, "bold"), text_color=T.TEXT).pack(
+            anchor="w", padx=20, pady=(16, 3))
+        ctk.CTkLabel(chart_card, text="Month-by-month comparison for the selected financial year",
+                     font=T.f(11), text_color=T.MUTED).pack(anchor="w", padx=20, pady=(0, 10))
 
         monthly = self._monthly_data(fy)
         max_val  = max((max(sv, pv) for sv, pv in monthly.values()), default=1) or 1
@@ -141,7 +181,7 @@ class DashboardFrame(ctk.CTkFrame):
         cust_card = T.card(row3)
         cust_card.grid(row=0, column=0, padx=(0, 6), sticky="nsew")
         ctk.CTkLabel(cust_card, text="Top 5 Customers by Revenue",
-                     font=T.f(14, "bold"), text_color=T.TEXT).pack(
+                     font=T.f(15, "bold"), text_color=T.TEXT).pack(
             anchor="w", padx=20, pady=(16, 10))
 
         top_customers = self._top_customers(fy)
@@ -165,7 +205,7 @@ class DashboardFrame(ctk.CTkFrame):
         gst_card = T.card(row3)
         gst_card.grid(row=0, column=1, padx=(6, 0), sticky="nsew")
         ctk.CTkLabel(gst_card, text="Monthly GST Payable",
-                     font=T.f(14, "bold"), text_color=T.TEXT).pack(
+                     font=T.f(15, "bold"), text_color=T.TEXT).pack(
             anchor="w", padx=20, pady=(16, 10))
 
         gst_data = self._gst_trend(fy)
@@ -193,7 +233,7 @@ class DashboardFrame(ctk.CTkFrame):
         stk_card = T.card(self.body)
         stk_card.pack(fill="x", padx=8, pady=(0, 16))
         ctk.CTkLabel(stk_card, text="Stock Value Summary",
-                     font=T.f(14, "bold"), text_color=T.TEXT).pack(
+                     font=T.f(15, "bold"), text_color=T.TEXT).pack(
             anchor="w", padx=20, pady=(16, 10))
 
         try:

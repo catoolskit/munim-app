@@ -66,7 +66,7 @@ PAGES = {
     "daybook":        ("Day Book",            lambda sh: DayBookFrame(sh.body, sh.con, sh.open_voucher)),
     "pl":             ("Trading & P&L",       lambda sh: ProfitLossFrame(sh.body, sh.con)),
     "bs":             ("Balance Sheet",       lambda sh: BalanceSheetFrame(sh.body, sh.con)),
-    "dashboard":      ("Dashboard",           lambda sh: __import__('ui.dashboard', fromlist=['DashboardFrame']).DashboardFrame(sh.body, sh.con)),
+    "dashboard":      ("Dashboard",           lambda sh: __import__('ui.dashboard', fromlist=['DashboardFrame']).DashboardFrame(sh.body, sh.con, sh)),
     "cashflow":       ("Cash Flow",           lambda sh: CashFlowFrame(sh.body, sh.con)),
     "partystatement": ("Party Statement",     lambda sh: PartyStatementFrame(sh.body, sh.con)),
     "bankrecon":      ("Bank Reconciliation", lambda sh: BankReconFrame(sh.body, sh.con)),
@@ -75,68 +75,127 @@ PAGES = {
     "mobileimport": ("Import Mobile Invoices", lambda sh: __import__('ui.utilities', fromlist=['MobileImportFrame']).MobileImportFrame(sh.body, sh.con)),
 }
 
-SEL_BG, HINT = "#EAF0FC", "↑ ↓ Navigate    Enter Open    Alt+G Go To    Alt+H Home    Alt+1 Help    Esc Back"
+SEL_BG, HINT = "#EAF0FC", "↑ ↓ Navigate    Enter Open    Alt+G Go To    Alt+H Home    Alt+1 Help    Ctrl+S Save    Ctrl+E Excel    Ctrl+Shift+P PDF/Print    Esc Back"
 
 
 class MenuView(ctk.CTkFrame):
+    """Professional Classic navigation workspace; preserves original menu routing."""
     def __init__(self, master, title, items, on_pick, side=None, selected_index=0):
         super().__init__(master, fg_color="transparent")
         self.items, self.on_pick, self.sel, self.rows = items, on_pick, 0, []
-        wrap = ctk.CTkFrame(self, fg_color="transparent")
-        wrap.place(relx=0.5, rely=0.50, anchor="center")
-        if side:
-            side(wrap).pack(side="left", padx=10, pady=10, anchor="center")
-        card = T.card(wrap, width=400)
-        card.pack(side="left", padx=10, pady=10, anchor="center")
-        ctk.CTkLabel(card, text=title.upper(), font=T.f(11, "bold"),
-                     text_color=T.MUTED).pack(anchor="w", padx=24, pady=(16, 6))
-        for i, it in enumerate(items):
-            on = it["go"] is not None
-            row = ctk.CTkFrame(card, fg_color="transparent",
-                               corner_radius=8, height=42, width=352)
-            row.pack(padx=16, pady=(2, 8) if i == len(items) - 1 else 2)
-            row.pack_propagate(False)
-            lbl = ctk.CTkLabel(row, text=it["label"], font=T.f(15), anchor="w",
-                               text_color=T.TEXT if on else "#A3ACBF")
-            lbl.pack(side="left", padx=14)
-            chip = ctk.CTkLabel(row,
-                                text=it["key"] if on else "soon",
-                                font=T.f(11, "bold"),
-                                text_color=T.ACCENT if on else "#9AA5B8",
-                                fg_color=SEL_BG if on else "transparent",
-                                corner_radius=6,
-                                width=34 if on else 40, height=22)
-            chip.pack(side="right", padx=12)
-            for w in (row, lbl, chip):
-                w.bind("<Button-1>", lambda _e, i=i: self.pick(i))
-                w.bind("<Motion>",   lambda _e, i=i: self.select(i))
-            self.rows.append(row)
-        self.select(max(0, min(selected_index, len(self.items) - 1)))
+        self.is_gateway = title.lower().startswith("gateway")
+        self.configure(fg_color=T.BG)
+        page = ctk.CTkFrame(self, fg_color="transparent")
+        page.pack(fill="both", expand=True, padx=26, pady=(22, 18))
+        heading = ctk.CTkFrame(page, fg_color="transparent")
+        heading.pack(fill="x", pady=(0, 14))
+        ctk.CTkLabel(heading, text=("Welcome to MUNIM" if self.is_gateway else title),
+                     font=T.f(25, "bold"), text_color=T.TEXT).pack(anchor="w")
+        ctk.CTkLabel(heading,
+                     text=("Choose a work area or jump directly into a common task."
+                           if self.is_gateway else "Select an option to continue. Use ↑ ↓ and Enter to navigate."),
+                     font=T.f(12), text_color=T.MUTED).pack(anchor="w", pady=(3, 0))
 
-    def select(self, i):
-        self.sel = i
-        for n, r in enumerate(self.rows):
-            r.configure(fg_color=SEL_BG if n == i else "transparent",
-                        border_width=1 if n == i else 0,
-                        border_color="#D7E3F8" if n == i else SEL_BG)
+        content = ctk.CTkFrame(page, fg_color="transparent")
+        content.pack(fill="both", expand=True)
+        if self.is_gateway:
+            content.grid_columnconfigure(0, weight=1, uniform="gateway")
+            content.grid_columnconfigure(1, weight=0)
+            content.grid_rowconfigure(0, weight=1)
+            nav = T.card(content)
+            nav.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
+            ctk.CTkLabel(nav, text="WORKSPACES", font=T.f(10, "bold"),
+                         text_color=T.MUTED).pack(anchor="w", padx=22, pady=(18, 12))
+            grid = ctk.CTkFrame(nav, fg_color="transparent")
+            grid.pack(fill="both", expand=True, padx=14, pady=(0, 12))
+            for col in range(2): grid.grid_columnconfigure(col, weight=1, uniform="tiles")
+            for row in range(2): grid.grid_rowconfigure(row, weight=1, uniform="tiles")
+            descs={"Masters":"Customers, suppliers and stock", "Transactions":"Sales, purchases and vouchers",
+                   "Reports":"Ledgers, statements and financials", "Utilities":"Company, data and security"}
+            symbols={"Masters":"01", "Transactions":"02", "Reports":"03", "Utilities":"04"}
+            for i,it in enumerate(items):
+                tile=ctk.CTkFrame(grid, fg_color="#F8FAFD", border_width=1,
+                                  border_color=T.BORDER, corner_radius=12, height=128)
+                tile.grid(row=i//2,column=i%2,sticky="nsew",padx=6,pady=6)
+                tile.grid_propagate(False)
+                cap=ctk.CTkLabel(tile,text=symbols.get(it['label'],it['key']),
+                    font=T.f(10,"bold"),text_color=T.ACCENT,fg_color="#EAF0FC",corner_radius=6,width=34,height=24)
+                cap.pack(anchor="w",padx=16,pady=(14,7))
+                lbl=ctk.CTkLabel(tile,text=it['label'],font=T.f(16,"bold"),text_color=T.TEXT,anchor="w")
+                lbl.pack(anchor="w",padx=16)
+                sub=ctk.CTkLabel(tile,text=descs.get(it['label'],"Open workspace"),font=T.f(11),text_color=T.MUTED,anchor="w")
+                sub.pack(anchor="w",padx=16,pady=(3,0))
+                for w in (tile,cap,lbl,sub):
+                    w.bind("<Button-1>",lambda _e,i=i:self.pick(i))
+                    w.bind("<Enter>",lambda _e,i=i:self.select(i))
+                self.rows.append(tile)
+            if side:
+                side(content).grid(row=0,column=1,sticky="ns")
+            # Common routes are direct, explicit shortcuts without changing the menu tree.
+            quick=T.card(page)
+            quick.pack(fill="x",pady=(12,0))
+            ctk.CTkLabel(quick,text="QUICK ACTIONS",font=T.f(10,"bold"),text_color=T.MUTED).pack(anchor="w",padx=18,pady=(10,7))
+            actions=ctk.CTkFrame(quick,fg_color="transparent")
+            actions.pack(fill="x",padx=14,pady=(0,12))
+            for label,key,target in [("＋  Sales Invoice","S","sales"),("＋  Purchase Bill","P","purchase"),("▤  Ledger View","L","ledger"),("▦  Dashboard","D","dashboard")]:
+                T.button(actions,label,lambda target=target:on_pick({"go":("page",target),"label":label,"key":key}),
+                         height=34,fg_color="#EAF0FC",text_color=T.TEXT,hover_color="#DCE6F8",
+                         font=T.f(11,"bold")).pack(side="left",fill="x",expand=True,padx=4)
+        else:
+            content.grid_columnconfigure(0,weight=3,uniform="menu")
+            content.grid_columnconfigure(1,weight=2,uniform="menu")
+            content.grid_rowconfigure(0,weight=1)
+            nav=T.card(content); nav.grid(row=0,column=0,sticky="nsew",padx=(0,12))
+            ctk.CTkLabel(nav,text="AVAILABLE OPTIONS",font=T.f(10,"bold"),text_color=T.MUTED).pack(anchor="w",padx=20,pady=(16,10))
+            listing=ctk.CTkScrollableFrame(nav,fg_color="transparent")
+            listing.pack(fill="both",expand=True,padx=10,pady=(0,10))
+            for i,it in enumerate(items):
+                enabled=it["go"] is not None
+                row=ctk.CTkFrame(listing,fg_color="transparent",corner_radius=8,height=44)
+                row.pack(fill="x",pady=2); row.pack_propagate(False)
+                lbl=ctk.CTkLabel(row,text=it["label"],font=T.f(13,"bold" if enabled else "normal"),
+                                 text_color=T.TEXT if enabled else "#A3ACBF",anchor="w")
+                lbl.pack(side="left",fill="x",expand=True,padx=12)
+                chip=ctk.CTkLabel(row,text=it["key"] if enabled else "Soon",font=T.f(10,"bold"),
+                    text_color=T.ACCENT if enabled else T.MUTED,fg_color="#EAF0FC" if enabled else "transparent",
+                    corner_radius=5,width=30,height=22)
+                chip.pack(side="right",padx=10)
+                for w in (row,lbl,chip):
+                    w.bind("<Button-1>",lambda _e,i=i:self.pick(i))
+                    w.bind("<Enter>",lambda _e,i=i:self.select(i))
+                self.rows.append(row)
+            info=T.card(content); info.grid(row=0,column=1,sticky="nsew")
+            ctk.CTkLabel(info,text="NAVIGATION",font=T.f(10,"bold"),text_color=T.MUTED).pack(anchor="w",padx=18,pady=(18,8))
+            for shortcut,meaning in [("↑ / ↓ / Enter","Navigate and open"),("Alt + G","Find any screen or ledger"),("Alt + H","Return to Gateway"),("Alt + 1","Open Help"),("Ctrl + S","Save current entry"),("Ctrl + E","Export Excel"),("Ctrl+Shift+P","Print / Export PDF"),("Esc","Go back")]:
+                line=ctk.CTkFrame(info,fg_color="transparent");line.pack(fill="x",padx=16,pady=4)
+                ctk.CTkLabel(line,text=shortcut,font=T.f(11,"bold"),text_color=T.ACCENT,
+                             fg_color="#EAF0FC",corner_radius=5,width=100,height=24).pack(side="left")
+                ctk.CTkLabel(line,text=meaning,font=T.f(11),text_color=T.TEXT,anchor="w").pack(side="left",padx=9)
+            ctk.CTkLabel(info,text="MUNIM  ·  Offline Accounting",font=T.f(11),text_color=T.MUTED).pack(anchor="w",padx=18,pady=(16,8))
+        self.select(max(0,min(selected_index,len(self.items)-1)))
 
-    def pick(self, i):
-        self.select(i)
-        self.on_pick(self.items[i])
+    def select(self,i):
+        self.sel=i
+        for n,row in enumerate(self.rows):
+            if self.is_gateway:
+                row.configure(border_color=T.ACCENT if n==i else T.BORDER,
+                              fg_color="#F0F5FF" if n==i else "#F8FAFD")
+            else:
+                row.configure(fg_color="#EAF0FC" if n==i else "transparent",
+                              border_width=1 if n==i else 0,
+                              border_color="#D7E3F8" if n==i else T.BG)
 
-    def handle(self, event):
-        k = event.keysym
-        if k == "Down":
-            self.select((self.sel + 1) % len(self.items))
-        elif k == "Up":
-            self.select((self.sel - 1) % len(self.items))
-        elif k in ("Return", "KP_Enter"):
-            self.pick(self.sel)
-        elif len(k) == 1:
-            for i, it in enumerate(self.items):
-                if it["key"].lower() == k.lower():
-                    self.pick(i)
-                    break
+    def pick(self,i):
+        self.select(i); self.on_pick(self.items[i])
+
+    def handle(self,event):
+        k=event.keysym
+        if k=="Down": self.select((self.sel+1)%len(self.items))
+        elif k=="Up": self.select((self.sel-1)%len(self.items))
+        elif k in ("Return","KP_Enter"): self.pick(self.sel)
+        elif len(k)==1:
+            for i,it in enumerate(self.items):
+                if it["key"].lower()==k.lower(): self.pick(i); break
 
 
 class Shell(ctk.CTkFrame):
@@ -183,6 +242,12 @@ class Shell(ctk.CTkFrame):
         self.top.bind("<Key>",       self._on_key)
         self.top.bind("<Control-s>", self._on_save)
         self.top.bind("<Control-S>", self._on_save)
+        self.top.bind("<Control-e>", self._on_export_excel)
+        self.top.bind("<Control-E>", self._on_export_excel)
+        self.top.bind("<Control-p>", self._on_print_pdf)
+        self.top.bind("<Control-P>", self._on_print_pdf)
+        self.top.bind("<Control-Shift-p>", self._on_print_pdf)
+        self.top.bind("<Control-Shift-P>", self._on_print_pdf)
         # One global Alt handler avoids duplicate/conflicting bindings.
         self.top.bind("<Alt-Key>", self._on_alt_key)
         self.refresh_company()
@@ -197,6 +262,12 @@ class Shell(ctk.CTkFrame):
             self.top.unbind("<Key>")
             self.top.unbind("<Control-s>")
             self.top.unbind("<Control-S>")
+            self.top.unbind("<Control-e>")
+            self.top.unbind("<Control-E>")
+            self.top.unbind("<Control-p>")
+            self.top.unbind("<Control-P>")
+            self.top.unbind("<Control-Shift-p>")
+            self.top.unbind("<Control-Shift-P>")
             self.top.unbind("<Alt-Key>")
         except Exception:
             pass
@@ -446,6 +517,48 @@ class Shell(ctk.CTkFrame):
         save = getattr(self.current, "save", None)
         if callable(save):
             save()
+        else:
+            self.status.configure(text="Ctrl+S  ·  This screen has no direct Save action.")
+        return "break"
+
+    def _on_export_excel(self, _event=None):
+        try:
+            focused = self.top.focus_get()
+        except Exception:
+            focused = None
+        if is_text_input_widget(focused):
+            return None
+        page = self.current
+        # Standard reports expose export(); specialized reports may expose
+        # _export_excel(). Prefer the public/common export method.
+        action = getattr(page, "_export_excel", None)
+        if not callable(action):
+            action = getattr(page, "export", None)
+        if callable(action):
+            action()
+        else:
+            self.status.configure(text="Ctrl+E  ·  Excel export is not available on this screen.")
+        return "break"
+
+    def _on_print_pdf(self, _event=None):
+        try:
+            focused = self.top.focus_get()
+        except Exception:
+            focused = None
+        if is_text_input_widget(focused):
+            return None
+        page = self.current
+        # Ctrl+P and Ctrl+Shift+P run the screen's existing PDF/print handler;
+        # they do not create a new accounting or document-generation path.
+        action = getattr(page, "_export_pdf", None)
+        if not callable(action):
+            action = getattr(page, "_save_pdf", None)
+        if not callable(action):
+            action = getattr(page, "print_report", None)
+        if callable(action):
+            action()
+        else:
+            self.status.configure(text="Ctrl+P  ·  Print/PDF is not available on this screen.")
         return "break"
 
     def _on_alt_key(self, event):

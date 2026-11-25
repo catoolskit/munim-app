@@ -41,17 +41,20 @@ class StockItemsFrame(ctk.CTkFrame):
             w.destroy()
         g = self.card
         g.grid_columnconfigure((0, 1, 2, 3, 4, 5), weight=0)
+        ctk.CTkLabel(g, text="ITEM DETAILS", font=T.f(10, "bold"),
+                     text_color=T.MUTED).grid(row=0, column=0, columnspan=6,
+                                              sticky="w", padx=20, pady=(12, 0))
 
         def lbl(text, row, col):
             ctk.CTkLabel(g, text=text, font=T.f(12), text_color=T.MUTED).grid(
                 row=row, column=col, sticky="w", padx=(20 if col == 0 else 8, 8), pady=(12, 2))
 
-        lbl("Item Name *", 0, 0)
-        lbl("HSN / SAC", 0, 1)
-        lbl("Unit", 0, 2)
-        lbl("GST %", 0, 3)
-        lbl("Opening Qty", 0, 4)
-        lbl("Opening Rate", 0, 5)
+        lbl("Item Name *", 1, 0)
+        lbl("HSN / SAC", 1, 1)
+        lbl("Unit", 1, 2)
+        lbl("GST %", 1, 3)
+        lbl("Opening Qty", 1, 4)
+        lbl("Opening Rate", 1, 5)
 
         self.f_name = T.entry(g, width=230)
         self.f_hsn = T.entry(g, width=110)
@@ -62,20 +65,20 @@ class StockItemsFrame(ctk.CTkFrame):
         self.f_qty = T.entry(g, "0", width=105)
         self.f_rate = T.entry(g, "0", width=120)
 
-        self.f_name.grid(row=1, column=0, padx=(20, 8), pady=(0, 4))
-        self.f_hsn.grid(row=1, column=1, padx=8, pady=(0, 4))
-        self.f_unit.grid(row=1, column=2, padx=8, pady=(0, 4))
-        self.f_gst.grid(row=1, column=3, padx=8, pady=(0, 4))
-        self.f_qty.grid(row=1, column=4, padx=8, pady=(0, 4))
-        self.f_rate.grid(row=1, column=5, padx=8, pady=(0, 4))
+        self.f_name.grid(row=2, column=0, padx=(20, 8), pady=(0, 4))
+        self.f_hsn.grid(row=2, column=1, padx=8, pady=(0, 4))
+        self.f_unit.grid(row=2, column=2, padx=8, pady=(0, 4))
+        self.f_gst.grid(row=2, column=3, padx=8, pady=(0, 4))
+        self.f_qty.grid(row=2, column=4, padx=8, pady=(0, 4))
+        self.f_rate.grid(row=2, column=5, padx=8, pady=(0, 4))
 
         ctk.CTkLabel(g, text="Opening Rate = the cost price you value your existing stock at. "
                              "Leave 0 if you don't know it.",
                      font=T.f(11), text_color=T.MUTED).grid(
-            row=2, column=0, columnspan=6, sticky="w", padx=20, pady=(2, 0))
+            row=3, column=0, columnspan=6, sticky="w", padx=20, pady=(2, 0))
 
         bar = ctk.CTkFrame(g, fg_color="transparent")
-        bar.grid(row=3, column=0, columnspan=6, sticky="w", padx=20, pady=(8, 14))
+        bar.grid(row=4, column=0, columnspan=6, sticky="w", padx=20, pady=(8, 14))
         self.save_btn = T.button(bar, "Add Item", self._save, width=120)
         self.save_btn.pack(side="left")
         self.cancel_btn = T.button(bar, "Cancel", self._cancel, width=90,

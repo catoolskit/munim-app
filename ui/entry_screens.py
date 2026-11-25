@@ -28,14 +28,14 @@ class EntryBase(ctk.CTkFrame):
         self._last_pdf_path = ""
 
     def _make_msg(self, foot):
-        self.msg       = ctk.CTkLabel(foot, text="", font=T.f(13))
-        self.msg.pack(side="left", padx=16)
+        self.msg       = ctk.CTkLabel(foot, text="", font=T.f(12))
+        self.msg.pack(side="left", padx=8)
         self.view_btn  = T.button(foot, "View",     self._view,
-                                  width=70, height=30, **GHOST)
+                                  width=74, height=32, **GHOST)
         self.pdf_btn   = T.button(foot, "Save PDF", self._save_pdf,
-                                  width=90, height=30, **GHOST)
+                                  width=88, height=32, **GHOST)
         self.share_btn = T.button(foot, "Share",    self._share,
-                                  width=70, height=30, **GHOST)
+                                  width=74, height=32, **GHOST)
 
     def ok(self, text, vtype=None, vno=None, vdate=None):
         self.msg.configure(text=text, text_color=T.OK)
@@ -206,8 +206,8 @@ class JournalFrame(EntryBase):
         self.total = ctk.CTkLabel(bar, text="", font=T.f(13, "bold"))
         self.total.pack(side="right")
 
-        foot = ctk.CTkFrame(self, fg_color="transparent")
-        foot.pack(fill="x", padx=28)
+        foot = T.card(self)
+        foot.pack(fill="x", padx=28, pady=(0, 18))
         T.button(foot, "Update voucher" if edit_id else "Save voucher",
                  self.save, width=170).pack(side="left")
         self._make_msg(foot)
@@ -345,11 +345,16 @@ class TradeFrame(EntryBase):
         self._stock_map   = self._load_stock_map()
         self._stock_names = list(self._stock_map.keys())
 
-        T.title(self, ("Edit " if edit_id else "") + ("Sales Invoice" if self.sales else "Purchase Bill"),
-                "GST is added per rate. Enter moves to the next box, Ctrl+S saves."
-                ).pack(anchor="w", padx=28, pady=(24, 12))
+        T.title(self, ("Edit " if edit_id else "New ") + ("Sales Invoice" if self.sales else "Purchase Bill"),
+                "Document details  →  item lines  →  tax and total. Ctrl+S saves."
+                ).pack(anchor="w", padx=28, pady=(20, 10))
         top = T.card(self)
         top.pack(fill="x", padx=28)
+        ctk.CTkLabel(top, text="DOCUMENT DETAILS", font=T.f(10, "bold"),
+                     text_color=T.MUTED).grid(row=0, column=0, columnspan=5,
+                                              sticky="w", padx=20, pady=(12, 0))
+        for _col, _weight in enumerate((1, 2, 1, 2, 1)):
+            top.grid_columnconfigure(_col, weight=_weight)
         self.date = T.entry(top, width=140)
         self.date.insert(0, today_str())
         pw = ctk.CTkFrame(top, fg_color="transparent")
@@ -368,24 +373,26 @@ class TradeFrame(EntryBase):
                                        fg_color=T.ACCENT, hover_color=T.ACCENT_HOVER)
         self.narr = T.entry(top, "Narration (optional)", width=300)
 
-        _lbl(top, "Date", row=0, column=0, sticky="w", padx=(20, 8), pady=(14, 2))
+        _lbl(top, "Date", row=1, column=0, sticky="w", padx=(20, 8), pady=(10, 2))
         _lbl(top, "Customer" if self.sales else "Supplier",
-             row=0, column=1, sticky="w", padx=8, pady=(14, 2))
-        _lbl(top, "Narration", row=0, column=3, sticky="w", padx=8, pady=(14, 2))
-        self.date.grid(row=1, column=0, padx=(20, 8), pady=(0, 14))
-        pw.grid(        row=1, column=1, padx=8,       pady=(0, 14))
-        self.inter.grid(row=1, column=2, padx=12,      pady=(0, 14))
+             row=1, column=1, sticky="w", padx=8, pady=(10, 2))
+        _lbl(top, "Narration", row=1, column=3, sticky="w", padx=8, pady=(10, 2))
+        self.date.grid(row=2, column=0, padx=(20, 8), pady=(0, 14))
+        pw.grid(        row=2, column=1, padx=8,       pady=(0, 14))
+        self.inter.grid(row=2, column=2, padx=12,      pady=(0, 14))
         if self.rcm is not None:
-            _lbl(top, "RCM", row=0, column=4, sticky="w", padx=8, pady=(14, 2))
-            self.rcm.grid(row=1, column=4, padx=8, pady=(0, 14))
-        self.narr.grid( row=1, column=3, padx=8,       pady=(0, 14))
+            _lbl(top, "RCM", row=1, column=4, sticky="w", padx=8, pady=(10, 2))
+            self.rcm.grid(row=2, column=4, padx=8, pady=(0, 14))
+        self.narr.grid( row=2, column=3, padx=8,       pady=(0, 14))
 
         items_wrap = T.card(self)
-        items_wrap.pack(fill="both", expand=True, padx=28, pady=14)
+        items_wrap.pack(fill="both", expand=True, padx=28, pady=(12, 10))
         items_wrap.grid_columnconfigure(0, weight=1)
-        items_wrap.grid_rowconfigure(0, weight=1)
+        items_wrap.grid_rowconfigure(1, weight=1)
+        ctk.CTkLabel(items_wrap, text="INVOICE ITEMS", font=T.f(10, "bold"),
+                     text_color=T.MUTED).grid(row=0, column=0, sticky="w", padx=20, pady=(12, 2))
         self.items_card = ctk.CTkScrollableFrame(items_wrap, fg_color="transparent", height=260)
-        self.items_card.grid(row=0, column=0, sticky="nsew", padx=8, pady=(10, 4))
+        self.items_card.grid(row=1, column=0, sticky="nsew", padx=8, pady=(2, 4))
         items = self.items_card
         for c, h in enumerate(("Item", "HSN/SAC", "Qty", "Rate (Rs)", "GST %", "", "Amount")):
             _lbl(items, h, row=0, column=c,
@@ -400,12 +407,13 @@ class TradeFrame(EntryBase):
         self.row_count_lbl = ctk.CTkLabel(addbar, text="", font=T.f(11), text_color=T.MUTED)
         self.row_count_lbl.pack(side="left", padx=10)
 
-        self.summary = ctk.CTkLabel(items, text="", font=T.f(13, "bold"), text_color=T.TEXT)
-        self.summary.grid(row=SUMMARY_ROW, column=0, columnspan=7,
-                          sticky="e", padx=20, pady=(8, 14))
+        self.summary = ctk.CTkLabel(items_wrap, text="", font=T.f(13, "bold"),
+                                     text_color=T.TEXT, fg_color="#F0F5FF",
+                                     corner_radius=8, anchor="e", height=38)
+        self.summary.grid(row=2, column=0, sticky="ew", padx=18, pady=(4, 12))
 
-        foot = ctk.CTkFrame(self, fg_color="transparent")
-        foot.pack(fill="x", padx=28)
+        foot = T.card(self)
+        foot.pack(fill="x", padx=28, pady=(0, 18))
         self.paid = self.mode = self.paid_lbl = None
         if not edit_id:
             self.paid_lbl = ctk.CTkLabel(
@@ -423,7 +431,7 @@ class TradeFrame(EntryBase):
             foot,
             ("Update " if edit_id else "Save ") + ("invoice" if self.sales else "bill"),
             self.save, width=160)
-        self.save_btn.pack(side="left")
+        self.save_btn.pack(side="left", padx=(14, 8), pady=10)
         self._make_msg(foot)
         self._rechain()
         self._update_row_count()
@@ -708,6 +716,11 @@ class SummaryFrame(EntryBase):
                 ).pack(anchor="w", padx=28, pady=(24, 12))
         top = T.card(self)
         top.pack(fill="x", padx=28)
+        ctk.CTkLabel(top, text="DOCUMENT DETAILS", font=T.f(10, "bold"),
+                     text_color=T.MUTED).grid(row=0, column=0, columnspan=5,
+                                              sticky="w", padx=20, pady=(12, 0))
+        for _col, _weight in enumerate((1, 2, 1, 2, 1)):
+            top.grid_columnconfigure(_col, weight=_weight)
         self.date = T.entry(top, width=140)
         self.date.insert(0, today_str())
         self.mode = T.option_menu(top, ["Cash", "Bank"], width=110)
@@ -745,8 +758,8 @@ class SummaryFrame(EntryBase):
         self.summary.grid(row=len(self.RATES) + 1, column=0, columnspan=3,
                           sticky="e", padx=20, pady=(8, 14))
 
-        foot = ctk.CTkFrame(self, fg_color="transparent")
-        foot.pack(fill="x", padx=28)
+        foot = T.card(self)
+        foot.pack(fill="x", padx=28, pady=(0, 18))
         T.button(foot, "Save summary", self.save, width=170).pack(side="left")
         self._make_msg(foot)
         chain_enter([self.date, self.narr] + [e for _r, e, _t in self.rows], self.save)
@@ -1026,9 +1039,10 @@ class _ReturnRowsMixin:
                  width=110, **GHOST).pack(side="left")
         self.row_count_lbl = ctk.CTkLabel(addbar, text="", font=T.f(11), text_color=T.MUTED)
         self.row_count_lbl.pack(side="left", padx=10)
-        self.summary = ctk.CTkLabel(items, text="", font=T.f(13, "bold"), text_color=T.TEXT)
-        self.summary.grid(row=SUMMARY_ROW, column=0, columnspan=7,
-                          sticky="e", padx=20, pady=(8, 14))
+        self.summary = ctk.CTkLabel(items_wrap, text="", font=T.f(13, "bold"),
+                                     text_color=T.TEXT, fg_color="#F0F5FF",
+                                     corner_radius=8, anchor="e", height=38)
+        self.summary.grid(row=2, column=0, sticky="ew", padx=18, pady=(4, 12))
         self._update_row_count()
         return items
 

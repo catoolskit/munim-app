@@ -1,13 +1,24 @@
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 def inr(x):
-    """Indian digit grouping: 1234567.5 -> '12,34,567.50'."""
-    neg = x < 0
-    whole, frac = f"{abs(round(x, 2)):.2f}".split(".")
+    """Format rupees with Indian grouping and deterministic paise rounding.
+
+    Decimal(str(x)) avoids binary-float display surprises (for example,
+    1.005 becoming 1.00 on some formatting paths). This is presentation only;
+    ledger storage and accounting calculations remain in integer paise.
+    """
+    try:
+        amount = Decimal(str(x)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError, TypeError):
+        raise ValueError(f"Invalid rupee amount: {x!r}")
+    neg = amount < 0
+    whole, frac = f"{abs(amount):.2f}".split(".")
     if len(whole) > 3:
         head, tail, parts = whole[:-3], whole[-3:], []
         while len(head) > 2:
-            parts.insert(0, head[-2:]); head = head[:-2]
+            parts.insert(0, head[-2:])
+            head = head[:-2]
         if head:
             parts.insert(0, head)
         whole = ",".join(parts + [tail])
