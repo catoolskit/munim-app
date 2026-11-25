@@ -1,118 +1,269 @@
+"""Help & Shortcuts — three tabs: Keyboard shortcuts, How to use, Support & about.
+
+Switch tabs with the buttons, the ← → keys, or 1 / 2 / 3.
+"""
+import webbrowser
+
 import customtkinter as ctk
+
 from ui import theme as T
 
-SECTIONS = [
-    ("Getting started", [
-        "1.  Utilities > Company Details — enter your business name, GSTIN, address and state. This appears on every invoice.",
-        "2.  Masters > Stock Items — add the goods you buy and sell (Gold, Silver etc). Set HSN code, GST rate and opening stock quantity and rate.",
-        "3.  Masters > Party Master — add your customers and suppliers. You can also add one while billing using the + New button.",
-        "4.  Transactions > Sales Invoice or Purchase Bill — record your first bill. GST is calculated automatically.",
-        "5.  Utilities > Backup Data — save a copy to a pen drive or cloud folder. Do this every day you enter data.",
+WEBSITE = "https://smartmunim.vercel.app"
+DOWNLOAD = "https://smartmunim.vercel.app/download.html"
+LABEL_TEXT = "#4A5468"
+CHIP_BG = "#EAF0FC"
+TABS = ("Keyboard shortcuts", "How to use", "Support & about")
+
+SHORTCUTS = [
+    ("Anywhere", [
+        ("Alt + G", "Go To: search any screen, party or ledger"),
+        ("Alt + H", "Back to the Gateway (home)"),
+        ("Alt + 1", "Open this Help page"),
+        ("Esc", "Go back one screen (asks first if an entry is not saved)"),
+        ("F2", "Jump to the date or period box"),
+        ("R  /  P", "Receipt / Payment or Purchase Bill (when not typing in a box)"),
     ]),
-    ("Keyboard shortcuts", [
-        "Menus:  ↑ ↓ and Enter to navigate, or press the letter shown on the right of an item.",
-        "Esc:  go back one screen (entry screens ask before discarding unsaved work).",
-        "Alt+G:  open Go To and search screens, parties or ledgers.",
-        "Alt+H:  return to Home (Gateway).",
-        "Alt+1:  open Help & Shortcuts.",
-        "R:  open Receipt / Payment. P:  open Purchase Bill.",
-        "R/P are disabled while focus is in a text, amount, date or search field.",
-        "Ctrl+S:  save the entry or master currently open (where Save is available).",
-        "Ctrl+E:  export the current report to Excel (where Excel export is available).",
-        "Ctrl+P or Ctrl+Shift+P:  run the current screen's Print / Export PDF action (where available).",
-        "The shortcut is context-sensitive: if a screen has no matching action, MUNIM does not force an export or print.",
-        "Tab / Shift+Tab:  move forward / backward between entry fields.",
-        "Delete:  delete the voucher shown in its detail window; confirmation is required.",
-        "Dates:  type 15 (this month's 15th), 1511 (15 Nov this year) or the full 15-11-2026.",
-        "Account / party boxes:  type a few letters, then press Enter or click to pick from the dropdown.",
-        "Reports:  double-click any voucher or bill row to open, edit or delete it.",
+    ("Menus and Gateway", [
+        ("↑ ↓ ← →", "Move the highlight"),
+        ("Enter", "Open the highlighted option"),
+        ("Letter key", "Open the option showing that letter, e.g. T for Transactions"),
+        ("←", "Back to the previous menu (in option lists)"),
+        ("↓ on bottom tiles", "Move into Quick Actions on the Gateway"),
+        ("Q", "Log out (on the Gateway)"),
     ]),
-    ("Sales & invoicing", [
-        "Sales Invoice:  for every sale to a registered business or any customer who needs a GST invoice. Pick the customer, add items (HSN and GST auto-fill from Stock Items), save.",
-        "Save PDF:  after saving an invoice, click 'Save PDF' to generate and open a printable A4 invoice. PDFs are saved to the MUNIM\\Invoices\\ folder.",
-        "Share:  after saving a PDF, click 'Share' to send via WhatsApp Web or Email. The party's phone number is pre-filled if set in Party Master.",
-        "Inter-state sales:  tick 'Inter-state (IGST)' — MUNIM auto-detects this from the buyer's GSTIN state code, but you can override it.",
-        "Part payment at sale time:  enter the amount in 'Received now'. The rest stays as the customer's outstanding balance.",
-        "Walk-in / cash customer:  choose Cash as the customer. If they want a named bill, type their name in 'Customer name on bill'.",
-        "Daily Sales Summary:  use this for counter sales where individual invoices are not needed. Enter total sales per GST rate for the day.",
-        "Sales Return / Credit Note:  Transactions > Sales Return. Select the customer, pick the original invoice, enter returned items.",
+    ("Entry screens", [
+        ("Enter", "Move to the next box"),
+        ("Tab / Shift+Tab", "Next / previous box"),
+        ("Ctrl + S", "Save the entry"),
+        ("Ctrl + P", "Save the PDF of the sales invoice you just saved"),
+        ("Type letters", "Search a party, account or item; Enter picks it"),
     ]),
-    ("Purchases & expenses", [
-        "Purchase Bill:  record every bill from a supplier. Items, HSN and GST auto-fill from Stock Items master.",
-        "Reverse Charge (RCM):  tick the RCM checkbox on a purchase bill if the supply attracts reverse charge. This populates section 3.1(d) in GSTR-3B automatically.",
-        "Purchase Return / Debit Note:  Transactions > Purchase Return. Select the supplier, pick the original bill, enter returned items.",
-        "Expenses (electricity, rent etc):  create the ledger account first under Masters > Ledger Accounts (pick Direct or Indirect Expenses group), then record it via Transactions > Voucher Entry.",
+    ("Reports", [
+        ("F2", "Change the period, then Enter to refresh"),
+        ("Ctrl + E", "Export to Excel"),
+        ("Ctrl + Shift + P", "Export to PDF"),
+        ("Enter / double-click", "Open the voucher in the selected row"),
+        ("Alt + O", "Choose a ledger (Ledger View)"),
     ]),
-    ("Payments & receipts", [
-        "Receipt / Payment:  Transactions > Receipt / Payment. Select the customer or supplier, then type the amount against each open bill to settle it.",
-        "On-account payment:  if you pay more than a bill's balance, the excess is held as an on-account credit and shown in Outstanding.",
-        "Outstanding report:  Reports > Outstanding. Switch between Receivable (customers) and Payable (suppliers). Set ageing ranges to see overdue amounts.",
-        "Party Statement:  Reports > Accounting > Party Statement. Full transaction history for one party with opening and closing balance. Exportable to Excel.",
+    ("Typing dates", [
+        ("15", "15th of this month"),
+        ("1511", "15 November of this year"),
+        ("15-11-2026", "Full date"),
     ]),
-    ("GST reports & filing", [
-        "GSTR-1:  Reports > GST > GSTR-1. Shows outward supplies by rate and invoice. Export JSON for review/import in the GST offline tool; validate the file against the current portal schema before filing.",
-        "GSTR-3B:  Reports > GST > GSTR-3B. Full monthly summary including RCM, ITC cross-utilisation, net payable, and suggested payment breakdown.",
-        "ITC cross-utilisation:  MUNIM applies IGST ITC first against IGST liability, then uses any remaining IGST ITC to offset CGST and SGST — matching the GST Act order.",
-        "B2B vs B2C:  invoices to parties with a GSTIN are classified B2B; all others are B2C. Add GSTIN to a party in Party Master to move them to B2B.",
-        "Filing tip:  enter all transactions for the month, check GSTR-1 and GSTR-3B in MUNIM, then upload the JSON to the GST portal. Ask your CA to verify before submitting.",
+]
+
+HOW_TO = [
+    ("First-time setup", [
+        "Utilities › Company & Settings › Company Details: name, GSTIN, address and "
+        "whether you are GST registered.",
+        "Masters › Party Master: add customers and suppliers with GSTIN and opening balance.",
+        "Masters › Stock Items: add items with HSN code, unit and GST rate.",
+        "Masters › Ledger Accounts: add bank accounts, expenses, capital and loans.",
     ]),
-    ("Stock & valuation", [
-        "Stock Items Master:  Masters > Stock Items. Set HSN, unit, GST rate, opening quantity and opening rate for each item.",
-        "Stock Summary:  Reports > Stock > Stock Summary. Shows opening, purchased, sold and closing quantity, plus weighted-average cost and total stock value.",
-        "Item-wise Profit:  Reports > Stock > Item-wise Profit. Shows sale value, cost of goods sold (at weighted-average rate), profit and margin % per item.",
-        "Weighted-average cost:  MUNIM calculates average cost as (opening stock value + purchases − purchase returns) ÷ total quantity. This feeds both Stock Summary and Item-wise Profit so the two reports always agree.",
+    ("Everyday entries", [
+        "Sales Invoice / Purchase Bill: pick the party, add items, Ctrl+S to save.",
+        "Receipt / Payment: choose the party and type the amount against each unpaid bill.",
+        "Sales or Purchase Return: select the original bill, then enter the returned items.",
+        "Daily Sales Summary: one entry for the day's counter sales.",
     ]),
-    ("Accounting & reports", [
-        "Trial Balance:  Reports > Accounting > Trial Balance. All account closing balances for the year.",
-        "Ledger View:  Reports > Accounting > Ledger View. Every entry in one account with a running balance. Use the Cash Book shortcut for cash and bank entries.",
-        "Day Book:  Reports > Accounting > Day Book. All vouchers between two dates.",
-        "Cash Flow:  Reports > Financial > Cash Flow. Sources and uses of cash — operating, financing and investing activities.",
-        "Trading & P&L:  Reports > Financial > Trading & P&L. Enter opening and closing stock to get gross and net profit.",
-        "Balance Sheet:  Reports > Financial > Balance Sheet. Assets and liabilities as at year end.",
-        "Export Excel:  most reports have an 'Export Excel' button that saves an .xlsx file; Ctrl+E triggers that screen's Excel export.",
-        "Dashboard:  Reports > Dashboard. Business snapshot — monthly sales chart, top customers, GST payable trend, stock value summary.",
+    ("Month end and GST", [
+        "Reports › GST › GSTR-1: check outward supplies and Export JSON for the GST portal.",
+        "Reports › GST › GSTR-3B: tax payable after input tax credit.",
+        "Reports › Accounting › Bank Reconciliation: import the bank CSV and match entries.",
+        "Reports › Financial › Outstanding: who owes what, and for how long.",
     ]),
-    ("Bank reconciliation", [
-        "Reports > Accounting > Bank Reconciliation. Import your bank statement as a CSV file and match the entries to your MUNIM books.",
-        "CSV format:  Date (DD-MM-YYYY), Description, Amount, Dr/Cr — four columns, one row per transaction.",
-        "Matching:  MUNIM finds ledger entries on the same date with the same amount and suggests them. Double-click a row to accept the match.",
-        "Unmatched rows:  entries in your bank statement with no match in MUNIM usually mean a missing voucher. Enter it and re-run.",
+    ("Year end", [
+        "Reports › Financial › Trading & P&L: enter closing stock, then check gross and net profit.",
+        "Reports › Financial › Balance Sheet: position as on any date.",
+        "Reports › Accounting › Trial Balance: Summary or Detailed, export to Excel or PDF.",
     ]),
-    ("Utilities & data", [
-        "Backup Data:  Utilities > Backup Data. Always back up to a different drive or cloud folder — not the same disk as your data.",
-        "Auto-backup:  MUNIM automatically backs up to the MUNIM\\backups\\ folder every time you close the app. The gateway shows a warning if no backup has been taken in over 7 days.",
-        "Import from Tally:  Utilities > Import from Tally. Bring in party names, ledger accounts and opening balances from a Tally XML export. Historical vouchers are not imported.",
-        "Data Location:  Utilities > Data Location. Move your MUNIM data folder to a different drive (e.g. D:).",
-        "Audit Log:  Utilities > Audit Log. Every voucher created, edited or deleted — with who did it and when.",
-        "Manage Companies:  Utilities > Manage Companies. Rename or delete companies. Use the company picker at login to switch between companies.",
-        "Reset All Data:  Utilities > Reset All Data. Wipes all vouchers, parties and accounts. Requires admin password. Cannot be undone.",
+    ("Keep your data safe", [
+        "Utilities › Data Management › Backup Data: save a copy to a folder or USB drive.",
+        "Keep one copy away from this PC, on a USB drive or cloud folder.",
+        "The Gateway warns you when there has been no backup for 7 days.",
     ]),
-    ("Good to know", [
-        "GST law requires a tax invoice for every sale to a registered business. A monthly lump entry covers your books but does not replace individual invoices. Ask your CA if unsure.",
-        "Your data is stored as a single SQLite file inside the MUNIM data folder. It is small and easy to back up.",
-        "If MUNIM crashes, check the MUNIM\\logs\\ folder for an error log. Share it with support when reporting a problem.",
-        "Support: support@munim.in     Licence renewal: Utilities > Renew Licence.",
+    ("Customize the Gateway", [
+        "Click Customize in Quick Actions and tick up to 8 screens.",
+        "Press ↓ from the bottom tiles to reach them, ← → to move, Enter to open.",
     ]),
 ]
 
 
+def _app_version():
+    try:
+        import __main__
+        return getattr(__main__, "CURRENT_VERSION", "") or "—"
+    except Exception:
+        return "—"
+
+
 class HelpFrame(ctk.CTkFrame):
-    def __init__(self, master):
+    def __init__(self, master, start_tab=0):
         super().__init__(master, fg_color="transparent")
+        self.tab = 0
+
         T.title(self, "Help & Shortcuts",
-                "Everything you need to use MUNIM.").pack(
-            anchor="w", padx=28, pady=(24, 12))
-        box = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        box.pack(fill="both", expand=True, padx=20, pady=(0, 16))
-        for head, lines in SECTIONS:
-            card = T.card(box)
-            card.pack(fill="x", padx=8, pady=8)
-            ctk.CTkLabel(card, text=head, font=T.f(16, "bold"),
-                         text_color=T.TEXT).pack(
-                anchor="w", padx=22, pady=(16, 6))
-            for ln in lines:
-                ctk.CTkLabel(card, text=ln, font=T.f(13), text_color=T.TEXT,
-                             wraplength=900, justify="left",
-                             anchor="w").pack(anchor="w", padx=22, pady=3)
-            ctk.CTkFrame(card, fg_color=T.CARD, corner_radius=0,
-                         height=10).pack()
+                "Press ← → or 1, 2, 3 to switch tabs. Esc goes back."
+                ).pack(anchor="w", padx=28, pady=(24, 12))
+
+        bar = ctk.CTkFrame(self, fg_color="transparent")
+        bar.pack(fill="x", padx=28, pady=(0, 12))
+        for c in range(len(TABS)):
+            bar.grid_columnconfigure(c, weight=1, uniform="tabs")
+        self.tab_btns = []
+        for i, name in enumerate(TABS):
+            b = ctk.CTkButton(bar, text=f"{i + 1}   {name}", height=46, corner_radius=10,
+                              font=T.f(14, "bold"), border_width=1,
+                              command=lambda i=i: self.show(i))
+            b.grid(row=0, column=i, sticky="ew", padx=(0 if i == 0 else 8, 0))
+            self.tab_btns.append(b)
+
+        self.body = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.body.pack(fill="both", expand=True, padx=22, pady=(0, 16))
+        self.show(start_tab)
+
+    # ── Tabs ──────────────────────────────────────────────────────────────
+    def show(self, i):
+        self.tab = i
+        for n, b in enumerate(self.tab_btns):
+            on = n == i
+            b.configure(fg_color=T.ACCENT if on else T.CARD,
+                        hover_color=T.ACCENT_HOVER if on else "#F1F4F9",
+                        text_color="white" if on else T.TEXT,
+                        border_color=T.ACCENT if on else T.BORDER)
+        for w in self.body.winfo_children():
+            w.destroy()
+        grid = ctk.CTkFrame(self.body, fg_color="transparent")
+        grid.pack(fill="both", expand=True)
+        grid.grid_columnconfigure((0, 1), weight=1, uniform="help")
+        (self._shortcuts_tab, self._howto_tab, self._support_tab)[i](grid)
+        try:
+            self.body._parent_canvas.yview_moveto(0)
+        except Exception:
+            pass
+
+    def handle_key(self, event):
+        k = event.keysym
+        if k == "Right":
+            self.show((self.tab + 1) % len(TABS))
+            return True
+        if k == "Left":
+            self.show((self.tab - 1) % len(TABS))
+            return True
+        if k in ("1", "2", "3"):
+            self.show(int(k) - 1)
+            return True
+        return False
+
+    # ── Building blocks ───────────────────────────────────────────────────
+    @staticmethod
+    def _card(parent, title, row, col, colspan=1):
+        card = ctk.CTkFrame(parent, fg_color=T.CARD, border_width=1,
+                            border_color=T.BORDER, corner_radius=12)
+        card.grid(row=row, column=col, columnspan=colspan, sticky="nsew",
+                  padx=6, pady=6)
+        ctk.CTkLabel(card, text=title.upper(), font=T.f(10, "bold"),
+                     text_color=T.ACCENT).pack(anchor="w", padx=18, pady=(14, 8))
+        return card
+
+    @staticmethod
+    def _end(card):
+        ctk.CTkFrame(card, fg_color="transparent", height=10).pack()
+
+    @staticmethod
+    def _key_row(card, key, desc):
+        line = ctk.CTkFrame(card, fg_color="transparent")
+        line.pack(fill="x", padx=16, pady=3)
+        ctk.CTkLabel(line, text=key, width=150, height=26, corner_radius=6,
+                     fg_color=CHIP_BG, text_color=T.ACCENT,
+                     font=T.f(11, "bold")).pack(side="left", anchor="n")
+        ctk.CTkLabel(line, text=desc, font=T.f(12), text_color=T.TEXT,
+                     anchor="w", justify="left", wraplength=340
+                     ).pack(side="left", fill="x", expand=True, padx=10)
+
+    @staticmethod
+    def _step_row(card, n, text):
+        line = ctk.CTkFrame(card, fg_color="transparent")
+        line.pack(fill="x", padx=16, pady=4)
+        ctk.CTkLabel(line, text=str(n), width=24, height=24, corner_radius=12,
+                     fg_color=CHIP_BG, text_color=T.ACCENT,
+                     font=T.f(11, "bold")).pack(side="left", anchor="n")
+        ctk.CTkLabel(line, text=text, font=T.f(12), text_color=T.TEXT,
+                     anchor="w", justify="left", wraplength=380
+                     ).pack(side="left", fill="x", expand=True, padx=10)
+
+    @staticmethod
+    def _info_row(card, label, value):
+        line = ctk.CTkFrame(card, fg_color="transparent")
+        line.pack(fill="x", padx=18, pady=3)
+        ctk.CTkLabel(line, text=label, font=T.f(12), text_color=LABEL_TEXT,
+                     width=130, anchor="w").pack(side="left")
+        ctk.CTkLabel(line, text=value, font=T.f(12, "bold"), text_color=T.TEXT,
+                     anchor="w", justify="left", wraplength=320
+                     ).pack(side="left", fill="x", expand=True)
+
+    # ── Tab 1: Keyboard shortcuts ─────────────────────────────────────────
+    def _shortcuts_tab(self, grid):
+        for idx, (title, rows) in enumerate(SHORTCUTS):
+            card = self._card(grid, title, idx // 2, idx % 2)
+            for key, desc in rows:
+                self._key_row(card, key, desc)
+            self._end(card)
+
+    # ── Tab 2: How to use ─────────────────────────────────────────────────
+    def _howto_tab(self, grid):
+        for idx, (title, steps) in enumerate(HOW_TO):
+            card = self._card(grid, title, idx // 2, idx % 2)
+            for n, text in enumerate(steps, 1):
+                self._step_row(card, n, text)
+            self._end(card)
+
+    # ── Tab 3: Support & about ────────────────────────────────────────────
+    def _support_tab(self, grid):
+        from db import setup as s
+        from utils import settings, errlog
+        st = settings.load_settings()
+
+        about = self._card(grid, "About this copy", 0, 0)
+        self._info_row(about, "Version", _app_version())
+        self._info_row(about, "Company", st.get("company_name") or "Not set")
+        try:
+            self._info_row(about, "Data folder", str(s.data_dir()))
+        except Exception:
+            pass
+        self._end(about)
+
+        get = self._card(grid, "Get help and updates", 0, 1)
+        ctk.CTkLabel(get, text="Guides, the latest version and contact details are on "
+                               "the MUNIM website. MUNIM also shows a banner at the top "
+                               "when a new version is available.",
+                     font=T.f(12), text_color=T.TEXT, justify="left",
+                     wraplength=420).pack(anchor="w", padx=18, pady=(0, 10))
+        btns = ctk.CTkFrame(get, fg_color="transparent")
+        btns.pack(anchor="w", padx=16, pady=(0, 6))
+        T.button(btns, "Open website", lambda: webbrowser.open(WEBSITE),
+                 width=140).pack(side="left")
+        T.button(btns, "Download latest version", lambda: webbrowser.open(DOWNLOAD),
+                 width=200, fg_color="#E7ECF5", text_color=T.TEXT,
+                 hover_color="#DCE3F0").pack(side="left", padx=(8, 0))
+        self._end(get)
+
+        wrong = self._card(grid, "If something goes wrong", 1, 0)
+        for n, text in enumerate([
+                "If a screen fails to open, MUNIM shows \"This screen hit a problem\". "
+                "Your saved entries are not affected.",
+                "Click Copy error details and send it to support.",
+                "Press Esc to go back and carry on working."], 1):
+            self._step_row(wrong, n, text)
+        try:
+            self._info_row(wrong, "Error log", str(errlog.log_path()))
+        except Exception:
+            pass
+        self._end(wrong)
+
+        find = self._card(grid, "Finding this page", 1, 1)
+        for key, desc in [("Alt + 1", "Open Help from any screen"),
+                          ("? Help", "Button in the top bar, on every screen"),
+                          ("U › H › H", "Utilities › Support & Information › Help")]:
+            self._key_row(find, key, desc)
+        self._end(find)
