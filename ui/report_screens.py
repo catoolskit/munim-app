@@ -126,7 +126,8 @@ class TrialBalanceFrame(ReportBase):
             ("p", "Particulars",  460, L),
             ("d", "Debit (Rs)",   160, R),
             ("c", "Credit (Rs)",  160, R),
-        ], height=16)
+        ], height=16,
+            empty_text="No balances for this period. Record a voucher or widen the dates.")
         self.table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
         self.refresh()
 
@@ -467,7 +468,8 @@ class LedgerFrame(ReportBase):
         self.table = DataTable(table_frame, [
             ("dt", "Date",        100, L), ("v",  "Voucher",    120, L),
             ("n",  "Narration",   300, L), ("d",  "Debit (Rs)", 130, R),
-            ("c",  "Credit (Rs)", 130, R), ("b",  "Balance",    150, R)], height=14)
+            ("c",  "Credit (Rs)", 130, R), ("b",  "Balance",    150, R)], height=14,
+            empty_text="Choose a ledger and dates, then click Show.")
         self.table.pack(fill="both", expand=True)
         self.refresh()
 
@@ -626,7 +628,8 @@ class DayBookFrame(ReportBase):
         self.table = DataTable(self, [
             ("dt", "Date",         100, L), ("v",  "Voucher",    130, L),
             ("p",  "Particulars",  380, L), ("d",  "Debit (Rs)", 130, R),
-            ("c",  "Credit (Rs)", 130, R)], height=14)
+            ("c",  "Credit (Rs)", 130, R)], height=14,
+            empty_text="No vouchers between these dates. Change the dates and click Show.")
         self.table.pack(fill="both", expand=True, padx=28, pady=(4, 24))
         if opener:
             self.table.on_open(lambda vid: self.opener(vid, self.refresh))
@@ -995,7 +998,10 @@ class InvoiceRegisterFrame(ReportBase):
                 ("cg", "CGST",        85,  R), ("sg", "SGST",     85,  R),
                 ("ig", "IGST",        85,  R), ("t",  "Total",   110,  R),
                 ("b",  "Balance due", 110, R), ("st", "Status",   95,  L)]
-        self.table = DataTable(self, cols, height=14)
+        self.table = DataTable(
+            self, cols, height=14,
+            empty_text=f"No {kind.lower()} bills in this period. "
+                       "Click Full FY or change the dates.")
         self.table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
         if opener:
             self.table.on_open(lambda vid: self.opener(vid, self.refresh))
@@ -1033,8 +1039,9 @@ class InvoiceRegisterFrame(ReportBase):
             tot  = [a + b for a, b in zip(tot, vals)]
             rows.append(((disp_date(x["date"]), x["vno"], x["party"],
                           *[_amt(v) for v in vals], x["status"]), None, x["id"]))
-        rows.append((("", "", f"Total ({len(reg)} bills)",
-                      *[inr(v) for v in tot], ""), "total"))
+        if reg:
+            rows.append((("", "", f"Total ({len(reg)} bills)",
+                          *[inr(v) for v in tot], ""), "total"))
         self.table.set_rows(rows)
 
 
@@ -1100,7 +1107,10 @@ class OutstandingFrame(ReportBase):
     def _set_table(self, columns):
         if self.table is not None:
             self.table.destroy()
-        self.table = DataTable(self.holder, columns, height=14)
+        who = "customers" if self.which.get() == "Receivable" else "suppliers"
+        self.table = DataTable(
+            self.holder, columns, height=14,
+            empty_text=f"Nothing outstanding from {who} as on this date.")
         self.table.pack(fill="both", expand=True)
         if self.opener:
             self.table.on_open(lambda vid: self.opener(vid, self.refresh))
@@ -1122,6 +1132,7 @@ class OutstandingFrame(ReportBase):
                  "    ".join(
                      f"{l}: {inr(rep['buckets'][l])}"
                      for l in rep["labels"]))
+        has_parties = bool(rep["parties"])
         if self.view.get() == "Ageing":
             cols = ([("p", "Party", 250, L)] +
                     [(f"b{i}", l if l == "Not due" else f"{l} days", 105, R)
@@ -1133,10 +1144,11 @@ class OutstandingFrame(ReportBase):
                 rows.append((p["party"],
                              *[_amt(p["bucket_amounts"][l]) for l in rep["labels"]],
                              _amt(p["on_account"]), inr(p["balance"])))
-            on_acc = sum(p["on_account"] for p in rep["parties"])
-            rows.append((("Total",
-                          *[inr(rep["buckets"][l]) for l in rep["labels"]],
-                          inr(on_acc), inr(rep["total"])), "total"))
+            if has_parties:
+                on_acc = sum(p["on_account"] for p in rep["parties"])
+                rows.append((("Total",
+                              *[inr(rep["buckets"][l]) for l in rep["labels"]],
+                              inr(on_acc), inr(rep["total"])), "total"))
         else:
             self._set_table([
                 ("p",  "Party / bill",  270, L), ("dt", "Bill date",  95, L),
@@ -1159,8 +1171,9 @@ class OutstandingFrame(ReportBase):
                     rows.append((("      On account / opening balance",
                                   "", "", "", "", inr(p["on_account"]),
                                   "", ""), None))
-            rows.append((("Total outstanding", "", "", "", "",
-                           inr(rep["total"]), "", ""), "total"))
+            if has_parties:
+                rows.append((("Total outstanding", "", "", "", "",
+                               inr(rep["total"]), "", ""), "total"))
         self.table.set_rows(rows)
 
     def export_data(self):
@@ -1226,7 +1239,10 @@ class ReturnsRegisterFrame(ReportBase):
                 ("p",  "Party",  190,  L), ("tx", "Taxable",110, R),
                 ("cg", "CGST",    85,  R), ("sg", "SGST",    85, R),
                 ("ig", "IGST",    85,  R), ("t",  "Total",  110, R)]
-        self.table = DataTable(self, cols, height=14)
+        note = "credit notes" if kind == "Sales Return" else "debit notes"
+        self.table = DataTable(
+            self, cols, height=14,
+            empty_text=f"No {note} between these dates. Change the dates and click Show.")
         self.table.pack(fill="both", expand=True, padx=28, pady=(4, 24))
         if opener:
             self.table.on_open(lambda vid: self.opener(vid, self.refresh))
@@ -1270,9 +1286,10 @@ class ReturnsRegisterFrame(ReportBase):
                 tot[i] += vals[i]
             out.append(((disp_date(x["vdate"]), x["vno"], party,
                          *[_amt(v) for v in vals]), None, x["id"]))
-        out.append((("", "", f"Total ({len(rows)} vouchers)",
-                     inr(tot[0]), inr(tot[1]), inr(tot[2]), inr(tot[3]), inr(tot[4])),
-                    "total"))
+        if rows:
+            out.append((("", "", f"Total ({len(rows)} vouchers)",
+                         inr(tot[0]), inr(tot[1]), inr(tot[2]), inr(tot[3]), inr(tot[4])),
+                        "total"))
         self.table.set_rows(out)
 
     def export_data(self):
@@ -1311,7 +1328,8 @@ class StockSummaryFrame(ReportBase):
             ("u", "Unit",         60, L), ("o", "Opening",     90, "c"),
             ("p", "Purchased",  100, "c"), ("s", "Sold",        90, "c"),
             ("c", "Closing",    100, "c"), ("r", "Avg Rate",   110, R),
-            ("v", "Stock Value",130, R)], height=14)
+            ("v", "Stock Value",130, R)], height=14,
+            empty_text="No stock items yet. Add items under Masters > Stock Items.")
         self.table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
         self.refresh()
 
@@ -1334,10 +1352,11 @@ class StockSummaryFrame(ReportBase):
                         self._fmt(it["sold"]),    self._fmt(it["closing"]),
                         inr(it.get("avg_rate",    0.0)) if it.get("avg_rate")    else "",
                         inr(it.get("stock_value", 0.0)) if it.get("stock_value") else ""))
-        out.append((("", "", "Total",
-                     self._fmt(totals[0]), self._fmt(totals[1]),
-                     self._fmt(totals[2]), self._fmt(totals[3]),
-                     "", inr(total_value)), "total"))
+        if rows:
+            out.append((("", "", "Total",
+                         self._fmt(totals[0]), self._fmt(totals[1]),
+                         self._fmt(totals[2]), self._fmt(totals[3]),
+                         "", inr(total_value)), "total"))
         self.table.set_rows(out)
 
     def export_data(self):
@@ -1363,7 +1382,8 @@ class ItemWiseProfitFrame(ReportBase):
             ("n", "Item",         200, L), ("u", "Unit",          60, L),
             ("q", "Sold Qty",     100, "e"), ("s", "Sale Value",  140, R),
             ("a", "Avg Cost",     120, R),  ("c", "Cost of Sold", 140, R),
-            ("p", "Profit",       140, R),  ("m", "Margin %",      90, R)], height=14)
+            ("p", "Profit",       140, R),  ("m", "Margin %",      90, R)], height=14,
+            empty_text="No item sales in this financial year yet.")
         self.table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
         self.refresh()
 
@@ -1386,10 +1406,11 @@ class ItemWiseProfitFrame(ReportBase):
                         inr(it["cost_of_sold"]),
                         inr(it["profit"]),
                         f"{it['margin']:.2f}"))
-        tot_margin = (tot_profit / tot_sale * 100) if tot_sale > 0 else 0.0
-        out.append((("", "", "Total",
-                     inr(tot_sale), "", inr(tot_cost),
-                     inr(tot_profit), f"{tot_margin:.2f}"), "total"))
+        if rows:
+            tot_margin = (tot_profit / tot_sale * 100) if tot_sale > 0 else 0.0
+            out.append((("", "", "Total",
+                         inr(tot_sale), "", inr(tot_cost),
+                         inr(tot_profit), f"{tot_margin:.2f}"), "total"))
         self.table.set_rows(out)
 
     def export_data(self):
@@ -1736,7 +1757,10 @@ class PartyStatementFrame(ReportBase):
             ("dt", "Date",        100, L), ("v",  "Voucher",    140, L),
             ("n",  "Narration",   280, L), ("d",  "Debit (Rs)", 130, R),
             ("c",  "Credit (Rs)", 130, R), ("b",  "Balance",    150, R)],
-            height=14)
+            height=14,
+            empty_text=("Choose a party to see its statement." if names else
+                        "No parties yet. Add a customer or supplier under "
+                        "Masters > Party Master."))
         self.table.pack(fill="both", expand=True, padx=28, pady=(0, 24))
         self.refresh()
 
@@ -1801,14 +1825,16 @@ class BankReconFrame(ReportBase):
     sub_text   = ("Import your bank statement CSV and match entries to your books. "
                   "Unmatched items on either side need investigation.")
     with_fy    = False
+    # Class attribute so ReportBase.__init__ sees it and skips its own
+    # Export Excel button (this screen has one in its control card).
+    own_controls = True
 
     def __init__(self, master, con):
         super().__init__(master, con)
-        self.own_controls  = True
         self._recon_rows   = []
         ctrl = T.card(self)
         ctrl.pack(fill="x", padx=28, pady=(0, 10))
-        bank_names = [r["name"] for r in con.execute(
+        bank_names = [row["name"] for row in con.execute(
             "SELECT name FROM accounts "
             "WHERE grp IN ('Bank Accounts','Cash-in-hand') "
             "ORDER BY name")]
@@ -1842,7 +1868,10 @@ class BankReconFrame(ReportBase):
             ("amt", "Amount",      110, R),
             ("typ", "Dr/Cr",        60, L),
             ("mat", "Best match",  200, L),
-            ("sts", "Status",       90, L)], height=14)
+            ("sts", "Status",       90, L)], height=14,
+            empty_text=("No statement loaded yet.\n"
+                        "Click Import CSV and choose your bank statement "
+                        "(Date DD-MM-YYYY, Description, Amount, Dr/Cr)."))
         self.table.pack(fill="both", expand=True, padx=28, pady=(0, 10))
         self.table.on_open(self._on_row_open)
         foot = ctk.CTkFrame(self, fg_color="transparent")
@@ -1855,10 +1884,8 @@ class BankReconFrame(ReportBase):
         self.refresh()
 
     def _import_csv(self):
-        from tkinter import filedialog, messagebox, ttk
         import csv
         from db.setup import import_bank_statement
-        from utils.fmt import parse_date as _pd
         path = filedialog.askopenfilename(
             title="Open bank statement CSV",
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
@@ -1872,7 +1899,7 @@ class BankReconFrame(ReportBase):
                     if len(line) < 4:
                         continue
                     try:
-                        d     = _pd(line[0].strip())
+                        d     = parse_date(line[0].strip())
                         desc  = line[1].strip()
                         amt   = float(line[2].strip().replace(",", ""))
                         dr_cr = line[3].strip().upper()
@@ -1889,13 +1916,11 @@ class BankReconFrame(ReportBase):
                 "No valid rows found.\n\n"
                 "Expected format: Date, Description, Amount, Dr/Cr")
             return
-        from db.setup import import_bank_statement as _ibs
-        count = _ibs(self.con, self.account.get(), rows)
+        count = import_bank_statement(self.con, self.account.get(), rows)
         messagebox.showinfo("MUNIM", f"{count} rows imported.")
         self.refresh()
 
     def _clear(self):
-        from tkinter import messagebox
         from db.setup import clear_recon
         if not messagebox.askyesno(
                 "Clear reconciliation",
@@ -1916,24 +1941,24 @@ class BankReconFrame(ReportBase):
                   f"Statement balance: Rs {inr(summary['stmt_balance'])}"))
         self._recon_rows = rows
         out = []
-        for r in rows:
+        for row in rows:
             match_text = ""
-            if r["matches"]:
-                m = r["matches"][0]
+            if row["matches"]:
+                m = row["matches"][0]
                 match_text = f"{m['vtype']} #{m['vno']}"
-            status = ("✓ Matched"  if r["voucher_id"] else
-                      "Suggested"  if r["matches"]    else
+            status = ("✓ Matched"  if row["voucher_id"] else
+                      "Suggested"  if row["matches"]    else
                       "Unmatched")
-            out.append(((disp_date(r["date"]), r["desc"][:40],
-                          inr(r["amount"]), r["type"],
+            out.append(((disp_date(row["date"]), row["desc"][:40],
+                          inr(row["amount"]), row["type"],
                           match_text, status),
                          "total" if status == "✓ Matched" else None,
-                         r["id"]))
+                         row["id"]))
         self.table.set_rows(out)
 
     def _on_row_open(self, recon_id):
         from db.setup import reconcile_row
-        row = next((r for r in self._recon_rows if r["id"] == recon_id), None)
+        row = next((x for x in self._recon_rows if x["id"] == recon_id), None)
         if not row:
             return
         if row["matches"]:
@@ -1963,15 +1988,15 @@ class BankReconFrame(ReportBase):
         headers = ["Date", "Description", "Amount", "Dr/Cr",
                    "Best match", "Status"]
         data    = []
-        for r in rows:
+        for row in rows:
             match_text = ""
-            if r["matches"]:
-                m = r["matches"][0]
+            if row["matches"]:
+                m = row["matches"][0]
                 match_text = f"{m['vtype']} #{m['vno']}"
-            status = ("Matched"   if r["voucher_id"] else
-                      "Suggested" if r["matches"]    else
+            status = ("Matched"   if row["voucher_id"] else
+                      "Suggested" if row["matches"]    else
                       "Unmatched")
-            data.append([disp_date(r["date"]), r["desc"],
-                          r["amount"], r["type"], match_text, status])
+            data.append([disp_date(row["date"]), row["desc"],
+                          row["amount"], row["type"], match_text, status])
         return (f"Bank Reconciliation {self.account.get()}",
                 headers, data)
