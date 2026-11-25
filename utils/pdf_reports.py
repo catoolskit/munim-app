@@ -65,13 +65,9 @@ def _page_header(story, company, title, fy, W, label="Financial Year"):
     FY_W = _S("FY_W", fontSize=9, textColor=WHITE, fontName="Helvetica", leading=11)
     hdr = Table(
         [[_p(title, HDR),
-          [_p(label, SML), _p(escape(str(company)), MVAL),
-           _p(label if False else "", SML),
-           _p(escape(str(fy)), FY_W)]]],
+          [_p("Company", SML), _p(escape(str(company)), MVAL),
+           _p(label, SML), _p(escape(str(fy)), FY_W)]]],
         colWidths=[W * 0.55, W * 0.45])
-    # Right cell layout: "Company" / name / label / value
-    hdr._cellvalues[0][1] = [_p("Company", SML), _p(escape(str(company)), MVAL),
-                             _p(label, SML), _p(escape(str(fy)), FY_W)]
     hdr.setStyle(TableStyle([
         ("BACKGROUND",    (0, 0), (-1, -1), NAVY),
         ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),

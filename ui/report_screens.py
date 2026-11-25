@@ -10,7 +10,8 @@ from ui.widgets import DataTable
 from utils import settings
 from utils.export import write_table
 from utils.fmt import inr, parse_amount, parse_date, disp_date, today_str
-from utils.pdf_reports import generate_trial_balance_pdf, generate_balance_sheet_pdf, generate_pl_pdf
+from utils.pdf_reports import (generate_trial_balance_pdf, generate_balance_sheet_pdf,
+                               generate_pl_pdf)
 
 L, R = "w", "e"
 
@@ -167,7 +168,12 @@ class TrialBalanceFrame(ReportBase):
                            detailed=self._detailed(), date_from=d1, date_to=d2)
         try:
             path = generate_trial_balance_pdf(company, fy, rows, td, tc,
-                                              self._detailed(), self._period_label())
+                                              detailed=self._detailed(),
+                                              period=self._period_label())
+        except PermissionError:
+            messagebox.showerror("MUNIM", "The PDF is open in another program. "
+                                          "Close it and try again.")
+            return
         except Exception as e:
             messagebox.showerror("MUNIM", f"Could not generate PDF:\n{e}")
             return
@@ -697,89 +703,6 @@ class TwoSideReport(ReportBase):
 
 
 # ── Profit & Loss ─────────────────────────────────────────────────────────────
-def _generate_pl_pdf(company, period, ta):
-    """Trading and P&L as a two-sided A4 PDF. Returns the saved file path."""
-    from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.units import mm
-    from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer,
-                                    Table, TableStyle)
-
-    folder = os.path.join(str(s.data_dir()), "Reports")
-    os.makedirs(folder, exist_ok=True)
-    safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in period)
-    path = os.path.join(folder, f"Trading_PL_{safe}.pdf")
-
-    doc = SimpleDocTemplate(path, pagesize=A4,
-                            leftMargin=14 * mm, rightMargin=14 * mm,
-                            topMargin=14 * mm, bottomMargin=14 * mm,
-                            title="Trading and Profit & Loss Account")
-    ss = getSampleStyleSheet()
-    h1 = ParagraphStyle("h1", parent=ss["Title"], fontSize=15, spaceAfter=2)
-    sub = ParagraphStyle("sub", parent=ss["Normal"], fontSize=9.5, alignment=1,
-                         textColor=colors.HexColor("#4A5468"))
-    sec = ParagraphStyle("sec", parent=ss["Heading3"], fontSize=11,
-                         spaceBefore=10, spaceAfter=4)
-    cell = ParagraphStyle("cell", parent=ss["Normal"], fontSize=8.5, leading=10.5)
-    foot = ParagraphStyle("foot", parent=ss["Normal"], fontSize=8,
-                          textColor=colors.HexColor("#6B7385"))
-
-    def amt(v):
-        return "" if v is None else inr(v)
-
-    def side_table(left, ltotal, right, rtotal):
-        n = max(len(left), len(right))
-        lrows = list(left) + [("", None)] * (n - len(left))
-        rrows = list(right) + [("", None)] * (n - len(right))
-        data = [["Particulars (Dr)", "Amount (Rs)", "Particulars (Cr)", "Amount (Rs)"]]
-        for (ln, la), (rn, ra) in zip(lrows, rrows):
-            data.append([Paragraph(str(ln), cell), amt(la),
-                         Paragraph(str(rn), cell), amt(ra)])
-        data.append(["Total", inr(ltotal), "Total", inr(rtotal)])
-        t = Table(data, colWidths=[60 * mm, 31 * mm, 60 * mm, 31 * mm], repeatRows=1)
-        t.setStyle(TableStyle([
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 8.5),
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EEF2F8")),
-            ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-            ("ALIGN", (3, 0), (3, -1), "RIGHT"),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#D5DBE6")),
-            ("LINEBEFORE", (2, 0), (2, -1), 1.0, colors.HexColor("#9AA6BC")),
-            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-            ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#F1F5FB")),
-            ("TOPPADDING", (0, 0), (-1, -1), 3),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ]))
-        return t
-
-    t, p = ta["trading"], ta["pl"]
-    gp, npf = t["gross_profit"], p["net_profit"]
-    gp_pct, np_pct = ta.get("gross_pct", 0.0), ta.get("net_pct", 0.0)
-
-    story = [
-        Paragraph(company, h1),
-        Paragraph("Trading and Profit &amp; Loss Account", sub),
-        Paragraph(f"For the period {period}", sub),
-        Spacer(1, 6 * mm),
-        Paragraph("Trading Account", sec),
-        side_table(t["left"], t["left_total"], t["right"], t["right_total"]),
-        Paragraph("Profit &amp; Loss Account", sec),
-        side_table(p["left"], p["left_total"], p["right"], p["right_total"]),
-        Spacer(1, 6 * mm),
-        Paragraph(
-            f"<b>Gross {'Profit' if gp >= 0 else 'Loss'}:</b> Rs {inr(abs(gp))} "
-            f"({abs(gp_pct):.1f}%) &nbsp;&nbsp;&nbsp; "
-            f"<b>Net {'Profit' if npf >= 0 else 'Loss'}:</b> Rs {inr(abs(npf))} "
-            f"({abs(np_pct):.1f}%)", ss["Normal"]),
-        Spacer(1, 8 * mm),
-        Paragraph(f"Generated by MUNIM on {date.today().strftime('%d-%m-%Y')}", foot),
-    ]
-    doc.build(story)
-    return path
-
-
 class ProfitLossFrame(TwoSideReport):
     title_text = "Trading & Profit/Loss"
     sub_text   = "Trading Account gives gross profit; P&L carries it to net profit."
@@ -906,10 +829,7 @@ class ProfitLossFrame(TwoSideReport):
         st = settings.load_settings()
         company = st.get("company_name") or "Company"
         try:
-            path = _generate_pl_pdf(company, self._period_label(), self._data())
-        except ImportError:
-            messagebox.showerror("MUNIM", "PDF export needs the 'reportlab' package.")
-            return
+            path = generate_pl_pdf(company, self._period_label(), self._data())
         except PermissionError:
             messagebox.showerror("MUNIM", "The PDF is open in another program. "
                                           "Close it and try again.")
@@ -1022,6 +942,10 @@ class BalanceSheetFrame(TwoSideReport):
         bs      = balance_sheet_grouped(self.con, fy, detailed=True, date_to=as_on)
         try:
             path = generate_balance_sheet_pdf(company, fy, bs)
+        except PermissionError:
+            messagebox.showerror("MUNIM", "The PDF is open in another program. "
+                                          "Close it and try again.")
+            return
         except Exception as e:
             messagebox.showerror("MUNIM", f"Could not generate PDF:\n{e}")
             return
@@ -1361,7 +1285,6 @@ class ReturnsRegisterFrame(ReportBase):
             self.msg.configure(text=str(e))
             return None, None, None
         self.msg.configure(text="")
-        from db.setup import to_rupees
         q = """SELECT v.id, v.vdate, v.vno, v.narration, i.party, i.taxable,
                       i.cgst, i.sgst, i.igst, i.total, i.customer_name
                FROM vouchers v LEFT JOIN invoices i ON i.voucher_id=v.id

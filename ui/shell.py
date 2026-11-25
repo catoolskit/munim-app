@@ -85,7 +85,7 @@ LABEL_TEXT = "#4A5468"       # secondary text, darker than T.MUTED for contrast
 SEL_BG = "#EAF0FC"
 TILE_BG, TILE_BG_SEL, TILE_BORDER = "#FFFFFF", "#EEF4FF", "#DDE3EE"
 
-# Screens where the user types a voucher: footer leads with Save / Print.
+# Screens where the user types a voucher: footer leads with Save.
 ENTRY_PAGES = {"journal", "sales", "purchase", "salesreturn",
                "purchasereturn", "summary", "payment"}
 
@@ -998,8 +998,9 @@ class Shell(ctk.CTkFrame):
         if name in ENTRY_PAGES:
             if has_date:
                 parts.append("F2 Date")
-            if self._pdf_action(page):
-                parts.append("Ctrl+P Print")
+            # Only a saved Sales Invoice can produce a PDF.
+            if name == "sales" and self._pdf_action(page):
+                parts.append("Ctrl+P Save PDF")
         else:
             if has_date:
                 parts.append("F2 Period" if self._has_range(page) else "F2 Date")
