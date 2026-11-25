@@ -2,6 +2,8 @@
 
 Switch tabs with the buttons, the ← → keys, or 1 / 2 / 3.
 """
+import os
+import urllib.parse
 import webbrowser
 
 import customtkinter as ctk
@@ -10,8 +12,15 @@ from ui import theme as T
 
 WEBSITE = "https://smartmunim.vercel.app"
 DOWNLOAD = "https://smartmunim.vercel.app/download.html"
+
+SUPPORT_PHONE_DISPLAY = "+91 84276 51580"
+SUPPORT_PHONE_INTL = "918427651580"          # for wa.me links: country code, no '+'
+SUPPORT_EMAIL = "sumitverma2880@gmail.com"
+
 LABEL_TEXT = "#4A5468"
 CHIP_BG = "#EAF0FC"
+WHATSAPP_GREEN = "#1FAF5A"
+WHATSAPP_HOVER = "#188F49"
 TABS = ("Keyboard shortcuts", "How to use", "Support & about")
 
 SHORTCUTS = [
@@ -95,6 +104,30 @@ def _app_version():
         return getattr(__main__, "CURRENT_VERSION", "") or "—"
     except Exception:
         return "—"
+
+
+def _company_name():
+    try:
+        from utils import settings
+        return settings.load_settings().get("company_name") or "Not set"
+    except Exception:
+        return "Not set"
+
+
+def _logs_folder():
+    """Folder where MUNIM writes its error logs (…\\logs inside the data folder)."""
+    try:
+        from db import setup as s
+        return os.path.join(str(s.data_dir()), "logs")
+    except Exception:
+        return ""
+
+
+def _support_text():
+    return (f"Hello, I need help with MUNIM.\n\n"
+            f"Version: {_app_version()}\n"
+            f"Company: {_company_name()}\n\n"
+            f"My question / problem:\n")
 
 
 class HelpFrame(ctk.CTkFrame):
@@ -219,49 +252,91 @@ class HelpFrame(ctk.CTkFrame):
             self._end(card)
 
     # ── Tab 3: Support & about ────────────────────────────────────────────
+    def _whatsapp(self):
+        text = urllib.parse.quote(_support_text())
+        webbrowser.open(f"https://wa.me/{SUPPORT_PHONE_INTL}?text={text}")
+
+    def _email(self):
+        subject = urllib.parse.quote(f"MUNIM support - {_app_version()}")
+        body = urllib.parse.quote(_support_text())
+        webbrowser.open(f"mailto:{SUPPORT_EMAIL}?subject={subject}&body={body}")
+
+    def _copy_contact(self):
+        text = (f"MUNIM support\n"
+                f"WhatsApp / Phone: {SUPPORT_PHONE_DISPLAY}\n"
+                f"Email: {SUPPORT_EMAIL}\n"
+                f"Version: {_app_version()}")
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            self._copy_note.configure(text="Copied to clipboard.")
+            self.after(2500, lambda: self._copy_note.configure(text=""))
+        except Exception:
+            pass
+
     def _support_tab(self, grid):
         from db import setup as s
-        from utils import settings, errlog
-        st = settings.load_settings()
 
+        # Row 0 — About | Contact support
         about = self._card(grid, "About this copy", 0, 0)
         self._info_row(about, "Version", _app_version())
-        self._info_row(about, "Company", st.get("company_name") or "Not set")
+        self._info_row(about, "Company", _company_name())
         try:
             self._info_row(about, "Data folder", str(s.data_dir()))
         except Exception:
             pass
         self._end(about)
 
-        get = self._card(grid, "Get help and updates", 0, 1)
-        ctk.CTkLabel(get, text="Guides, the latest version and contact details are on "
-                               "the MUNIM website. MUNIM also shows a banner at the top "
-                               "when a new version is available.",
-                     font=T.f(12), text_color=T.TEXT, justify="left",
-                     wraplength=420).pack(anchor="w", padx=18, pady=(0, 10))
-        btns = ctk.CTkFrame(get, fg_color="transparent")
-        btns.pack(anchor="w", padx=16, pady=(0, 6))
-        T.button(btns, "Open website", lambda: webbrowser.open(WEBSITE),
-                 width=140).pack(side="left")
-        T.button(btns, "Download latest version", lambda: webbrowser.open(DOWNLOAD),
-                 width=200, fg_color="#E7ECF5", text_color=T.TEXT,
+        contact = self._card(grid, "Contact support", 0, 1)
+        self._info_row(contact, "WhatsApp / Call", SUPPORT_PHONE_DISPLAY)
+        self._info_row(contact, "Email", SUPPORT_EMAIL)
+        btns = ctk.CTkFrame(contact, fg_color="transparent")
+        btns.pack(anchor="w", padx=16, pady=(10, 4))
+        T.button(btns, "WhatsApp us", self._whatsapp, width=140,
+                 fg_color=WHATSAPP_GREEN, hover_color=WHATSAPP_HOVER,
+                 text_color="white").pack(side="left")
+        T.button(btns, "Send email", self._email, width=120).pack(side="left", padx=(8, 0))
+        T.button(btns, "Copy details", self._copy_contact, width=120,
+                 fg_color="#E7ECF5", text_color=T.TEXT,
                  hover_color="#DCE3F0").pack(side="left", padx=(8, 0))
-        self._end(get)
+        self._copy_note = ctk.CTkLabel(contact, text="", font=T.f(11), text_color=T.OK)
+        self._copy_note.pack(anchor="w", padx=18)
+        ctk.CTkLabel(contact, text="WhatsApp and email open with your MUNIM version "
+                                   "already filled in. Just add your question.",
+                     font=T.f(11), text_color=LABEL_TEXT, justify="left",
+                     wraplength=420).pack(anchor="w", padx=18, pady=(2, 0))
+        self._end(contact)
 
+        # Row 1 — If something goes wrong | Get help and updates
         wrong = self._card(grid, "If something goes wrong", 1, 0)
         for n, text in enumerate([
                 "If a screen fails to open, MUNIM shows \"This screen hit a problem\". "
                 "Your saved entries are not affected.",
-                "Click Copy error details and send it to support.",
+                "Click Copy error details, then send it to us on WhatsApp or email.",
                 "Press Esc to go back and carry on working."], 1):
             self._step_row(wrong, n, text)
-        try:
-            self._info_row(wrong, "Error log", str(errlog.log_path()))
-        except Exception:
-            pass
+        logs = _logs_folder()
+        if logs:
+            self._info_row(wrong, "Error logs", logs)
         self._end(wrong)
 
-        find = self._card(grid, "Finding this page", 1, 1)
+        get = self._card(grid, "Get help and updates", 1, 1)
+        ctk.CTkLabel(get, text="Guides and the latest version are on the MUNIM website. "
+                               "MUNIM also shows a banner at the top when a new "
+                               "version is available.",
+                     font=T.f(12), text_color=T.TEXT, justify="left",
+                     wraplength=420).pack(anchor="w", padx=18, pady=(0, 10))
+        wbtns = ctk.CTkFrame(get, fg_color="transparent")
+        wbtns.pack(anchor="w", padx=16, pady=(0, 6))
+        T.button(wbtns, "Open website", lambda: webbrowser.open(WEBSITE),
+                 width=140).pack(side="left")
+        T.button(wbtns, "Download latest version", lambda: webbrowser.open(DOWNLOAD),
+                 width=200, fg_color="#E7ECF5", text_color=T.TEXT,
+                 hover_color="#DCE3F0").pack(side="left", padx=(8, 0))
+        self._end(get)
+
+        # Row 2 — Finding this page
+        find = self._card(grid, "Finding this page", 2, 0, colspan=2)
         for key, desc in [("Alt + 1", "Open Help from any screen"),
                           ("? Help", "Button in the top bar, on every screen"),
                           ("U › H › H", "Utilities › Support & Information › Help")]:
