@@ -10,7 +10,7 @@ from ui.widgets import DataTable
 from utils import settings
 from utils.export import write_table
 from utils.fmt import inr, parse_amount, parse_date, disp_date, today_str
-from utils.pdf_reports import generate_trial_balance_pdf, generate_balance_sheet_pdf
+from utils.pdf_reports import generate_trial_balance_pdf, generate_balance_sheet_pdf, generate_pl_pdf
 
 L, R = "w", "e"
 
