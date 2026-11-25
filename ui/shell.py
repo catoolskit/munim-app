@@ -244,6 +244,9 @@ class MenuView(ctk.CTkFrame):
         super().__init__(master, fg_color=T.BG)
         self.on_pick, self.sel, self.rows, self.chips = on_pick, 0, [], []
         self.preview = None
+        # Mouse-hover selection stays off until the pointer actually moves, so a
+        # pointer resting over a tile cannot override the remembered highlight.
+        self._start_ptr = None
         self.is_gateway = title.lower().startswith("gateway")
         if self.is_gateway:
             # Only real workspaces become tiles; Log out is a secondary action.
@@ -286,6 +289,21 @@ class MenuView(ctk.CTkFrame):
 
         if self.items:
             self.select(max(0, min(selected_index, len(self.items) - 1)))
+        try:
+            self._start_ptr = self.winfo_pointerxy()
+        except Exception:
+            self._start_ptr = None
+
+    def _hover(self, i):
+        """Select on mouse hover, but only after the mouse has really moved."""
+        if self._start_ptr is not None:
+            try:
+                if self.winfo_pointerxy() == self._start_ptr:
+                    return
+            except Exception:
+                pass
+            self._start_ptr = None
+        self.select(i)
 
     # ── Gateway: tiles ────────────────────────────────────────────────────
     def _build_gateway(self, page, content, side):
@@ -333,14 +351,15 @@ class MenuView(ctk.CTkFrame):
             sub.pack(anchor="w", padx=18, pady=(4, 0))
             for w in (tile, num, key, lbl, sub):
                 w.bind("<Button-1>", lambda _e, i=i: self.pick(i))
-                w.bind("<Enter>", lambda _e, i=i: self.select(i))
+                w.bind("<Enter>", lambda _e, i=i: self._hover(i))
             self.rows.append(tile)
             self.chips.append(num)
 
         if side:
             side(content).grid(row=0, column=1, sticky="ns")
 
-        # Common routes are direct, explicit shortcuts without changing the menu tree.
+        # Quick actions are reserved at the bottom first, so the tiles and the
+        # company card can never push them off-screen.
         quick = T.card(page)
         quick.pack(side="bottom", fill="x", pady=(12, 0), before=content)
         ctk.CTkLabel(quick, text="QUICK ACTIONS", font=T.f(10, "bold"),
@@ -394,7 +413,7 @@ class MenuView(ctk.CTkFrame):
             chip.pack(side="right", padx=10)
             for w in (row, lbl, chip):
                 w.bind("<Button-1>", lambda _e, i=i: self.pick(i))
-                w.bind("<Enter>", lambda _e, i=i: self.select(i))
+                w.bind("<Enter>", lambda _e, i=i: self._hover(i))
             self.rows.append(row)
 
         self.preview = MenuPreview(content, facts)
@@ -591,6 +610,7 @@ class Shell(ctk.CTkFrame):
             self.render()
 
     def _go_to_gateway(self):
+        self._remember_menu_selection()
         self.stack.clear()
         self.push(("menu", "gateway"))
 
