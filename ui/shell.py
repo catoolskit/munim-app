@@ -89,6 +89,13 @@ TILE_BG, TILE_BG_SEL, TILE_BORDER = "#FFFFFF", "#EEF4FF", "#DDE3EE"
 ENTRY_PAGES = {"journal", "sales", "purchase", "salesreturn",
                "purchasereturn", "summary", "payment"}
 
+# Quick Actions on the Gateway (user-customisable, saved in settings.json).
+DEFAULT_QUICK = ["sales", "purchase", "ledger", "dashboard"]
+MAX_QUICK = 8
+QUICK_COLS = 4
+QUICK_EXCLUDE = {"reset"}          # never offer a destructive action as a shortcut
+QUICK_FUNCS = {"backup": "Backup Data"}
+
 # Attribute names screens use for their date / period fields (checked in order).
 DATE_ATTRS = ("_d1", "d1", "asof", "_d2", "d2", "date_entry", "vdate", "date")
 DATE_RE = re.compile(r"^\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}$")
@@ -149,7 +156,7 @@ ITEM_INFO = {
     "audit": "Who created, edited or deleted each voucher, and when.",
     "password": "Change your login password.",
     "renew": "Enter a new licence key to extend your subscription.",
-    "help": "All keyboard shortcuts and how-to guides.",
+    "help": "All keyboard shortcuts, how-to guides and support information.",
     "about": "Version, licence and support contact.",
 }
 
@@ -234,16 +241,20 @@ class MenuPreview(ctk.CTkFrame):
 
 
 class MenuView(ctk.CTkFrame):
-    """Gateway = workspace tiles. Other menus = compact list + Preview panel."""
+    """Gateway = workspace tiles + Quick Actions. Other menus = list + Preview."""
 
     GATEWAY_COLS = 2
     LIST_WIDTH = 520
 
     def __init__(self, master, title, items, on_pick, side=None, selected_index=0,
-                 facts=None):
+                 facts=None, quick=None, on_customize=None):
         super().__init__(master, fg_color=T.BG)
         self.on_pick, self.sel, self.rows, self.chips = on_pick, 0, [], []
         self.preview = None
+        # Gateway keyboard focus is either on the tiles or in Quick Actions.
+        self.zone, self.qsel = "tiles", 0
+        self.qbtns, self.qactions = [], []
+        self.on_customize = on_customize
         # Mouse-hover selection stays off until the pointer actually moves, so a
         # pointer resting over a tile cannot override the remembered highlight.
         self._start_ptr = None
@@ -283,30 +294,51 @@ class MenuView(ctk.CTkFrame):
         content = ctk.CTkFrame(page, fg_color="transparent")
         content.pack(fill="both", expand=True)
         if self.is_gateway:
-            self._build_gateway(page, content, side)
+            self._build_gateway(page, content, side, quick or [])
         else:
             self._build_list(content, facts)
 
         if self.items:
-            self.select(max(0, min(selected_index, len(self.items) - 1)))
+            if (isinstance(selected_index, tuple) and selected_index
+                    and selected_index[0] == "q" and self.qbtns):
+                self._focus_quick(max(0, min(selected_index[1], len(self.qbtns) - 1)))
+            else:
+                idx = selected_index if isinstance(selected_index, int) else 0
+                self.select(max(0, min(idx, len(self.items) - 1)))
         try:
             self._start_ptr = self.winfo_pointerxy()
         except Exception:
             self._start_ptr = None
 
-    def _hover(self, i):
-        """Select on mouse hover, but only after the mouse has really moved."""
-        if self._start_ptr is not None:
-            try:
-                if self.winfo_pointerxy() == self._start_ptr:
-                    return
-            except Exception:
-                pass
-            self._start_ptr = None
-        self.select(i)
+    # ── Position memory (used by Shell when going back) ───────────────────
+    @property
+    def position(self):
+        if self.is_gateway and self.zone == "quick":
+            return ("q", self.qsel)
+        return self.sel
 
-    # ── Gateway: tiles ────────────────────────────────────────────────────
-    def _build_gateway(self, page, content, side):
+    # ── Mouse hover ───────────────────────────────────────────────────────
+    def _pointer_moved(self):
+        if self._start_ptr is None:
+            return True
+        try:
+            if self.winfo_pointerxy() == self._start_ptr:
+                return False
+        except Exception:
+            pass
+        self._start_ptr = None
+        return True
+
+    def _hover(self, i):
+        if self._pointer_moved():
+            self.select(i)
+
+    def _hover_q(self, j):
+        if self._pointer_moved():
+            self._focus_quick(j)
+
+    # ── Gateway: tiles + quick actions ────────────────────────────────────
+    def _build_gateway(self, page, content, side, quick):
         content.grid_columnconfigure(0, weight=1)
         content.grid_columnconfigure(1, weight=0)
         content.grid_rowconfigure(0, weight=1)
@@ -360,22 +392,87 @@ class MenuView(ctk.CTkFrame):
 
         # Quick actions are reserved at the bottom first, so the tiles and the
         # company card can never push them off-screen.
-        quick = T.card(page)
-        quick.pack(side="bottom", fill="x", pady=(12, 0), before=content)
-        ctk.CTkLabel(quick, text="QUICK ACTIONS", font=T.f(10, "bold"),
-                     text_color=T.MUTED).pack(anchor="w", padx=18, pady=(10, 7))
-        actions = ctk.CTkFrame(quick, fg_color="transparent")
+        qcard = T.card(page)
+        qcard.pack(side="bottom", fill="x", pady=(12, 0), before=content)
+        head = ctk.CTkFrame(qcard, fg_color="transparent")
+        head.pack(fill="x", padx=18, pady=(10, 6))
+        ctk.CTkLabel(head, text="QUICK ACTIONS", font=T.f(10, "bold"),
+                     text_color=T.MUTED).pack(side="left")
+        ctk.CTkLabel(head, text="Press ↓ from the bottom tiles to reach these",
+                     font=T.f(10), text_color=T.MUTED).pack(side="left", padx=12)
+        custom_btn = ctk.CTkButton(
+            head, text="⚙  Customize", width=116, height=28, corner_radius=7,
+            fg_color="transparent", hover_color="#E7ECF5",
+            border_width=1, border_color=T.BORDER,
+            text_color=T.TEXT, font=T.f(11, "bold"),
+            command=self._customize)
+        custom_btn.pack(side="right")
+
+        actions = ctk.CTkFrame(qcard, fg_color="transparent")
         actions.pack(fill="x", padx=14, pady=(0, 12))
-        for label, key, target in [("＋ Sales Invoice", "S", "sales"),
-                                   ("＋ Purchase Bill", "P", "purchase"),
-                                   ("▤ Ledger View", "L", "ledger"),
-                                   ("▦ Dashboard", "D", "dashboard")]:
-            T.button(actions, label,
-                     lambda target=target, label=label, key=key: self.on_pick(
-                         {"go": ("page", target), "label": label, "key": key}),
-                     height=34, fg_color=SEL_BG, text_color=T.TEXT,
-                     hover_color="#DCE6F8", font=T.f(11, "bold")
-                     ).pack(side="left", fill="x", expand=True, padx=4)
+        for c in range(QUICK_COLS):
+            actions.grid_columnconfigure(c, weight=1, uniform="quick")
+
+        buttons = []
+        if not quick:
+            ctk.CTkLabel(actions, text="No quick actions yet. Click Customize to add up to 8.",
+                         font=T.f(12), text_color=T.MUTED).grid(
+                row=0, column=0, columnspan=QUICK_COLS, sticky="w", padx=6, pady=6)
+        for j, it in enumerate(quick):
+            b = ctk.CTkButton(actions, text=it["label"], height=36, corner_radius=8,
+                              fg_color=SEL_BG, hover_color="#DCE6F8",
+                              text_color=T.TEXT, font=T.f(12, "bold"),
+                              border_width=2, border_color=SEL_BG,
+                              command=lambda j=j: self._quick_pick(j))
+            b.grid(row=j // QUICK_COLS, column=j % QUICK_COLS,
+                   sticky="ew", padx=4, pady=3)
+            b.bind("<Enter>", lambda _e, j=j: self._hover_q(j))
+            buttons.append(b)
+        custom_btn.bind("<Enter>", lambda _e, j=len(buttons): self._hover_q(j))
+
+        # The Customize button is the last keyboard stop in the Quick Actions zone.
+        self.qbtns = buttons + [custom_btn]
+        self.qactions = list(quick) + [None]
+
+    def _customize(self):
+        if callable(self.on_customize):
+            self.on_customize()
+
+    def _quick_pick(self, j):
+        self._focus_quick(j)
+        it = self.qactions[j]
+        if it is None:
+            self._customize()
+        else:
+            self.on_pick(it)
+
+    def _paint_tiles(self):
+        for n, row in enumerate(self.rows):
+            on = self.zone == "tiles" and n == self.sel
+            row.configure(fg_color=TILE_BG_SEL if on else TILE_BG,
+                          border_color=T.ACCENT if on else TILE_BORDER)
+            self.chips[n].configure(fg_color=T.ACCENT if on else SEL_BG,
+                                    text_color="white" if on else T.ACCENT)
+
+    def _paint_quick(self):
+        last = len(self.qbtns) - 1
+        for k, b in enumerate(self.qbtns):
+            on = self.zone == "quick" and k == self.qsel
+            if k == last:   # Customize button
+                b.configure(fg_color=SEL_BG if on else "transparent",
+                            border_color=T.ACCENT if on else T.BORDER)
+            else:
+                b.configure(fg_color=T.ACCENT if on else SEL_BG,
+                            text_color="white" if on else T.TEXT,
+                            border_color=T.ACCENT if on else SEL_BG)
+
+    def _focus_quick(self, j):
+        if not self.qbtns:
+            return
+        self.zone = "quick"
+        self.qsel = j
+        self._paint_tiles()
+        self._paint_quick()
 
     # ── Other menus: compact list + preview ───────────────────────────────
     def _build_list(self, content, facts):
@@ -424,16 +521,15 @@ class MenuView(ctk.CTkFrame):
         if not self.rows:
             return
         self.sel = i
+        if self.is_gateway:
+            self.zone = "tiles"
+            self._paint_tiles()
+            self._paint_quick()
+            return
         for n, row in enumerate(self.rows):
             on = n == i
-            if self.is_gateway:
-                row.configure(fg_color=TILE_BG_SEL if on else TILE_BG,
-                              border_color=T.ACCENT if on else TILE_BORDER)
-                self.chips[n].configure(fg_color=T.ACCENT if on else SEL_BG,
-                                        text_color="white" if on else T.ACCENT)
-            else:
-                row.configure(fg_color=SEL_BG if on else "transparent",
-                              border_color="#C9D8F5" if on else T.CARD)
+            row.configure(fg_color=SEL_BG if on else "transparent",
+                          border_color="#C9D8F5" if on else T.CARD)
         if self.preview is not None:
             self.preview.show(self.items[i])
 
@@ -454,22 +550,52 @@ class MenuView(ctk.CTkFrame):
                 return None
         return None
 
+    def _handle_quick(self, k):
+        nq = len(self.qbtns)
+        real = nq - 1                     # real quick buttons (Customize excluded)
+        j = self.qsel
+        if k in ("Return", "KP_Enter"):
+            self._quick_pick(j)
+        elif k == "Right":
+            self._focus_quick((j + 1) % nq)
+        elif k == "Left":
+            self._focus_quick((j - 1) % nq)
+        elif k == "Down":
+            if j < real and j + QUICK_COLS < real:
+                self._focus_quick(j + QUICK_COLS)
+        elif k == "Up":
+            if j < real and j - QUICK_COLS >= 0:
+                self._focus_quick(j - QUICK_COLS)
+            else:
+                # Back to the tiles: first tile of the bottom row.
+                n, c = len(self.items), self.GATEWAY_COLS
+                self.select(((n - 1) // c) * c)
+        else:
+            return self._letter(k)
+        return None
+
     def handle(self, event):
         """Returns "back" when the shell should go back (Left in a list menu)."""
         k, n = event.keysym, len(self.items)
         if not n:
             return None
-        if k in ("Return", "KP_Enter"):
-            self.pick(self.sel)
-            return None
         if self.is_gateway:
+            if self.zone == "quick" and self.qbtns:
+                return self._handle_quick(k)
             c = self.GATEWAY_COLS
-            if k == "Right":
+            if k in ("Return", "KP_Enter"):
+                self.pick(self.sel)
+            elif k == "Right":
                 self.select((self.sel + 1) % n)
             elif k == "Left":
                 self.select((self.sel - 1) % n)
             elif k == "Down":
-                self.select(self.sel + c if self.sel + c < n else self.sel % c)
+                if self.sel + c < n:
+                    self.select(self.sel + c)
+                elif self.qbtns:
+                    self._focus_quick(0)          # bottom row → Quick Actions
+                else:
+                    self.select(self.sel % c)
             elif k == "Up":
                 if self.sel - c >= 0:
                     self.select(self.sel - c)
@@ -479,7 +605,9 @@ class MenuView(ctk.CTkFrame):
             else:
                 return self._letter(k)
             return None
-        if k == "Down":
+        if k in ("Return", "KP_Enter"):
+            self.pick(self.sel)
+        elif k == "Down":
             self.select((self.sel + 1) % n)
         elif k == "Up":
             self.select((self.sel - 1) % n)
@@ -526,6 +654,12 @@ class Shell(ctk.CTkFrame):
         from datetime import date as _d
         ctk.CTkLabel(right, text=f"FY {s.fy_of(_d.today())} · {username}",
                      font=T.f(11), text_color="#9FB3D9").pack(anchor="e")
+        # Always-visible Help button; also teaches the Alt+1 shortcut.
+        ctk.CTkButton(
+            bar, text="?  Help  (Alt+1)", width=128, height=34, corner_radius=9,
+            fg_color=T.NAVY_HOVER, hover_color=T.NAVY_ACTIVE,
+            font=T.f(12, "bold"), command=self._open_help
+        ).pack(side="right", padx=(0, 6))
 
         # Footer: shortcuts relevant to the current screen only.
         self.status = ctk.CTkLabel(self, text="", font=T.f(11), text_color=LABEL_TEXT,
@@ -589,7 +723,7 @@ class Shell(ctk.CTkFrame):
 
     def _remember_menu_selection(self):
         if self.stack and isinstance(self.current, MenuView):
-            self._menu_selection[self.stack[-1][1]] = self.current.sel
+            self._menu_selection[self.stack[-1][1]] = self.current.position
 
     def push(self, node):
         self._remember_menu_selection()
@@ -620,11 +754,16 @@ class Shell(ctk.CTkFrame):
         kind, name = self.stack[-1]
         if kind == "menu":
             title, items = MENUS[name]
-            side = self._info_card if name == "gateway" else None
-            self.current = MenuView(
-                self.body, title, items, self.pick, side,
-                selected_index=self._menu_selection.get(name, 0),
-                facts=None if name == "gateway" else self._preview_facts)
+            if name == "gateway":
+                self.current = MenuView(
+                    self.body, title, items, self.pick, self._info_card,
+                    selected_index=self._menu_selection.get(name, 0),
+                    quick=self._quick_items(), on_customize=self._customize_quick)
+            else:
+                self.current = MenuView(
+                    self.body, title, items, self.pick, None,
+                    selected_index=self._menu_selection.get(name, 0),
+                    facts=self._preview_facts)
             self.top.focus_set()
         else:
             try:
@@ -667,6 +806,147 @@ class Shell(ctk.CTkFrame):
     def _open_ledger_account(self, account_name):
         self._ledger_account = account_name
         self.push(("page", "ledger"))
+
+    # ── Quick Actions (customisable) ──────────────────────────────────────
+    @staticmethod
+    def _quick_go(key):
+        if key in PAGES and key not in QUICK_EXCLUDE:
+            return ("page", key)
+        if key in QUICK_FUNCS:
+            return ("fn", key)
+        return None
+
+    @staticmethod
+    def _quick_label(key):
+        if key in QUICK_FUNCS:
+            return QUICK_FUNCS[key]
+        return PAGES[key][0] if key in PAGES else key
+
+    def _quick_keys(self):
+        saved = settings.load_settings().get("quick_actions")
+        keys = saved if isinstance(saved, list) else DEFAULT_QUICK
+        out = []
+        for k in keys:
+            if self._quick_go(k) and k not in out:
+                out.append(k)
+        return out[:MAX_QUICK]
+
+    def _quick_items(self):
+        return [{"label": self._quick_label(k), "go": self._quick_go(k), "key": ""}
+                for k in self._quick_keys()]
+
+    def _quick_choices(self):
+        """[(menu title, [(key, label)])] in menu order, for the Customize dialog."""
+        out, seen = [], set()
+        for mkey, (mtitle, mitems) in MENUS.items():
+            if mkey == "gateway":
+                continue
+            opts = []
+            for it in mitems:
+                go = it.get("go")
+                if not go or go[0] not in ("page", "fn"):
+                    continue
+                k = go[1]
+                if k in seen or not self._quick_go(k):
+                    continue
+                seen.add(k)
+                opts.append((k, it["label"]))
+            if opts:
+                out.append((mtitle, opts))
+        return out
+
+    def _customize_quick(self):
+        chosen = self._quick_keys()
+        labels, boxes = {}, {}
+
+        popup = ctk.CTkToplevel(self.top)
+        popup.title("Customize Quick Actions — MUNIM")
+        popup.geometry("560x640")
+        popup.minsize(480, 460)
+        popup.transient(self.top)
+        popup.grab_set()
+
+        ctk.CTkLabel(popup, text="Customize Quick Actions", font=T.f(20, "bold"),
+                     text_color=T.TEXT).pack(anchor="w", padx=22, pady=(20, 2))
+        ctk.CTkLabel(popup, text=f"Tick up to {MAX_QUICK} screens. They appear on the "
+                                 "Gateway in the order you tick them.",
+                     font=T.f(12), text_color=LABEL_TEXT, wraplength=500,
+                     justify="left").pack(anchor="w", padx=22, pady=(0, 6))
+        count_lbl = ctk.CTkLabel(popup, text="", font=T.f(12, "bold"),
+                                 text_color=T.ACCENT)
+        count_lbl.pack(anchor="w", padx=22, pady=(0, 8))
+
+        listing = ctk.CTkScrollableFrame(popup, fg_color=T.CARD, border_width=1,
+                                         border_color=T.BORDER, corner_radius=10)
+        listing.pack(fill="both", expand=True, padx=22, pady=(0, 12))
+
+        def refresh_state():
+            count_lbl.configure(text=f"{len(chosen)} of {MAX_QUICK} selected")
+            full = len(chosen) >= MAX_QUICK
+            for k, cb in boxes.items():
+                on = k in chosen
+                cb.configure(text=(f"{labels[k]}    #{chosen.index(k) + 1}" if on
+                                   else labels[k]),
+                             state="disabled" if (full and not on) else "normal")
+
+        def toggle(k):
+            if boxes[k].get():
+                if k not in chosen and len(chosen) < MAX_QUICK:
+                    chosen.append(k)
+                elif k not in chosen:
+                    boxes[k].deselect()
+            elif k in chosen:
+                chosen.remove(k)
+            refresh_state()
+
+        for title, opts in self._quick_choices():
+            ctk.CTkLabel(listing, text=title.upper(), font=T.f(10, "bold"),
+                         text_color=T.ACCENT).pack(anchor="w", padx=12, pady=(12, 4))
+            for k, label in opts:
+                labels[k] = label
+                cb = ctk.CTkCheckBox(listing, text=label, font=T.f(12),
+                                     text_color=T.TEXT, fg_color=T.ACCENT,
+                                     hover_color=T.ACCENT_HOVER,
+                                     command=lambda k=k: toggle(k))
+                if k in chosen:
+                    cb.select()
+                cb.pack(anchor="w", padx=18, pady=3)
+                boxes[k] = cb
+
+        def reset():
+            chosen[:] = [k for k in DEFAULT_QUICK if k in boxes]
+            for k, cb in boxes.items():
+                (cb.select if k in chosen else cb.deselect)()
+            refresh_state()
+
+        def close():
+            try:
+                popup.grab_release()
+            except Exception:
+                pass
+            popup.destroy()
+
+        def save():
+            st = settings.load_settings()
+            st["quick_actions"] = list(chosen)
+            settings.save_settings(st)
+            close()
+            if self.stack and self.stack[-1] == ("menu", "gateway"):
+                self._remember_menu_selection()
+                self.render()
+
+        btns = ctk.CTkFrame(popup, fg_color="transparent")
+        btns.pack(fill="x", padx=22, pady=(0, 18))
+        T.button(btns, "Reset to default", reset, width=140,
+                 fg_color="#E7ECF5", text_color=T.TEXT,
+                 hover_color="#DCE3F0").pack(side="left")
+        T.button(btns, "Save", save, width=110).pack(side="right")
+        T.button(btns, "Cancel", close, width=100,
+                 fg_color="#E7ECF5", text_color=T.TEXT,
+                 hover_color="#DCE3F0").pack(side="right", padx=(0, 8))
+        popup.bind("<Escape>", lambda _e: close())
+        popup.protocol("WM_DELETE_WINDOW", close)
+        refresh_state()
 
     # ── Menu preview figures ──────────────────────────────────────────────
     def _cash_bank(self):
@@ -1005,11 +1285,15 @@ class Shell(ctk.CTkFrame):
         kind, name = self.stack[-1]
         if kind == "menu":
             if name == "gateway":
-                parts = ["↑ ↓ ← → Navigate", "Enter Open", "Alt+G Go To", "Q Log out"]
+                parts = ["↑ ↓ ← → Navigate", "Enter Open", "Alt+G Go To",
+                         "Alt+1 Help", "Q Log out"]
             else:
                 parts = ["↑ ↓ ← → Navigate", "Enter Open", "Alt+G Go To",
-                         "Alt+H Home", "Esc Back"]
+                         "Alt+H Home", "Alt+1 Help", "Esc Back"]
             return SEP.join(parts)
+
+        if name == "help":
+            return SEP.join(["← → Switch tab", "1 2 3 Jump to tab", "Esc Back"])
 
         page, parts = self.current, []
         has_date = self._date_field(page) is not None
@@ -1120,6 +1404,8 @@ class Shell(ctk.CTkFrame):
         return "break"
 
     def _open_help(self, _event=None):
+        if self.stack and self.stack[-1] == ("page", "help"):
+            return "break"
         self.push(("page", "help"))
         return "break"
 
@@ -1139,6 +1425,14 @@ class Shell(ctk.CTkFrame):
             focused = self.top.focus_get()
         except Exception:
             focused = getattr(event, "widget", None)
+        # Screens with their own keys (e.g. Help tabs) get first refusal.
+        handler = getattr(self.current, "handle_key", None)
+        if callable(handler) and not is_text_input_widget(focused):
+            try:
+                if handler(event):
+                    return "break"
+            except Exception:
+                pass
         action = single_key_action(event.keysym,
                                    text_input_focused=is_text_input_widget(focused))
         if action and action in PAGES:
