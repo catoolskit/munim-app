@@ -63,7 +63,12 @@ class EntryBase(ctk.CTkFrame):
             self.opener(self._last_vid, lambda: None)
 
     def _save_pdf(self):
-        if not self._last_vid:
+        # A PDF exists only for a sales invoice that has just been saved;
+        # the Save PDF button is shown only in that case.
+        if not self._last_vid or not self.pdf_btn.winfo_manager():
+            self.msg.configure(
+                text="Save the invoice first, then Ctrl+P saves its PDF.",
+                text_color=T.MUTED)
             return
         try:
             from utils.pdf_invoice import generate_invoice_pdf
@@ -1039,10 +1044,11 @@ class _ReturnRowsMixin:
                  width=110, **GHOST).pack(side="left")
         self.row_count_lbl = ctk.CTkLabel(addbar, text="", font=T.f(11), text_color=T.MUTED)
         self.row_count_lbl.pack(side="left", padx=10)
-        self.summary = ctk.CTkLabel(items_wrap, text="", font=T.f(13, "bold"),
+        # The summary belongs to this method's own card ("wrap").
+        self.summary = ctk.CTkLabel(wrap, text="", font=T.f(13, "bold"),
                                      text_color=T.TEXT, fg_color="#F0F5FF",
                                      corner_radius=8, anchor="e", height=38)
-        self.summary.grid(row=2, column=0, sticky="ew", padx=18, pady=(4, 12))
+        self.summary.grid(row=1, column=0, sticky="ew", padx=18, pady=(4, 12))
         self._update_row_count()
         return items
 
@@ -1112,12 +1118,14 @@ class SalesReturnFrame(_ReturnRowsMixin, EntryBase):
         self._selected_inv_id  = None
         self._inv_radio_var    = ctk.StringVar(value="")
 
+        # Items first, then the Save button underneath them.
+        self._build_rows_area(scroll)
+
         foot = ctk.CTkFrame(scroll, fg_color="transparent")
-        foot.pack(fill="x", padx=28, pady=10)
+        foot.pack(fill="x", padx=28, pady=(0, 14))
         T.button(foot, "Save Credit Note", self.save, width=180).pack(side="left")
         self._make_msg(foot)
 
-        self._build_rows_area(scroll)
         self._party_changed(self.party.get())
         focus_later(self.rows[0][0])
 
@@ -1289,12 +1297,14 @@ class PurchaseReturnFrame(_ReturnRowsMixin, EntryBase):
         self._selected_inv_id = None
         self._inv_radio_var   = ctk.StringVar(value="")
 
+        # Items first, then the Save button underneath them.
+        self._build_rows_area(scroll)
+
         foot = ctk.CTkFrame(scroll, fg_color="transparent")
-        foot.pack(fill="x", padx=28, pady=10)
+        foot.pack(fill="x", padx=28, pady=(0, 14))
         T.button(foot, "Save Debit Note", self.save, width=180).pack(side="left")
         self._make_msg(foot)
 
-        self._build_rows_area(scroll)
         self._party_changed(self.party.get())
         focus_later(self.rows[0][0])
 
