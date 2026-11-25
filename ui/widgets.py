@@ -86,10 +86,9 @@ class ErrorPanel(ctk.CTkFrame):
 
     def __init__(self, master, text):
         super().__init__(master, fg_color="transparent")
-        from utils import errlog
         T.title(self, "This screen hit a problem",
-                f"Details saved to: {errlog.log_path()}\n"
-                "Press Esc to go back. Send these details to your developer."
+                "Press Esc to go back. Copy the details below and send them "
+                "to your developer."
                 ).pack(anchor="w", padx=28, pady=(24, 12))
         bar = ctk.CTkFrame(self, fg_color="transparent")
         bar.pack(anchor="w", padx=28, pady=(0, 8))
