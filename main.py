@@ -7,8 +7,11 @@ from utils import shortcut, errlog, settings
 from utils.licence import validate_key
 from tkinter import messagebox, simpledialog
 
+APP_NAME = "MUNIM Books"
+APP_TAGLINE = "Simple books for small traders"
 CURRENT_VERSION = "v0.18"
 GITHUB_API = "https://api.github.com/repos/catoolskit/munim-app/releases/latest"
+DOWNLOAD_PAGE = "technicalmunim.vercel.app/download.html"
 
 
 class MunimApp(ctk.CTk):
@@ -18,7 +21,7 @@ class MunimApp(ctk.CTk):
         T.apply_global_theme()
         super().__init__()
         ctk.set_appearance_mode("light")
-        self.title("MUNIM")
+        self.title(APP_NAME)
         self.configure(fg_color=T.BG)
         self.geometry("1180x720")
         self.minsize(1000, 640)
@@ -26,20 +29,20 @@ class MunimApp(ctk.CTk):
         self.frame = None
         self._version_banner = None
         self.show_company_picker()
-        self.after(700,  self._desktop_shortcut)
-        self.after(3000, self._check_version)   # check after UI settles
+        self.after(700, self._desktop_shortcut)
+        self.after(3000, self._check_version)  # check after UI settles
 
     def report_callback_exception(self, exc, val, tb):
         errlog.log_exception(exc, val, tb)
-        messagebox.showerror("MUNIM", f"Something went wrong:\n{val}\n\nDetails were saved to {errlog.log_path()}")
+        messagebox.showerror(APP_NAME, f"Something went wrong:\n{val}\n\nDetails were saved to {errlog.log_path()}")
 
     def _desktop_shortcut(self):
         shortcut.setup(
             ask=lambda: messagebox.askyesno(
-                "MUNIM", "Create a MUNIM shortcut on your desktop?\n\n"
+                APP_NAME, f"Create a {APP_NAME} shortcut on your desktop?\n\n"
                 "Keep MUNIM.exe in a permanent folder first. If you move it later, "
-                "the shortcut updates itself the next time you open MUNIM."),
-            notify=lambda m: messagebox.showinfo("MUNIM", m))
+                "the shortcut updates itself the next time you open MUNIM Books."),
+            notify=lambda m: messagebox.showinfo(APP_NAME, m))
 
     # ── Version check ─────────────────────────────────────────────────────────
     def _check_version(self):
@@ -59,7 +62,7 @@ class MunimApp(ctk.CTk):
             if latest and latest != CURRENT_VERSION:
                 self.after(0, lambda: self._show_version_banner(latest))
         except Exception:
-            pass   # no internet — silently skip
+            pass  # no internet — silently skip
 
     def _show_version_banner(self, latest_version):
         if self._version_banner:
@@ -69,7 +72,7 @@ class MunimApp(ctk.CTk):
         banner.lift()
         ctk.CTkLabel(
             banner,
-            text=f"⬆  New version {latest_version} available — smartmunim.vercel.app/download.html",
+            text=f"⬆ New version {latest_version} available — {DOWNLOAD_PAGE}",
             font=T.f(11), text_color="white"
         ).pack(side="left", padx=16, pady=4)
         ctk.CTkButton(
@@ -92,29 +95,38 @@ class MunimApp(ctk.CTk):
         self.frame = frame
         frame.pack(fill="both", expand=True)
 
+    def _brand_panel(self, parent):
+        left = ctk.CTkFrame(parent, fg_color=T.NAVY, corner_radius=0)
+        left.grid(row=0, column=0, sticky="nsew")
+        ctk.CTkLabel(left, text=APP_NAME, font=T.f(40, "bold"), text_color="white").place(
+            relx=0.5, rely=0.44, anchor="center")
+        ctk.CTkLabel(left, text=APP_TAGLINE, font=T.f(14),
+                     text_color="#9FB3D9").place(relx=0.5, rely=0.52, anchor="center")
+        return left
+
     def show_company_picker(self):
         f = ctk.CTkFrame(self, fg_color="transparent")
         f.grid_columnconfigure(0, weight=2, uniform="a")
         f.grid_columnconfigure(1, weight=3, uniform="a")
         f.grid_rowconfigure(0, weight=1)
-        left = ctk.CTkFrame(f, fg_color=T.NAVY, corner_radius=0)
-        left.grid(row=0, column=0, sticky="nsew")
-        ctk.CTkLabel(left, text="MUNIM", font=T.f(44, "bold"), text_color="white").place(
-            relx=0.5, rely=0.44, anchor="center")
-        ctk.CTkLabel(left, text="Simple books for small traders", font=T.f(14),
-                     text_color="#9FB3D9").place(relx=0.5, rely=0.52, anchor="center")
+
+        self._brand_panel(f)
+
         right = ctk.CTkFrame(f, fg_color="transparent")
         right.grid(row=0, column=1, sticky="nsew")
         card = T.card(right)
         card.place(relx=0.5, rely=0.5, anchor="center")
+
         ctk.CTkLabel(card, text="Select Company", font=T.f(24, "bold"),
                      text_color=T.TEXT).pack(anchor="w", padx=34, pady=(32, 2))
         ctk.CTkLabel(card, text="Choose a company to open, or create a new one.",
                      font=T.f(13), text_color=T.MUTED).pack(anchor="w", padx=34, pady=(0, 18))
+
         self._company_list_frame = ctk.CTkScrollableFrame(card, fg_color="transparent",
-                                                           width=330, height=200)
+                                                          width=330, height=200)
         self._company_list_frame.pack(padx=20, pady=(0, 10), fill="x")
         self._refresh_company_list(card)
+
         msg = ctk.CTkLabel(card, text="", font=T.f(12), text_color=T.DANGER)
         msg.pack(anchor="w", padx=34, pady=(0, 4))
 
@@ -152,7 +164,6 @@ class MunimApp(ctk.CTk):
         settings.set_active_company(name)
         from db.setup import connect, init_db
         self.con = init_db(company_db_path(name))
-
         # Require activation for each company database until a valid licence
         # has been stored in that company's settings.
         st = settings.load_settings()
@@ -172,7 +183,6 @@ class MunimApp(ctk.CTk):
                 self.show_change_password(company_name, row["username"], row["role"])
             else:
                 self.show_shell(row["username"], row["role"])
-
         self._swap(ActivationFrame(self, self.con, activated))
 
     def _auth(self, heading, sub):
@@ -180,12 +190,9 @@ class MunimApp(ctk.CTk):
         f.grid_columnconfigure(0, weight=2, uniform="a")
         f.grid_columnconfigure(1, weight=3, uniform="a")
         f.grid_rowconfigure(0, weight=1)
-        left = ctk.CTkFrame(f, fg_color=T.NAVY, corner_radius=0)
-        left.grid(row=0, column=0, sticky="nsew")
-        ctk.CTkLabel(left, text="MUNIM", font=T.f(44, "bold"), text_color="white").place(
-            relx=0.5, rely=0.44, anchor="center")
-        ctk.CTkLabel(left, text="Simple books for small traders", font=T.f(14),
-                     text_color="#9FB3D9").place(relx=0.5, rely=0.52, anchor="center")
+
+        self._brand_panel(f)
+
         right = ctk.CTkFrame(f, fg_color="transparent")
         right.grid(row=0, column=1, sticky="nsew")
         card = T.card(right)
@@ -220,6 +227,7 @@ class MunimApp(ctk.CTk):
                 self.show_change_password(company_name, row["username"], row["role"])
             else:
                 self.show_shell(row["username"], row["role"])
+
         pw.bind("<Return>", go)
         T.button(card, "Log in", go, width=330).pack(padx=34, pady=(8, 32))
         self._swap(f)
@@ -245,6 +253,7 @@ class MunimApp(ctk.CTk):
                 msg.configure(text=str(e), text_color=T.DANGER)
                 return
             self.show_shell(username, role)
+
         p2.bind("<Return>", save)
         T.button(card, "Save and continue", save, width=330).pack(padx=34, pady=(8, 32))
         self._swap(f)
