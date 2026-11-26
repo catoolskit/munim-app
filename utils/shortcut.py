@@ -1,14 +1,28 @@
-"""First-run desktop shortcut for the built MUNIM.exe.
-Asks once, remembers the answer, and re-points the shortcut if the .exe is moved."""
-import json, os, subprocess, sys, threading
+"""First-run desktop shortcut for the built MUNIM.exe (shown as "MUNIM Books").
+Asks once, remembers the answer, and re-points the shortcut if the .exe is moved.
+Also removes the old "MUNIM" shortcut from earlier versions so there is no duplicate."""
+import os, subprocess, sys, threading
 from utils import settings
+
+SHORTCUT_NAME = "MUNIM Books"
 
 PS_SCRIPT = r"""
 $ErrorActionPreference = 'Stop'
 $exe = $env:MUNIM_EXE
+$name = $env:MUNIM_LNK_NAME
 $desktop = [Environment]::GetFolderPath('Desktop')
-$lnk = Join-Path $desktop 'MUNIM.lnk'
 $ws = New-Object -ComObject WScript.Shell
+
+# Remove the old "MUNIM" shortcut (renamed to MUNIM Books) if it points to MUNIM.exe
+$old = Join-Path $desktop 'MUNIM.lnk'
+if (Test-Path $old) {
+    try {
+        $t = $ws.CreateShortcut($old).TargetPath
+        if ($t -eq $exe -or [IO.Path]::GetFileName($t) -ieq 'MUNIM.exe') { Remove-Item $old -Force }
+    } catch {}
+}
+
+$lnk = Join-Path $desktop ($name + '.lnk')
 if (Test-Path $lnk) {
     $existing = $ws.CreateShortcut($lnk)
     if ($existing.TargetPath -eq $exe) { exit 0 }
@@ -17,13 +31,14 @@ $s = $ws.CreateShortcut($lnk)
 $s.TargetPath = $exe
 $s.WorkingDirectory = Split-Path $exe
 $s.IconLocation = "$exe,0"
-$s.Description = 'MUNIM - Accounting for small business'
+$s.Description = 'MUNIM Books - Accounting for small business'
 $s.Save()
 """
 
+
 def create_shortcut(exe):
-    """Creates or re-points %Desktop%\\MUNIM.lnk. Returns (ok, error_text)."""
-    env = dict(os.environ, MUNIM_EXE=exe)
+    """Creates or re-points the desktop shortcut. Returns (ok, error_text)."""
+    env = dict(os.environ, MUNIM_EXE=exe, MUNIM_LNK_NAME=SHORTCUT_NAME)
     try:
         r = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
@@ -35,6 +50,7 @@ def create_shortcut(exe):
     if r.returncode != 0:
         return False, (r.stderr or r.stdout or "unknown error").strip()[:300]
     return True, ""
+
 
 def setup(ask, notify, runner=create_shortcut, frozen=None, exe=None, is_windows=None):
     """ask() -> bool: first-run question. notify(msg): tell the user about a failure.

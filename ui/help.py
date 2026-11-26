@@ -10,8 +10,8 @@ import customtkinter as ctk
 
 from ui import theme as T
 
-WEBSITE = "https://smartmunim.vercel.app"
-DOWNLOAD = "https://smartmunim.vercel.app/download.html"
+WEBSITE = "https://technicalmunim.vercel.app"
+DOWNLOAD = "https://technicalmunim.vercel.app/download.html"
 
 SUPPORT_PHONE_DISPLAY = "+91 84276 51580"
 SUPPORT_PHONE_INTL = "918427651580"          # for wa.me links: country code, no '+'
@@ -123,8 +123,16 @@ def _logs_folder():
         return ""
 
 
+def _licence_status():
+    try:
+        from utils import licence
+        return licence.licence_status()
+    except Exception:
+        return "—"
+
+
 def _support_text():
-    return (f"Hello, I need help with MUNIM.\n\n"
+    return (f"Hello, I need help with MUNIM Books.\n\n"
             f"Version: {_app_version()}\n"
             f"Company: {_company_name()}\n\n"
             f"My question / problem:\n")
@@ -257,12 +265,12 @@ class HelpFrame(ctk.CTkFrame):
         webbrowser.open(f"https://wa.me/{SUPPORT_PHONE_INTL}?text={text}")
 
     def _email(self):
-        subject = urllib.parse.quote(f"MUNIM support - {_app_version()}")
+        subject = urllib.parse.quote(f"MUNIM Books support - {_app_version()}")
         body = urllib.parse.quote(_support_text())
         webbrowser.open(f"mailto:{SUPPORT_EMAIL}?subject={subject}&body={body}")
 
     def _copy_contact(self):
-        text = (f"MUNIM support\n"
+        text = (f"MUNIM Books support\n"
                 f"WhatsApp / Phone: {SUPPORT_PHONE_DISPLAY}\n"
                 f"Email: {SUPPORT_EMAIL}\n"
                 f"Version: {_app_version()}")
@@ -280,6 +288,7 @@ class HelpFrame(ctk.CTkFrame):
         # Row 0 — About | Contact support
         about = self._card(grid, "About this copy", 0, 0)
         self._info_row(about, "Version", _app_version())
+        self._info_row(about, "Licence", _licence_status())
         self._info_row(about, "Company", _company_name())
         try:
             self._info_row(about, "Data folder", str(s.data_dir()))
@@ -301,7 +310,7 @@ class HelpFrame(ctk.CTkFrame):
                  hover_color="#DCE3F0").pack(side="left", padx=(8, 0))
         self._copy_note = ctk.CTkLabel(contact, text="", font=T.f(11), text_color=T.OK)
         self._copy_note.pack(anchor="w", padx=18)
-        ctk.CTkLabel(contact, text="WhatsApp and email open with your MUNIM version "
+        ctk.CTkLabel(contact, text="WhatsApp and email open with your MUNIM Books version "
                                    "already filled in. Just add your question.",
                      font=T.f(11), text_color=LABEL_TEXT, justify="left",
                      wraplength=420).pack(anchor="w", padx=18, pady=(2, 0))
@@ -310,7 +319,7 @@ class HelpFrame(ctk.CTkFrame):
         # Row 1 — If something goes wrong | Get help and updates
         wrong = self._card(grid, "If something goes wrong", 1, 0)
         for n, text in enumerate([
-                "If a screen fails to open, MUNIM shows \"This screen hit a problem\". "
+                "If a screen fails to open, MUNIM Books shows \"This screen hit a problem\". "
                 "Your saved entries are not affected.",
                 "Click Copy error details, then send it to us on WhatsApp or email.",
                 "Press Esc to go back and carry on working."], 1):
@@ -322,7 +331,7 @@ class HelpFrame(ctk.CTkFrame):
 
         get = self._card(grid, "Get help and updates", 1, 1)
         ctk.CTkLabel(get, text="Guides and the latest version are on the MUNIM website. "
-                               "MUNIM also shows a banner at the top when a new "
+                               "MUNIM Books also shows a banner at the top when a new "
                                "version is available.",
                      font=T.f(12), text_color=T.TEXT, justify="left",
                      wraplength=420).pack(anchor="w", padx=18, pady=(0, 10))

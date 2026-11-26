@@ -40,10 +40,10 @@ PAGES = {
     "company": ("Company Details", lambda sh: CompanyFrame(sh.body, sh.refresh_company)),
     "password": ("Change Password", lambda sh: PasswordFrame(sh.body, sh.con, sh.username)),
     "reset": ("Reset All Data", lambda sh: ResetDataFrame(sh.body, sh.con, on_done=sh._go_to_gateway)),
-    "renew": ("Renew Licence", lambda sh: RenewLicenceFrame(sh.body)),
+    "renew": ("Licence & Renewal", lambda sh: RenewLicenceFrame(sh.body)),
     "datalocation": ("Data Location", lambda sh: DataLocationFrame(sh.body)),
     "companies": ("Manage Companies", lambda sh: ManageCompaniesFrame(sh.body)),
-    "about": ("About MUNIM", lambda sh: AboutFrame(sh.body)),
+    "about": ("About MUNIM Books", lambda sh: AboutFrame(sh.body)),
     "journal": ("Voucher Entry", lambda sh: JournalFrame(sh.body, sh.con, sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
     "sales": ("Sales Invoice", lambda sh: TradeFrame(sh.body, sh.con, "Sales", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
     "purchase": ("Purchase Bill", lambda sh: TradeFrame(sh.body, sh.con, "Purchase", sh.username, sh.take_edit(), sh.go_back, sh.open_voucher)),
@@ -146,7 +146,7 @@ ITEM_INFO = {
     "utilities_security": "Audit log, password and licence.",
     "utilities_support": "Help, keyboard shortcuts and version information.",
     "company": "Name, address, GSTIN, bank details and GST registration status.",
-    "datalocation": "Choose where MUNIM keeps its data files.",
+    "datalocation": "Choose where MUNIM Books keeps its data files.",
     "companies": "Create, rename or remove companies.",
     "backup": "Save a copy of this company's data to a folder or USB drive.",
     "reset": "Erase all entries for this company. Take a backup first.",
@@ -155,7 +155,7 @@ ITEM_INFO = {
     "mobileimport": "Bring invoices made on the mobile app into your books.",
     "audit": "Who created, edited or deleted each voucher, and when.",
     "password": "Change your login password.",
-    "renew": "Enter a new licence key to extend your subscription.",
+    "renew": "Licence details and renewal. After renewal no new key is needed — just click Check now.",
     "help": "All keyboard shortcuts, how-to guides and support information.",
     "about": "Version, licence and support contact.",
 }
@@ -634,7 +634,7 @@ class Shell(ctk.CTkFrame):
         bar = ctk.CTkFrame(self, fg_color=T.NAVY, corner_radius=0, height=64)
         bar.pack(fill="x")
         bar.pack_propagate(False)
-        ctk.CTkLabel(bar, text="MUNIM", font=T.f(21, "bold"),
+        ctk.CTkLabel(bar, text="MUNIM Books", font=T.f(21, "bold"),
                      text_color="white").pack(side="left", padx=(22, 18))
         self.back_btn = ctk.CTkButton(
             bar, text="← Back", width=88, height=34, corner_radius=9,
@@ -860,7 +860,7 @@ class Shell(ctk.CTkFrame):
         labels, boxes = {}, {}
 
         popup = ctk.CTkToplevel(self.top)
-        popup.title("Customize Quick Actions — MUNIM")
+        popup.title("Customize Quick Actions — MUNIM Books")
         popup.geometry("560x640")
         popup.minsize(480, 460)
         popup.transient(self.top)
@@ -1118,7 +1118,7 @@ class Shell(ctk.CTkFrame):
 
         popup = ctk.CTkToplevel(self.top)
         self._goto_popup = popup
-        popup.title("Go To — MUNIM")
+        popup.title("Go To — MUNIM Books")
         popup.geometry("620x500")
         popup.minsize(520, 380)
         popup.transient(self.top)
@@ -1580,7 +1580,7 @@ class Shell(ctk.CTkFrame):
 
     def _show_setup_guide(self, steps):
         popup = ctk.CTkToplevel(self.top)
-        popup.title("Getting Started — MUNIM")
+        popup.title("Getting Started — MUNIM Books")
         popup.geometry("500x340")
         popup.resizable(False, False)
         popup.transient(self.top)
@@ -1628,11 +1628,11 @@ class Shell(ctk.CTkFrame):
         try:
             path = s.backup_db(self.con, folder)
         except Exception as e:
-            messagebox.showerror("MUNIM", f"Backup failed:\n{e}")
+            messagebox.showerror("MUNIM Books", f"Backup failed:\n{e}")
             return
         st = bkup.record_backup(st)
         settings.save_settings(st)
-        messagebox.showinfo("MUNIM",
+        messagebox.showinfo("MUNIM Books",
                             f"Backup saved:\n{path}\n\n"
                             "Keep a copy on a USB drive or cloud folder, "
                             "not only on this PC.")

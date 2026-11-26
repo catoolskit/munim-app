@@ -6,7 +6,8 @@ from utils import settings
 from utils.fmt import inr
 from ui.widgets import DataTable
 from datetime import datetime, date
-from utils.licence import validate_key, licence_status, days_remaining
+
+APP_NAME = "MUNIM Books"
 
 STATE_CODES = {
     "01": "Jammu & Kashmir", "02": "Himachal Pradesh", "03": "Punjab",
@@ -378,67 +379,137 @@ class ResetDataFrame(ctk.CTkFrame):
         for k in ("last_backup",):
             st.pop(k, None)
         settings.save_settings(st)
-        messagebox.showinfo("MUNIM", "All data has been cleared.")
+        messagebox.showinfo(APP_NAME, "All data has been cleared.")
         if self.on_done:
             self.on_done()
 
 
 class RenewLicenceFrame(ctk.CTkFrame):
+    """Licence details + online re-check.
+    Renewals need no new key: after payment the licence is extended online, and
+    'Check now' (or simply the next start with internet) picks up the new validity."""
+
+    WA_NUMBER = "918427651580"
+
     def __init__(self, master):
         super().__init__(master, fg_color="transparent")
-        st          = settings.load_settings()
-        current_key = st.get("licence_key", "")
-        status      = licence_status(current_key)
-        days        = days_remaining(current_key)
-
-        T.title(self, "Renew Licence",
-                "Enter a new licence key to extend your subscription.").pack(
-            anchor="w", padx=28, pady=(24, 14))
+        T.title(self, "Licence & Renewal",
+                "Your licence is checked online automatically. After renewal, click "
+                "Check now — no new key needed."
+                ).pack(anchor="w", padx=28, pady=(24, 14))
 
         card = T.card(self)
         card.pack(anchor="w", padx=28)
-        card.grid_columnconfigure(0, weight=1)
+        card.grid_columnconfigure(1, weight=1)
 
-        status_color = T.DANGER if days <= 7 else T.OK
-        ctk.CTkLabel(card, text="Current licence status", font=T.f(12),
-                     text_color=T.MUTED).grid(
-            row=0, column=0, sticky="w", padx=20, pady=(18, 2))
-        ctk.CTkLabel(card, text=status, font=T.f(14, "bold"),
-                     text_color=status_color).grid(
-            row=1, column=0, sticky="w", padx=20, pady=(0, 14))
+        self.rows = {}
+        fields = (("product", "Product"), ("firm", "Registered to"),
+                  ("username", "Username"), ("modules", "Modules"),
+                  ("status", "Status"), ("expires", "Valid till"),
+                  ("last", "Last checked online"))
+        for r, (key, label) in enumerate(fields):
+            top = 18 if r == 0 else 4
+            ctk.CTkLabel(card, text=label, font=T.f(12), text_color=T.MUTED,
+                         anchor="w", width=150).grid(
+                row=r, column=0, sticky="w", padx=(20, 10), pady=(top, 0))
+            value = ctk.CTkLabel(card, text="—", font=T.f(13, "bold"),
+                                 text_color=T.TEXT, anchor="w", justify="left",
+                                 wraplength=420)
+            value.grid(row=r, column=1, sticky="w", padx=(0, 20), pady=(top, 0))
+            self.rows[key] = value
 
-        ctk.CTkLabel(card, text="New licence key", font=T.f(12),
-                     text_color=T.MUTED).grid(
-            row=2, column=0, sticky="w", padx=20, pady=(4, 2))
-        self.key_entry = T.entry(card, "MNM-…", width=500)
-        self.key_entry.grid(row=3, column=0, sticky="w", padx=20, pady=(0, 4))
+        self.msg = ctk.CTkLabel(card, text="", font=T.f(12),
+                                wraplength=560, justify="left")
+        self.msg.grid(row=len(fields), column=0, columnspan=2, sticky="w",
+                      padx=20, pady=(14, 4))
 
-        self.msg = ctk.CTkLabel(card, text="", font=T.f(13),
-                                wraplength=480, justify="left")
-        self.msg.grid(row=4, column=0, sticky="w", padx=20, pady=(4, 4))
+        bar = ctk.CTkFrame(card, fg_color="transparent")
+        bar.grid(row=len(fields) + 1, column=0, columnspan=2, sticky="w",
+                 padx=20, pady=(6, 22))
+        self.check_btn = T.button(bar, "Check now", self._check, width=140)
+        self.check_btn.pack(side="left")
+        T.button(bar, "Renew on WhatsApp", self._whatsapp, width=180,
+                 fg_color="#1FAF5A", hover_color="#188F49",
+                 text_color="white").pack(side="left", padx=(10, 0))
 
-        T.button(card, "Activate new key", self._activate, width=200).grid(
-            row=5, column=0, sticky="w", padx=20, pady=(6, 24))
+        self._fill()
 
-    def _activate(self):
-        key = self.key_entry.get().strip()
-        if not key:
-            self.msg.configure(text="Please enter a licence key.",
-                               text_color=T.DANGER)
+    def _fill(self):
+        from utils import licence
+        info = licence.info()
+        status = licence.licence_status()
+        if not info:
+            for v in self.rows.values():
+                v.configure(text="—", text_color=T.TEXT)
+            self.rows["status"].configure(text=status, text_color=T.DANGER)
             return
+        self.rows["product"].configure(text=info["product"])
+        self.rows["firm"].configure(text=info["firm"] or "—")
+        self.rows["username"].configure(text=info["username"] or "—")
+        self.rows["modules"].configure(
+            text=", ".join(info["modules"]) if info["modules"] else "—")
+        self.rows["status"].configure(
+            text=status, text_color=T.DANGER if info["days_left"] <= 7 else T.OK)
+        self.rows["expires"].configure(text=info["expires"])
+        self.rows["last"].configure(text=info["last_checked"])
+
+    def _check(self):
+        import threading
+        from utils import licence
+        self.check_btn.configure(state="disabled", text="Checking…")
+        self.msg.configure(text="Checking your licence online…", text_color=T.MUTED)
+        box = {}
+
+        def work():
+            try:
+                box["lic"] = licence.refresh(timeout=8)
+            except licence.LicenceError as e:
+                box["err"] = str(e)
+            except Exception as e:
+                box["err"] = f"Check failed: {e}"
+            box["done"] = True
+
+        threading.Thread(target=work, daemon=True).start()
+        self._wait(box)
+
+    def _wait(self, box):
         try:
-            username, expiry = validate_key(key)
-        except ValueError as e:
-            self.msg.configure(text=str(e), text_color=T.DANGER)
+            if not self.winfo_exists():
+                return
+        except Exception:
             return
-        st = settings.load_settings()
-        st["licence_key"] = key
-        settings.save_settings(st)
+        if not box.get("done"):
+            self.after(150, lambda: self._wait(box))
+            return
+        from utils import licence
+        self.check_btn.configure(state="normal", text="Check now")
+        if "err" in box:
+            self.msg.configure(
+                text=box["err"] + f"\n{APP_NAME} will ask you to activate again the next "
+                                  "time it opens.",
+                text_color=T.DANGER)
+            return
+        if box.get("lic") is None:
+            self.msg.configure(
+                text="Could not reach the licence server. Check your internet "
+                     "connection and try again.",
+                text_color=T.DANGER)
+            return
+        self._fill()
         self.msg.configure(
-            text=f"✓  Licence activated for {username}. "
-                 f"Valid until {expiry.strftime('%d-%m-%Y')}.",
+            text=f"✓  Licence is up to date — valid till "
+                 f"{licence.fmt_date(licence.expiry_of(box['lic']))}.",
             text_color=T.OK)
-        self.key_entry.delete(0, "end")
+
+    def _whatsapp(self):
+        import urllib.parse
+        import webbrowser
+        from utils import licence
+        info = licence.info() or {}
+        text = (f"Hello, I want to renew {APP_NAME}.\n"
+                f"Username: {info.get('username', '')}\n"
+                f"Firm: {info.get('firm', '')}")
+        webbrowser.open(f"https://wa.me/{self.WA_NUMBER}?text={urllib.parse.quote(text)}")
 
 
 class ManageCompaniesFrame(ctk.CTkFrame):
@@ -584,14 +655,14 @@ class DataLocationFrame(ctk.CTkFrame):
             return
         if not messagebox.askyesno(
                 "Move Data",
-                f"MUNIM will copy all data to:\n\n{dest}\n\n"
+                f"{APP_NAME} will copy all data to:\n\n{dest}\n\n"
                 "Then delete the old location.\n\n"
                 "Make sure you have a backup first! Continue?"):
             return
         try:
             if os.path.exists(dest):
                 messagebox.showerror(
-                    "MUNIM",
+                    APP_NAME,
                     f"Folder already exists:\n{dest}\n\n"
                     "Choose a different location or rename it.")
                 return
@@ -602,10 +673,10 @@ class DataLocationFrame(ctk.CTkFrame):
             if os.path.normcase(current) != os.path.normcase(self._default):
                 shutil.rmtree(current, ignore_errors=True)
             messagebox.showinfo(
-                "MUNIM",
-                f"Data moved to:\n{dest}\n\nRestart MUNIM to use the new location.")
+                APP_NAME,
+                f"Data moved to:\n{dest}\n\nRestart {APP_NAME} to use the new location.")
             self.current_lbl.configure(text=dest)
-            self.msg.configure(text="Done! Please restart MUNIM.", text_color=T.OK)
+            self.msg.configure(text=f"Done! Please restart {APP_NAME}.", text_color=T.OK)
         except Exception as e:
             self.msg.configure(text=f"Error: {e}", text_color=T.DANGER)
 
@@ -625,7 +696,7 @@ class TallyImportFrame(ctk.CTkFrame):
         T.title(self, "Import from Tally",
                 "Import your parties and ledger accounts from a Tally XML export. "
                 "Historical vouchers are not imported — you start entering new "
-                "transactions in MUNIM."
+                "transactions in MUNIM Books."
                 ).pack(anchor="w", padx=28, pady=(24, 14))
 
         # How-to card
