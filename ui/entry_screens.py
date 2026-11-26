@@ -1124,6 +1124,13 @@ class SalesReturnFrame(_ReturnRowsMixin, EntryBase):
 
         # Items first, then the Save button underneath them.
         self._build_rows_area(scroll)
+        # An unregistered company must return goods without GST. Keep the GST
+        # selector visible for layout consistency, but lock it at 0%.
+        self.gst_registered = settings.load_settings().get("gst_registered", True)
+        if not self.gst_registered:
+            for _desc, _hsn, _qty, _rate, gst, _amt in self.rows:
+                gst.set("0")
+                gst.configure(state="disabled")
 
         foot = ctk.CTkFrame(scroll, fg_color="transparent")
         foot.pack(fill="x", padx=28, pady=(0, 14))
@@ -1193,16 +1200,21 @@ class SalesReturnFrame(_ReturnRowsMixin, EntryBase):
                 amt.configure(text="")
         try:
             items     = self._collect()
-            tax_items = [(d, q, r, g) for d, _h, q, r, g in items]
+            tax_items = [(d, q, r, (g if self.gst_registered else 0))
+                         for d, _h, q, r, g in items]
             t = b.compute_tax(tax_items, bool(self.inter.get()))
         except ValueError:
             self.summary.configure(text="")
             return
         k   = lambda v: inr(v / 100)
-        tax = (f"IGST {k(t['igst'])}" if self.inter.get()
-               else f"CGST {k(t['cgst'])}   SGST {k(t['sgst'])}")
-        self.summary.configure(
-            text=f"Taxable {k(t['taxable'])}     {tax}     Total {k(t['total'])}")
+        if not self.gst_registered:
+            self.summary.configure(
+                text=f"Total {k(t['taxable'])}   (GST not applicable — unregistered)")
+        else:
+            tax = (f"IGST {k(t['igst'])}" if self.inter.get()
+                   else f"CGST {k(t['cgst'])}   SGST {k(t['sgst'])}")
+            self.summary.configure(
+                text=f"Taxable {k(t['taxable'])}     {tax}     Total {k(t['total'])}")
 
     def is_dirty(self):
         return any(d.get().strip() or q.get().strip() or r.get().strip()

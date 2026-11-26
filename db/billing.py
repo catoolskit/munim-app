@@ -322,6 +322,10 @@ def post_sales_return(con, vdate, party, invoice_vid, items, interstate=False,
                       narration="", username=""):
     """Credit note: reverses a sales invoice (or part of it) against the original bill."""
     check_party(con, "Sales", party)
+    # Sales returns follow the company's GST registration status just like sales
+    # invoices. The UI preview is not a security/accounting boundary: enforce it
+    # here as well so an unregistered company cannot post output GST on a credit note.
+    items = _registered_sales_items("Sales", items)
     tax_items = [(d, q, r, g) for d, _h, q, r, g in items] if items and len(items[0]) == 5 \
                 else [(d, q, r, g) for d, q, r, g in items]
     t = compute_tax(tax_items, interstate)

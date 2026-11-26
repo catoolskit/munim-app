@@ -64,5 +64,20 @@ class BillingTests(unittest.TestCase):
         self.assertFalse(b.is_interstate("03ABCDE1234F1Z5", "03ABCDE1234F1Z5"))
         self.assertFalse(b.is_interstate("", "03ABCDE1234F1Z5"))
 
+
+    def test_unregistered_sales_return_does_not_charge_gst(self):
+        from unittest.mock import patch
+        with patch("utils.settings.load_settings", return_value={"gst_registered": False}):
+            sale = b.post_sale(self.con, self.d, "Ram Traders",
+                               [("Gold", "7109", 3, 180000, 18)])
+            self.assertEqual((sale["cgst"], sale["sgst"], sale["igst"], sale["total"]),
+                             (0, 0, 0, sale["taxable"]))
+            invoice = b.open_invoices(self.con, "Ram Traders", "Sales")[0]
+            ret = b.post_sales_return(
+                self.con, self.d, "Ram Traders", invoice["id"],
+                [("Gold", "7109", 3, 180000, 18)])
+            self.assertEqual((ret["cgst"], ret["sgst"], ret["igst"], ret["total"]),
+                             (0, 0, 0, ret["taxable"]))
+
 if __name__ == "__main__":
     unittest.main()
