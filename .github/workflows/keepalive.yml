@@ -1,0 +1,16 @@
+name: Keep licence server awake
+on:
+  schedule:
+    - cron: "30 3 * * *"   # every day 09:00 IST
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping licence server
+        run: |
+          curl -sS --fail -X POST "https://jfnvddjsgpyowpfzbmqs.supabase.co/functions/v1/munim-licence" \
+            -H "Content-Type: application/json" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -d '{"action":"ping"}'
