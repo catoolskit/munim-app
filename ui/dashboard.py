@@ -7,6 +7,7 @@ from datetime import date
 from db import setup as s, reports as r
 from ui import theme as T
 from utils.fmt import inr
+from utils import settings
 
 
 def _month_label(fy, month_num):
@@ -86,8 +87,13 @@ class DashboardFrame(ctk.CTkFrame):
                      font=T.f(10), text_color=T.MUTED).pack(side="right")
         qrow = ctk.CTkFrame(quick, fg_color="transparent")
         qrow.pack(fill="x", padx=12, pady=(0, 12))
+        company_configured = bool(
+            (settings.load_settings().get("company_name") or "").strip()
+        )
+        third_action = (("▤  Ledger View", "ledger") if company_configured
+                        else ("▦  Company Details", "company"))
         actions = [("＋  Sales Invoice", "sales"), ("＋  Purchase Bill", "purchase"),
-                   ("▤  Ledger View", "ledger"), ("▦  Day Book", "daybook")]
+                   third_action, ("▦  Day Book", "daybook")]
         for label, target in actions:
             if self.shell is not None:
                 command = lambda target=target: self.shell.push(("page", target))

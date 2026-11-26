@@ -78,10 +78,31 @@ def create_company(name):
     return path
 
 def delete_company(name):
+    """Delete a company only after a portable JSON recovery copy succeeds."""
+    import json
+    from datetime import datetime
     path = company_db_path(name)
     sp = company_settings_path(name)
     if not os.path.exists(path):
         raise ValueError("Company not found")
+    deleted_dir = os.path.join(data_dir(), "Deleted companies")
+    os.makedirs(deleted_dir, exist_ok=True)
+    safe = _safe_filename(name)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_path = os.path.join(deleted_dir, f"{safe}_{stamp}_MUNIM_Backup.json")
+    try:
+        from utils.company_backup import export_company_backup
+        con = connect(path)
+        try:
+            company_settings = {}
+            if os.path.exists(sp):
+                with open(sp, encoding="utf-8") as f:
+                    company_settings = json.load(f)
+            export_company_backup(con, name, backup_path, settings_override=company_settings)
+        finally:
+            con.close()
+    except Exception as e:
+        raise ValueError(f"Could not create portable recovery backup; company was not deleted. {e}") from e
     os.remove(path)
     if os.path.exists(sp):
         os.remove(sp)

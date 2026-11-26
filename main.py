@@ -9,7 +9,7 @@ from tkinter import messagebox, simpledialog
 
 APP_NAME = "MUNIM Books"
 APP_TAGLINE = "Simple books for small traders"
-CURRENT_VERSION = "v0.18"
+CURRENT_VERSION = "v0.20"
 GITHUB_API = "https://api.github.com/repos/catoolskit/munim-app/releases/latest"
 DOWNLOAD_PAGE = "technicalmunim.vercel.app/download.html"
 DELETE_COUNTDOWN = 5   # seconds before "Delete permanently" can be clicked

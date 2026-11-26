@@ -35,9 +35,10 @@ def _field(parent, label, widget, row, col=0, span=1):
 
 
 class CompanyFrame(ctk.CTkFrame):
-    def __init__(self, master, on_saved):
+    def __init__(self, master, on_saved, con=None, username=""):
         super().__init__(master, fg_color="transparent")
         self.on_saved = on_saved
+        self.con, self.username = con, username
         T.title(self, "Company Details",
                 "Used on invoices and reports. GST registered toggle controls whether tax is charged."
                 ).pack(anchor="w", padx=28, pady=(24, 14))
@@ -118,7 +119,7 @@ class CompanyFrame(ctk.CTkFrame):
         bar = ctk.CTkFrame(card, fg_color="transparent")
         bar.grid(row=9, column=0, columnspan=3, sticky="ew", padx=20, pady=18)
         T.button(bar, "Save", self.save, width=130).pack(side="left")
-        self.msg = ctk.CTkLabel(bar, text="", font=T.f(13))
+        self.msg = ctk.CTkLabel(bar, text="", font=T.f(13), wraplength=420)
         self.msg.pack(side="left", padx=14)
         self._gst_toggle()
 
@@ -1021,3 +1022,56 @@ class MobileImportFrame(ctk.CTkFrame):
                  f"{len(result['errors'])} errors",
             text_color=T.OK if n else T.MUTED)
         self._pending = None
+
+class CompanyBackupFrame(ctk.CTkFrame):
+    """Portable complete company backup and restore."""
+    def __init__(self, master, con, on_restored=None):
+        super().__init__(master, fg_color="transparent")
+        self.con = con
+        self.on_restored = on_restored
+        from utils import settings
+        st = settings.load_settings()
+        self.company_name = (st.get("company_name") or "").strip()
+        T.title(self, "Company Backup & Restore",
+                "Export all company books to a portable JSON backup, or restore a backup from this or another computer.").pack(anchor="w", padx=28, pady=(24, 14))
+        card = T.card(self)
+        card.pack(fill="x", padx=28, pady=(0, 14))
+        ctk.CTkLabel(card, text=f"Current company: {self.company_name or 'Not set'}", font=T.f(14, "bold"), text_color=T.TEXT).pack(anchor="w", padx=22, pady=(18, 6))
+        ctk.CTkLabel(card, text="Restore replaces the currently open company's records. Export a backup first if you need to keep the current data.", font=T.f(12), text_color=T.MUTED, wraplength=850, justify="left").pack(anchor="w", padx=22, pady=(0, 14))
+        row = ctk.CTkFrame(card, fg_color="transparent")
+        row.pack(anchor="w", padx=22, pady=(0, 14))
+        T.button(row, "Export Company Backup", self._export, width=190).pack(side="left", padx=(0, 10))
+        T.button(row, "Restore Company Backup", self._restore, width=190, fg_color="#E7ECF5", text_color=T.TEXT, hover_color="#DCE3F0").pack(side="left")
+        self.msg = ctk.CTkLabel(card, text="", font=T.f(12), text_color=T.MUTED, wraplength=850, justify="left")
+        self.msg.pack(anchor="w", padx=22, pady=(0, 16))
+
+    def _export(self):
+        from tkinter import filedialog
+        from utils.company_backup import export_company_backup
+        from datetime import datetime
+        safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in self.company_name)
+        path = filedialog.asksaveasfilename(title="Export MUNIM company backup", defaultextension=".json", initialfile=f"{safe}_MUNIM_Backup_{datetime.now():%Y%m%d}.json", filetypes=[("MUNIM JSON Backup", "*.json")])
+        if not path:
+            return
+        try:
+            export_company_backup(self.con, self.company_name, path)
+            self.msg.configure(text=f"Backup exported successfully: {path}", text_color=T.OK)
+        except Exception as e:
+            self.msg.configure(text=f"Backup failed: {e}", text_color=T.DANGER)
+
+    def _restore(self):
+        from tkinter import filedialog, messagebox
+        from utils.company_backup import restore_company_backup
+        path = filedialog.askopenfilename(title="Select MUNIM company backup", filetypes=[("MUNIM JSON Backup", "*.json"), ("JSON files", "*.json")])
+        if not path:
+            return
+        if not messagebox.askyesno("Restore company backup", "This will replace ALL records in the currently open company with the selected backup. Continue?", parent=self.winfo_toplevel()):
+            return
+        try:
+            result = restore_company_backup(self.con, path, self.company_name or None)
+            self.company_name = result.get("company_name") or self.company_name
+            self.msg.configure(text=f"Restored {result['records_restored']} records from {result['tables_restored']} tables. Restart MUNIM if any screen still shows old values.", text_color=T.OK)
+            if callable(self.on_restored):
+                self.on_restored()
+        except Exception as e:
+            self.msg.configure(text=f"Restore failed: {e}", text_color=T.DANGER)

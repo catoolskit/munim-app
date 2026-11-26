@@ -2,6 +2,7 @@
 Tax is computed per GST-rate group on the invoice (not per line).
 Each invoice is stored (party, items, tax split) and linked to its accounting voucher."""
 from decimal import Decimal, ROUND_HALF_UP
+from datetime import date
 from db import setup as s
 from db.setup import ensure_account, to_rupees
 
@@ -142,7 +143,33 @@ def _alloc(con, pvid, ivid, amt):
                 (pvid, ivid, amt))
 
 
+def _registered_sales_items(kind, items):
+    """Unregistered businesses must not post output GST on sales invoices.
+
+    This is enforced in the accounting engine (not only in the form preview),
+    so saved vouchers, registers, GSTR reports and imported transactions agree.
+    Purchases retain their input tax details.
+    """
+    if kind != "Sales":
+        return items
+    from utils import settings
+    if settings.load_settings().get("gst_registered", True):
+        return items
+    clean = []
+    for item in items:
+        row = list(item)
+        # New shape: description, HSN, qty, rate, GST, stock id.
+        if len(row) >= 5:
+            row[4] = 0
+        else:
+            # Legacy shape: description, qty, rate, GST.
+            row[3] = 0
+        clean.append(tuple(row))
+    return clean
+
+
 def _post(con, kind, vdate, party, items, interstate, narration, username, received, mode, bill_name=""):
+    items = _registered_sales_items(kind, items)
     check_party(con, kind, party)
     _clean_name(party, bill_name)
     if items and len(items[0]) >= 5:
@@ -244,6 +271,7 @@ def update_invoice(con, vid, vdate, party, items, interstate=False, narration=""
     if not con.execute("SELECT 1 FROM invoices WHERE voucher_id=?", (vid,)).fetchone():
         raise ValueError("This bill was saved before item details were stored. Delete it and enter it again")
     kind = v["vtype"]
+    items = _registered_sales_items(kind, items)
     check_party(con, kind, party)
     _clean_name(party, bill_name)
     if items and len(items[0]) >= 5:
@@ -357,3 +385,44 @@ def post_purchase_return(con, vdate, party, invoice_vid, items, interstate=False
         con.rollback()
         raise
     return {"vno": vno, **{k: to_rupees(v) for k, v in t.items()}}
+
+
+def repair_unregistered_sales_gst(con, username=""):
+    """Correct saved Sales invoices that still contain GST in an unregistered company.
+
+    Only invoices whose existing settlements do not exceed their taxable value
+    are changed. This is an explicit data repair for invoices created/imported
+    before the registration rule was enforced in the billing engine.
+    """
+    from utils import settings
+    if settings.load_settings().get("gst_registered", True):
+        raise ValueError("Company is GST registered. No repair was performed.")
+    rows = con.execute(
+        "SELECT i.voucher_id, i.party, i.taxable, i.total, i.cgst, i.sgst, i.igst "
+        "FROM invoices i WHERE i.kind='Sales' AND (i.cgst<>0 OR i.sgst<>0 OR i.igst<>0)") .fetchall()
+    corrected, skipped = 0, []
+    try:
+        for row in rows:
+            vid, taxable, party = row["voucher_id"], row["taxable"], row["party"]
+            if taxable <= 0:
+                skipped.append(vid)
+                continue
+            settled = settled_paise(con, vid)
+            if settled > taxable:
+                skipped.append(vid)
+                continue
+            before = s.voucher_snapshot(con, vid)
+            v = con.execute("SELECT vdate, narration FROM vouchers WHERE id=?", (vid,)).fetchone()
+            vdate = date.fromisoformat(v["vdate"])
+            s._replace_voucher(con, vid, "Sales", vdate, v["narration"],
+                             [(party, taxable, 0), ("Sales", 0, taxable)])
+            con.execute("UPDATE invoices SET cgst=0,sgst=0,igst=0,total=taxable WHERE voucher_id=?", (vid,))
+            inv_id = con.execute("SELECT id FROM invoices WHERE voucher_id=?", (vid,)).fetchone()["id"]
+            con.execute("UPDATE invoice_items SET gst='0' WHERE invoice_id=?", (inv_id,))
+            s.log_action(con, username, "edit", before=before, after=s.voucher_snapshot(con, vid))
+            corrected += 1
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    return {"corrected": corrected, "skipped": skipped, "found": len(rows)}

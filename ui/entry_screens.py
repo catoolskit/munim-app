@@ -28,14 +28,14 @@ class EntryBase(ctk.CTkFrame):
         self._last_pdf_path = ""
 
     def _make_msg(self, foot):
-        self.msg       = ctk.CTkLabel(foot, text="", font=T.f(12))
-        self.msg.pack(side="left", padx=8)
-        self.view_btn  = T.button(foot, "View",     self._view,
-                                  width=74, height=32, **GHOST)
-        self.pdf_btn   = T.button(foot, "Save PDF", self._save_pdf,
-                                  width=88, height=32, **GHOST)
-        self.share_btn = T.button(foot, "Share",    self._share,
-                                  width=74, height=32, **GHOST)
+        # Separate flexible status text from fixed action buttons. The entry
+        # controls occupy their own row, preventing the footer from clipping or
+        # overlapping at smaller window sizes.
+        self.msg = ctk.CTkLabel(foot, text="", font=T.f(12), anchor="w")
+        self.msg.pack(side="left", fill="x", expand=True, padx=8)
+        self.view_btn  = T.button(foot, "View PDF", self._view, width=92, height=32, **GHOST)
+        self.pdf_btn   = T.button(foot, "Save PDF", self._save_pdf, width=88, height=32, **GHOST)
+        self.share_btn = T.button(foot, "Share", self._share, width=74, height=32, **GHOST)
 
     def ok(self, text, vtype=None, vno=None, vdate=None):
         self.msg.configure(text=text, text_color=T.OK)
@@ -419,25 +419,29 @@ class TradeFrame(EntryBase):
 
         foot = T.card(self)
         foot.pack(fill="x", padx=28, pady=(0, 18))
+        controls = ctk.CTkFrame(foot, fg_color="transparent")
+        controls.pack(fill="x", padx=8, pady=(6, 2))
+        actions = ctk.CTkFrame(foot, fg_color="transparent")
+        actions.pack(fill="x", padx=8, pady=(2, 6))
         self.paid = self.mode = self.paid_lbl = None
         if not edit_id:
             self.paid_lbl = ctk.CTkLabel(
-                foot, text="Received now (Rs)" if self.sales else "Paid now (Rs)",
+                controls, text="Received now (Rs)" if self.sales else "Paid now (Rs)",
                 font=T.f(12), text_color=T.MUTED)
-            self.paid = T.entry(foot, "0.00", width=120)
+            self.paid = T.entry(controls, "0.00", width=120)
             self.paid.bind("<KeyRelease>", self.calc)
-            self.mode = T.option_menu(foot, ["Cash", "Bank"], width=90)
+            self.mode = T.option_menu(controls, ["Cash", "Bank"], width=90)
         self.bill_lbl = ctk.CTkLabel(
-            foot,
+            controls,
             text="Customer name on bill" if self.sales else "Supplier name on bill",
             font=T.f(12), text_color=T.MUTED)
-        self.bill_name = T.entry(foot, "(optional)", width=200)
+        self.bill_name = T.entry(controls, "(optional)", width=200)
         self.save_btn = T.button(
-            foot,
+            controls,
             ("Update " if edit_id else "Save ") + ("invoice" if self.sales else "bill"),
             self.save, width=160)
         self.save_btn.pack(side="left", padx=(14, 8), pady=10)
-        self._make_msg(foot)
+        self._make_msg(actions)
         self._rechain()
         self._update_row_count()
         if edit_id:

@@ -37,7 +37,7 @@ from utils.keyboard import is_text_input_widget, single_key_action, alt_shortcut
 
 PAGES = {
     "party": ("Party Master", lambda sh: PartyFrame(sh.body, sh.con)),
-    "company": ("Company Details", lambda sh: CompanyFrame(sh.body, sh.refresh_company)),
+    "company": ("Company Details", lambda sh: CompanyFrame(sh.body, sh.company_setup_saved, sh.con, sh.username)),
     "password": ("Change Password", lambda sh: PasswordFrame(sh.body, sh.con, sh.username)),
     "reset": ("Reset All Data", lambda sh: ResetDataFrame(sh.body, sh.con, on_done=sh._go_to_gateway)),
     "renew": ("Licence & Renewal", lambda sh: RenewLicenceFrame(sh.body)),
@@ -78,6 +78,7 @@ PAGES = {
     "tallyimport": ("Import from Tally", lambda sh: TallyImportFrame(sh.body, sh.con)),
     "mobileexport": ("Export Mobile Config", lambda sh: __import__('ui.utilities', fromlist=['MobileExportFrame']).MobileExportFrame(sh.body, sh.con)),
     "mobileimport": ("Import Mobile Invoices", lambda sh: __import__('ui.utilities', fromlist=['MobileImportFrame']).MobileImportFrame(sh.body, sh.con)),
+    "companybackup": ("Company Backup / Restore", lambda sh: __import__('ui.utilities', fromlist=['CompanyBackupFrame']).CompanyBackupFrame(sh.body, sh.con, sh.refresh_company)),
 }
 
 SEP = "   ·   "
@@ -142,10 +143,11 @@ ITEM_INFO = {
     # Utilities
     "utilities_company": "Company details, data folder and switching between companies.",
     "utilities_data": "Take a backup or reset all data.",
-    "utilities_import": "Bring data in from Tally or the MUNIM mobile app.",
+    "utilities_import": "Import from Tally or mobile invoices, and export or restore a complete company backup.",
     "utilities_security": "Audit log, password and licence.",
     "utilities_support": "Help, keyboard shortcuts and version information.",
     "company": "Name, address, GSTIN, bank details and GST registration status.",
+    "companybackup": "Export or restore all company books using a portable, versioned JSON backup.",
     "datalocation": "Choose where MUNIM Books keeps its data files.",
     "companies": "Create, rename or remove companies.",
     "backup": "Save a copy of this company's data to a folder or USB drive.",
@@ -755,6 +757,11 @@ class Shell(ctk.CTkFrame):
         if kind == "menu":
             title, items = MENUS[name]
             if name == "gateway":
+                st_gateway = settings.load_settings()
+                if not (st_gateway.get("company_name") or "").strip():
+                    items = list(items)
+                    logout_index = next((i for i, item in enumerate(items) if item.get("go", (None,))[0] == "quit"), len(items))
+                    items.insert(logout_index, {"label": "Set up your company", "key": "C", "go": ("page", "company")})
                 self.current = MenuView(
                     self.body, title, items, self.pick, self._info_card,
                     selected_index=self._menu_selection.get(name, 0),
@@ -823,8 +830,13 @@ class Shell(ctk.CTkFrame):
         return PAGES[key][0] if key in PAGES else key
 
     def _quick_keys(self):
-        saved = settings.load_settings().get("quick_actions")
-        keys = saved if isinstance(saved, list) else DEFAULT_QUICK
+        st = settings.load_settings()
+        saved = st.get("quick_actions")
+        keys = list(saved) if isinstance(saved, list) else list(DEFAULT_QUICK)
+        if not (st.get("company_name") or "").strip():
+            keys = ["company" if k == "ledger" else k for k in keys]
+            if "company" not in keys:
+                keys.insert(min(2, len(keys)), "company")
         out = []
         for k in keys:
             if self._quick_go(k) and k not in out:
@@ -1442,6 +1454,13 @@ class Shell(ctk.CTkFrame):
     def refresh_company(self):
         name = settings.load_settings().get("company_name", "")
         self.company_lbl.configure(text=name or "Set up your company")
+
+    def company_setup_saved(self):
+        self.refresh_company()
+        # Re-render the gateway when setup is saved so its setup button and
+        # Quick Actions immediately reflect the configured company.
+        if self.stack and self.stack[-1] == ("menu", "gateway"):
+            self.render()
 
     def _info_card(self, parent):
         from db.setup import stock_summary as _ss

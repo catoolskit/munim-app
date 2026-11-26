@@ -23,7 +23,6 @@ MENUS = {
         M("Purchase Return / Debit Note", "E", ("page", "purchasereturn")),
         M("Receipt / Payment",            "R", ("page", "payment")),
         M("Voucher Entry (journal etc.)", "V", ("page", "journal")),
-        M("GST Invoice (print)",          "G"),
     ]),
     "reports": ("Reports", [
         M("Dashboard",  "D", ("page", "dashboard")),
@@ -81,6 +80,7 @@ MENUS = {
         M("Import from Tally",      "T", ("page", "tallyimport")),
         M("Export Mobile Config",   "E", ("page", "mobileexport")),
         M("Import Mobile Invoices", "V", ("page", "mobileimport")),
+        M("Company Backup / Restore", "B", ("page", "companybackup")),
     ]),
     "utilities_security": ("Security & Users", [
         M("Audit Log",       "A", ("page", "audit")),

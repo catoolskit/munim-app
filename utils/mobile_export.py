@@ -52,7 +52,7 @@ def export_mobile_config(con, out_path):
         (fy,)).fetchone()[0]
 
     config = {
-        "munim_version":  "v0.17",
+        "munim_version":  "v0.20",
         "exported_at":    date.today().isoformat(),
         "company":        company,
         "parties":        parties,
@@ -97,7 +97,7 @@ def import_mobile_invoices(con, json_path, username="admin"):
             address    = inv.get("party_address", "").strip()
 
             # Auto-create party if not found
-            if party_name:
+            if party_name and party_name not in ("Cash", "Bank"):
                 exists = con.execute(
                     "SELECT 1 FROM parties WHERE name=?", (party_name,)).fetchone()
                 if not exists:
@@ -115,13 +115,14 @@ def import_mobile_invoices(con, json_path, username="admin"):
             sgst_total    = 0
             igst_total    = 0
             interstate    = bool(inv.get("interstate", False))
+            gst_registered = settings.load_settings().get("gst_registered", True)
 
             item_rows = []
             for seq, it in enumerate(items, 1):
                 try:
                     qty      = float(it.get("qty", 0))
                     rate     = float(it.get("rate", 0))
-                    gst_rate = float(it.get("gst_rate", 0))
+                    gst_rate = float(it.get("gst_rate", 0)) if gst_registered else 0.0
                 except (ValueError, TypeError):
                     continue
                 amount_paise = s.to_paise(qty * rate)
