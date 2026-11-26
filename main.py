@@ -224,8 +224,10 @@ class MunimApp(ctk.CTk):
         win.protocol("WM_DELETE_WINDOW", close)
 
     def _delete_company(self, name, card):
+        import gc
         import os
         import shutil
+        import time
         from datetime import datetime
         from db.setup import data_dir, delete_company
 
@@ -245,6 +247,7 @@ class MunimApp(ctk.CTk):
             except Exception:
                 pass
             self.con = None
+        gc.collect()   # also releases connections still held by screens that were closed
 
         # Safety copy first — if this fails, nothing is deleted.
         backup_folder = ""
@@ -261,10 +264,23 @@ class MunimApp(ctk.CTk):
             say(f"Could not make a safety copy, so nothing was deleted.\n{e}", T.DANGER)
             return
 
-        try:
-            delete_company(name)
-        except Exception as e:
-            say(f"Could not delete “{name}”: {e}", T.DANGER)
+        # Windows may hold the file for a moment after logging out — retry briefly.
+        last_err = None
+        for _attempt in range(5):
+            try:
+                delete_company(name)
+                last_err = None
+                break
+            except PermissionError as e:      # WinError 32: file still in use
+                last_err = e
+                gc.collect()
+                time.sleep(0.4)
+            except Exception as e:
+                last_err = e
+                break
+        if last_err is not None:
+            say(f"Could not delete “{name}” because the file is still in use. "
+                f"Close {APP_NAME}, open it again and delete it from this screen.", T.DANGER)
             return
 
         self._refresh_company_list(card)
