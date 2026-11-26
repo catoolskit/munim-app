@@ -273,7 +273,7 @@ class MenuView(ctk.CTkFrame):
         heading.pack(fill="x", pady=(0, 14))
         text_box = ctk.CTkFrame(heading, fg_color="transparent")
         text_box.pack(side="left", anchor="w")
-        ctk.CTkLabel(text_box, text=("Welcome to MUNIM" if self.is_gateway else title),
+        ctk.CTkLabel(text_box, text=("Welcome to MUNIM Books" if self.is_gateway else title),
                      font=T.f(25, "bold"), text_color=T.TEXT).pack(anchor="w")
         ctk.CTkLabel(text_box,
                      text=("Choose a work area or jump directly into a common task."

@@ -12,6 +12,7 @@ APP_TAGLINE = "Simple books for small traders"
 CURRENT_VERSION = "v0.18"
 GITHUB_API = "https://api.github.com/repos/catoolskit/munim-app/releases/latest"
 DOWNLOAD_PAGE = "technicalmunim.vercel.app/download.html"
+DELETE_COUNTDOWN = 5   # seconds before "Delete permanently" can be clicked
 
 
 class MunimApp(ctk.CTk):
@@ -28,6 +29,7 @@ class MunimApp(ctk.CTk):
         self.con = None
         self.frame = None
         self._version_banner = None
+        self._picker_msg = None
         self.show_company_picker()
         self.after(700, self._desktop_shortcut)
         self.after(3000, self._check_version)  # check after UI settles
@@ -127,8 +129,10 @@ class MunimApp(ctk.CTk):
         self._company_list_frame.pack(padx=20, pady=(0, 10), fill="x")
         self._refresh_company_list(card)
 
-        msg = ctk.CTkLabel(card, text="", font=T.f(12), text_color=T.DANGER)
+        msg = ctk.CTkLabel(card, text="", font=T.f(12), text_color=T.DANGER,
+                           wraplength=330, justify="left")
         msg.pack(anchor="w", padx=34, pady=(0, 4))
+        self._picker_msg = msg
 
         def new_company():
             name = simpledialog.askstring("New Company", "Enter company name:", parent=self)
@@ -137,8 +141,9 @@ class MunimApp(ctk.CTk):
             try:
                 create_company(name.strip())
             except ValueError as e:
-                msg.configure(text=str(e))
+                msg.configure(text=str(e), text_color=T.DANGER)
                 return
+            msg.configure(text="")
             self._refresh_company_list(card)
 
         T.button(card, "+ New Company", new_company, width=330).pack(padx=34, pady=(4, 32))
@@ -158,7 +163,113 @@ class MunimApp(ctk.CTk):
             ctk.CTkLabel(row, text=co["name"], font=T.f(14), text_color=T.TEXT,
                          anchor="w").pack(side="left", padx=14, pady=10)
             T.button(row, "Open", lambda c=co: self._open_company(c["name"]),
-                     width=70, height=30).pack(side="right", padx=8, pady=6)
+                     width=70, height=30).pack(side="right", padx=(4, 8), pady=6)
+            T.button(row, "Delete", lambda c=co: self._confirm_delete_company(c["name"], card),
+                     width=64, height=30, fg_color="#FDECEA", text_color=T.DANGER,
+                     hover_color="#FAD7D3").pack(side="right", padx=(0, 2), pady=6)
+
+    # ── Delete a company (5-second countdown + safety copy) ───────────────────
+    def _confirm_delete_company(self, name, card):
+        win = ctk.CTkToplevel(self)
+        win.title(f"Delete company — {APP_NAME}")
+        win.geometry("480x270")
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+
+        ctk.CTkLabel(win, text=f"Delete “{name}”?", font=T.f(19, "bold"),
+                     text_color=T.TEXT).pack(anchor="w", padx=24, pady=(22, 6))
+        ctk.CTkLabel(win,
+                     text="All entries, parties and reports of this company will be removed "
+                          "from this computer.\n\nA safety copy is kept in the "
+                          "“Deleted companies” folder inside your MUNIM data folder.",
+                     font=T.f(12), text_color=T.MUTED, justify="left",
+                     wraplength=430).pack(anchor="w", padx=24)
+
+        bar = ctk.CTkFrame(win, fg_color="transparent")
+        bar.pack(side="bottom", fill="x", padx=24, pady=(16, 22))
+
+        def close():
+            try:
+                win.grab_release()
+            except Exception:
+                pass
+            win.destroy()
+
+        def do_delete():
+            close()
+            self._delete_company(name, card)
+
+        T.button(bar, "Cancel", close, width=110, fg_color="#E7ECF5", text_color=T.TEXT,
+                 hover_color="#DCE3F0").pack(side="right")
+        del_btn = T.button(bar, f"Delete ({DELETE_COUNTDOWN})", do_delete, width=180,
+                           fg_color=T.DANGER, hover_color="#A32F23")
+        del_btn.pack(side="right", padx=(0, 10))
+        del_btn.configure(state="disabled")
+
+        def tick(n):
+            try:
+                if not win.winfo_exists():
+                    return
+            except Exception:
+                return
+            if n > 0:
+                del_btn.configure(text=f"Delete ({n})")
+                win.after(1000, lambda: tick(n - 1))
+            else:
+                del_btn.configure(text="Delete permanently", state="normal")
+
+        tick(DELETE_COUNTDOWN)
+        win.bind("<Escape>", lambda _e: close())
+        win.protocol("WM_DELETE_WINDOW", close)
+
+    def _delete_company(self, name, card):
+        import os
+        import shutil
+        from datetime import datetime
+        from db.setup import data_dir, delete_company
+
+        msg = self._picker_msg
+
+        def say(text, color):
+            try:
+                if msg is not None:
+                    msg.configure(text=text, text_color=color)
+            except Exception:
+                pass
+
+        # Close any open database connection so Windows can remove the file.
+        if self.con is not None:
+            try:
+                self.con.close()
+            except Exception:
+                pass
+            self.con = None
+
+        # Safety copy first — if this fails, nothing is deleted.
+        backup_folder = ""
+        try:
+            src = company_db_path(name)
+            if src and os.path.exists(src):
+                backup_folder = os.path.join(str(data_dir()), "Deleted companies")
+                os.makedirs(backup_folder, exist_ok=True)
+                stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                safe = "".join(ch if ch.isalnum() or ch in " -_" else "_" for ch in name).strip()
+                ext = os.path.splitext(str(src))[1] or ".db"
+                shutil.copy2(src, os.path.join(backup_folder, f"{safe or 'company'} {stamp}{ext}"))
+        except Exception as e:
+            say(f"Could not make a safety copy, so nothing was deleted.\n{e}", T.DANGER)
+            return
+
+        try:
+            delete_company(name)
+        except Exception as e:
+            say(f"Could not delete “{name}”: {e}", T.DANGER)
+            return
+
+        self._refresh_company_list(card)
+        note = f" Safety copy: {backup_folder}" if backup_folder else ""
+        say(f"“{name}” deleted.{note}", T.OK)
 
     def _open_company(self, name):
         settings.set_active_company(name)
@@ -204,12 +315,13 @@ class MunimApp(ctk.CTk):
         return f, card
 
     def show_login(self, company_name):
-        f, card = self._auth(company_name, "Log in to continue.")
+        f, card = self._auth(company_name, "Log in with your MUNIM Books password.")
         user = T.entry(card, "Username", width=330)
         user.pack(padx=34, pady=(0, 10))
         pw = T.entry(card, "Password", width=330, show="*")
         pw.pack(padx=34, pady=(0, 6))
-        msg = ctk.CTkLabel(card, text="", font=T.f(12), text_color=T.MUTED)
+        msg = ctk.CTkLabel(card, text="", font=T.f(12), text_color=T.MUTED,
+                           wraplength=330, justify="left")
         msg.pack(anchor="w", padx=34, pady=4)
 
         def switch(_e=None):
@@ -222,7 +334,9 @@ class MunimApp(ctk.CTk):
         def go(_e=None):
             row = login(self.con, user.get(), pw.get())
             if not row:
-                msg.configure(text="Wrong username or password", text_color=T.DANGER)
+                msg.configure(text="Wrong username or password. Use the password you set "
+                                   "in MUNIM Books (not the activation password).",
+                              text_color=T.DANGER)
             elif row["must_change"]:
                 self.show_change_password(company_name, row["username"], row["role"])
             else:
@@ -235,7 +349,8 @@ class MunimApp(ctk.CTk):
 
     def show_change_password(self, company_name, username, role):
         f, card = self._auth("Set a new password",
-                             "You must change the default password before continuing.")
+                             "Choose your own MUNIM Books password. You will use it to log in "
+                             "from now on.")
         p1 = T.entry(card, "New password (min 8 characters)", width=330, show="*")
         p1.pack(padx=34, pady=(0, 10))
         p2 = T.entry(card, "Confirm new password", width=330, show="*")

@@ -3,12 +3,12 @@
 How it works
 - Activation (needs internet once): username + password + licence key are checked by the
   MUNIM licence server, which returns a licence signed with MUNIM's private key.
-- The signed licence is saved in C:\\MUNIM\\licence_<product>.json and checked OFFLINE on
-  every start with the public key below. Editing the file breaks the signature.
+- The signed licence is saved in C:\\MUNIM\\licence_<product>.json and checked OFFLINE with
+  the public key below. Editing the file breaks the signature.
 - The licence is tied to this computer (machine ID); copying the file to another PC fails.
-- When online, MUNIM quietly re-checks in the background, so renewals, module changes and
-  suspensions are picked up automatically. Offline use is allowed for 30 days after the
-  last successful check.
+- When a company is opened and internet is available, MUNIM asks the server first (max ~4 s):
+  renewals and module changes are picked up, and a removed / suspended / moved licence is
+  blocked immediately. Without internet it works offline for 30 days after the last check.
 - No third-party packages needed: Ed25519 signature verification is implemented below.
 """
 import base64
@@ -32,6 +32,7 @@ PUBLIC_KEY = base64.b64decode("qiC2WRB+H0oUKXBYIcT9brpgKM7PPdGZDrSXqraPlMs=")
 DATA_DIR = os.path.join(os.environ.get("SystemDrive", "C:") + os.sep, "MUNIM")
 SUPPORT = "+91 84276 51580"
 MODULE_NAMES = {"tax": "Tax Pro", "gst": "GST Pro", "tds": "TDS Pro"}
+ONLINE_CHECK_TIMEOUT = 4      # seconds to wait for the server when a company is opened
 
 
 class LicenceError(ValueError):
@@ -233,6 +234,14 @@ def _clear():
             pass
 
 
+def _revoke(message, code):
+    """Forget the licence on this PC but remember why, so the activation screen can say it."""
+    try:
+        _save({"notice": message, "notice_code": code})
+    except Exception:
+        _clear()
+
+
 def stored_key():
     return _load().get("key", "")
 
@@ -275,6 +284,8 @@ def activate(username, password, key):
                            f"Please contact support on WhatsApp {SUPPORT}.", "bad_reply")
     today = date.today().isoformat()
     state = _load()
+    state.pop("notice", None)
+    state.pop("notice_code", None)
     state.update(token=r["token"], key=key.strip().upper(), username=lic.get("u"),
                  checked=today, seen=today)
     _save(state)
@@ -283,7 +294,8 @@ def activate(username, password, key):
 
 def refresh(timeout=6):
     """Re-check online. Returns the new licence dict, None if offline/unavailable.
-    Raises LicenceError (and removes the local licence) if it was suspended/removed/moved."""
+    Raises LicenceError (and forgets the licence on this PC) if it was
+    suspended, removed or moved to another computer."""
     state = _load()
     token = state.get("token")
     if not token:
@@ -303,20 +315,22 @@ def refresh(timeout=6):
         _save(state)
         return lic
     if r.get("revoked"):
-        _clear()
-        raise LicenceError(r.get("error") or "This licence is no longer valid.",
-                           r.get("code") or "revoked")
+        msg = r.get("error") or "This licence is no longer valid."
+        code = r.get("code") or "revoked"
+        _revoke(msg, code)
+        raise LicenceError(msg, code)
     return None
 
 
-_bg_started = False
+_online_checked = False
 
 
 def _start_background_refresh():
-    global _bg_started
-    if _bg_started:
+    """Used only when no blocking online check has happened yet in this session."""
+    global _online_checked
+    if _online_checked:
         return
-    _bg_started = True
+    _online_checked = True
 
     def run():
         try:
@@ -334,11 +348,14 @@ def _wrong_product_msg(lic):
 
 def check(allow_network=True):
     """Returns the licence dict if this PC may use MUNIM, else raises LicenceError.
-    Works offline. Only if the licence has expired or needs its 30-day re-check does it
-    try the internet (max ~6 seconds) — so a renewal is picked up automatically."""
+    With allow_network=True (used when a company is opened) it asks the server once per
+    session (max ~4 seconds). Without internet it works offline within the 30-day limit."""
+    global _online_checked
     state = _load()
     token = state.get("token")
     if not token:
+        if state.get("notice"):
+            raise LicenceError(state["notice"], state.get("notice_code") or "revoked")
         raise LicenceError(f"{product_name()} is not activated on this computer yet.",
                            "not_activated")
     lic = _verify_token(token)
@@ -357,21 +374,22 @@ def check(allow_network=True):
         raise LicenceError("Your computer's date is earlier than the last time MUNIM was used. "
                            "Please correct the date and time, then open MUNIM again.", "clock")
 
+    # Ask the server once per session (renewals, removals, suspensions, PC moves).
+    if allow_network and not _online_checked:
+        _online_checked = True
+        fresh = refresh(timeout=ONLINE_CHECK_TIMEOUT)   # raises if removed / suspended / moved
+        if fresh:
+            lic = fresh
+            state = _load()
+
     exp, grace = _d(lic.get("exp")), _d(lic.get("gu"))
-    problem = None
     if not exp or exp < today:
-        problem = LicenceError(f"Your licence expired on {fmt_date(exp)}. To renew, contact us "
-                               f"on WhatsApp {SUPPORT}. After renewal, just open MUNIM with "
-                               "internet ON.", "expired")
-    elif not grace or grace < today:
-        problem = LicenceError("Please connect to the internet once so MUNIM can re-check your "
-                               "licence (needed every 30 days), then open MUNIM again.", "recheck")
-    if problem:
-        if allow_network:
-            fresh = refresh(timeout=6)          # may raise if suspended/removed
-            if fresh:
-                return check(allow_network=False)
-        raise problem
+        raise LicenceError(f"Your licence expired on {fmt_date(exp)}. To renew, contact us "
+                           f"on WhatsApp {SUPPORT}. After renewal, just open MUNIM with "
+                           "internet ON.", "expired")
+    if not grace or grace < today:
+        raise LicenceError("Please connect to the internet once so MUNIM can re-check your "
+                           "licence (needed every 30 days), then open MUNIM again.", "recheck")
 
     if not seen or today > seen:
         state["seen"] = today.isoformat()
@@ -379,7 +397,8 @@ def check(allow_network=True):
             _save(state)
         except Exception:
             pass
-    _start_background_refresh()
+    if not allow_network:
+        _start_background_refresh()
     return lic
 
 
