@@ -96,6 +96,7 @@ MAX_QUICK = 8
 QUICK_COLS = 4
 QUICK_EXCLUDE = {"reset"}          # never offer a destructive action as a shortcut
 QUICK_FUNCS = {"backup": "Backup Data"}
+QUICK_PINNED = {"companybackup"}  # Company Backup / Restore is always available
 
 # Attribute names screens use for their date / period fields (checked in order).
 DATE_ATTRS = ("_d1", "d1", "asof", "_d2", "d2", "date_entry", "vdate", "date")
@@ -841,7 +842,18 @@ class Shell(ctk.CTkFrame):
         for k in keys:
             if self._quick_go(k) and k not in out:
                 out.append(k)
-        return out[:MAX_QUICK]
+        # Keep permanent quick-access actions visible even if older settings
+        # contain a full set of user-selected shortcuts.
+        for k in QUICK_PINNED:
+            if k not in out:
+                out.append(k)
+        while len(out) > MAX_QUICK:
+            removable = next((i for i in range(len(out) - 1, -1, -1)
+                             if out[i] not in QUICK_PINNED), None)
+            if removable is None:
+                break
+            out.pop(removable)
+        return out
 
     def _quick_items(self):
         return [{"label": self._quick_label(k), "go": self._quick_go(k), "key": ""}
@@ -869,6 +881,9 @@ class Shell(ctk.CTkFrame):
 
     def _customize_quick(self):
         chosen = self._quick_keys()
+        for k in QUICK_PINNED:
+            if k not in chosen:
+                chosen.append(k)
         labels, boxes = {}, {}
 
         popup = ctk.CTkToplevel(self.top)
@@ -880,8 +895,8 @@ class Shell(ctk.CTkFrame):
 
         ctk.CTkLabel(popup, text="Customize Quick Actions", font=T.f(20, "bold"),
                      text_color=T.TEXT).pack(anchor="w", padx=22, pady=(20, 2))
-        ctk.CTkLabel(popup, text=f"Tick up to {MAX_QUICK} screens. They appear on the "
-                                 "Gateway in the order you tick them.",
+        ctk.CTkLabel(popup, text=f"Tick up to {MAX_QUICK} actions. They appear on the "
+                                 "Gateway in the order you tick them. Company Backup / Restore is permanent.",
                      font=T.f(12), text_color=LABEL_TEXT, wraplength=500,
                      justify="left").pack(anchor="w", padx=22, pady=(0, 6))
         count_lbl = ctk.CTkLabel(popup, text="", font=T.f(12, "bold"),
@@ -902,6 +917,9 @@ class Shell(ctk.CTkFrame):
                              state="disabled" if (full and not on) else "normal")
 
         def toggle(k):
+            if k in QUICK_PINNED:
+                boxes[k].select()
+                return
             if boxes[k].get():
                 if k not in chosen and len(chosen) < MAX_QUICK:
                     chosen.append(k)
@@ -924,9 +942,14 @@ class Shell(ctk.CTkFrame):
                     cb.select()
                 cb.pack(anchor="w", padx=18, pady=3)
                 boxes[k] = cb
+                if k in QUICK_PINNED:
+                    cb.configure(state="disabled", text=f"{label}  (Permanent)")
 
         def reset():
             chosen[:] = [k for k in DEFAULT_QUICK if k in boxes]
+            for k in QUICK_PINNED:
+                if k in boxes and k not in chosen:
+                    chosen.append(k)
             for k, cb in boxes.items():
                 (cb.select if k in chosen else cb.deselect)()
             refresh_state()

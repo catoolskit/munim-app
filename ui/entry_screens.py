@@ -212,7 +212,7 @@ class JournalFrame(EntryBase):
         self.total.pack(side="right")
 
         foot = T.card(self)
-        foot.pack(fill="x", padx=28, pady=(0, 18))
+        foot.pack(fill="x", padx=28, pady=(0, 6))
         T.button(foot, "Update voucher" if edit_id else "Save voucher",
                  self.save, width=170).pack(side="left")
         self._make_msg(foot)
@@ -352,7 +352,7 @@ class TradeFrame(EntryBase):
 
         T.title(self, ("Edit " if edit_id else "New ") + ("Sales Invoice" if self.sales else "Purchase Bill"),
                 "Document details  →  item lines  →  tax and total. Ctrl+S saves."
-                ).pack(anchor="w", padx=28, pady=(20, 10))
+                ).pack(anchor="w", padx=28, pady=(10, 5))
         top = T.card(self)
         top.pack(fill="x", padx=28)
         ctk.CTkLabel(top, text="DOCUMENT DETAILS", font=T.f(10, "bold"),
@@ -391,12 +391,12 @@ class TradeFrame(EntryBase):
         self.narr.grid( row=2, column=3, padx=8,       pady=(0, 14))
 
         items_wrap = T.card(self)
-        items_wrap.pack(fill="both", expand=True, padx=28, pady=(12, 10))
+        items_wrap.pack(fill="both", expand=True, padx=28, pady=(8, 6))
         items_wrap.grid_columnconfigure(0, weight=1)
         items_wrap.grid_rowconfigure(1, weight=1)
         ctk.CTkLabel(items_wrap, text="INVOICE ITEMS", font=T.f(10, "bold"),
                      text_color=T.MUTED).grid(row=0, column=0, sticky="w", padx=20, pady=(12, 2))
-        self.items_card = ctk.CTkScrollableFrame(items_wrap, fg_color="transparent", height=260)
+        self.items_card = ctk.CTkScrollableFrame(items_wrap, fg_color="transparent", height=190)
         self.items_card.grid(row=1, column=0, sticky="nsew", padx=8, pady=(2, 4))
         items = self.items_card
         for c, h in enumerate(("Item", "HSN/SAC", "Qty", "Rate (Rs)", "GST %", "", "Amount")):
@@ -418,11 +418,11 @@ class TradeFrame(EntryBase):
         self.summary.grid(row=2, column=0, sticky="ew", padx=18, pady=(4, 12))
 
         foot = T.card(self)
-        foot.pack(fill="x", padx=28, pady=(0, 18))
+        foot.pack(fill="x", padx=28, pady=(0, 6))
         controls = ctk.CTkFrame(foot, fg_color="transparent")
-        controls.pack(fill="x", padx=8, pady=(6, 2))
+        controls.pack(fill="x", padx=8, pady=(4, 2))
         actions = ctk.CTkFrame(foot, fg_color="transparent")
-        actions.pack(fill="x", padx=8, pady=(2, 6))
+        actions.pack(fill="x", padx=8, pady=(1, 4))
         self.paid = self.mode = self.paid_lbl = None
         if not edit_id:
             self.paid_lbl = ctk.CTkLabel(
@@ -440,7 +440,7 @@ class TradeFrame(EntryBase):
             controls,
             ("Update " if edit_id else "Save ") + ("invoice" if self.sales else "bill"),
             self.save, width=160)
-        self.save_btn.pack(side="left", padx=(14, 8), pady=10)
+        self.save_btn.pack(side="right", padx=(8, 8), pady=5)
         self._make_msg(actions)
         self._rechain()
         self._update_row_count()
