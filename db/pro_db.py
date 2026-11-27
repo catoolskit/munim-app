@@ -1,6 +1,6 @@
 """MUNIM Pro — master database: Consultant Master (shared) + separate entity
-lists per module (TDS: deductors, GST: gst_clients, Tax: assessees), login
-users and the password vault.
+lists per module (TDS: deductors + deductees, GST: gst_clients, Tax: assessees),
+login users and the password vault.
 
 MUNIM Pro keeps ALL its data in its own folder:  C:\\MUNIM Pro\\
 (MUNIM Books stays in C:\\MUNIM\\ — the two never share files.)
@@ -13,7 +13,7 @@ import datetime
 from utils import validate as V
 from utils import vault
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 _DRIVE = os.environ.get("SystemDrive", "C:") + os.sep
 PRO_ROOT = os.path.join(_DRIVE, "MUNIM Pro")
 _OLD_BOOKS_ROOT = os.path.join(_DRIVE, "MUNIM")     # early test builds used this
@@ -43,11 +43,22 @@ DEDUCTOR_TYPES = [
 ]
 DEDUCTOR_TYPE_NAME = dict(DEDUCTOR_TYPES)
 
+# Deductee (payee) types
+DEDUCTEE_TYPES = [
+    ("individual", "Individual"), ("huf", "HUF"), ("company", "Company"),
+    ("firm", "Firm / LLP"), ("aop", "AOP / BOI"), ("trust", "Trust"),
+    ("local", "Local Authority"), ("govt", "Government"), ("ajp", "Artificial Juridical"),
+]
+DEDUCTEE_TYPE_NAME = dict(DEDUCTEE_TYPES)
+PAN_STATUS = [("active", "Active (valid)"), ("inactive", "Inactive / Inoperative"),
+              ("notavbl", "PAN not available")]
+PAN_STATUS_NAME = dict(PAN_STATUS)
+FORM16A_FREQ = ["Quarterly", "On request", "Yearly"]
+
 _ADDR = "addr1 TEXT, addr2 TEXT, addr3 TEXT, city TEXT, state_code TEXT, pin TEXT"
 _TAIL = ("books_company TEXT, active INTEGER NOT NULL DEFAULT 1, notes TEXT, "
          "created_at TEXT NOT NULL, updated_at TEXT NOT NULL")
 
-# Every statement is IF NOT EXISTS, so this runs safely on every start.
 _BASE_SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS users(
     id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL,
@@ -80,6 +91,22 @@ CREATE TABLE IF NOT EXISTS deductors (
     traces_cred_ref TEXT, itd_cred_ref TEXT, {_TAIL}
 );
 
+CREATE TABLE IF NOT EXISTS deductees (
+    id INTEGER PRIMARY KEY,
+    deductor_id INTEGER NOT NULL REFERENCES deductors(id) ON DELETE CASCADE,
+    name TEXT NOT NULL, pan TEXT, pan_status TEXT NOT NULL DEFAULT 'active',
+    type TEXT NOT NULL DEFAULT 'individual',
+    is_employee INTEGER NOT NULL DEFAULT 0,
+    resident INTEGER NOT NULL DEFAULT 1,
+    higher_rate INTEGER NOT NULL DEFAULT 0,          -- 206AB/206CCA non-filer
+    lower_cert_no TEXT, lower_rate TEXT, lower_valid_from TEXT, lower_valid_to TEXT,
+    form16a_freq TEXT,
+    father_name TEXT, dob TEXT, designation TEXT,
+    {_ADDR}, phone TEXT, email TEXT,
+    active INTEGER NOT NULL DEFAULT 1, notes TEXT,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS gst_clients (
     id INTEGER PRIMARY KEY,
     consultant_id INTEGER REFERENCES consultants(id) ON DELETE SET NULL,
@@ -98,11 +125,13 @@ CREATE TABLE IF NOT EXISTS assessees (
 );
 
 CREATE INDEX IF NOT EXISTS ix_deductors_name ON deductors(name COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS ix_deductees_name ON deductees(name COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS ix_deductees_ded ON deductees(deductor_id);
 CREATE INDEX IF NOT EXISTS ix_gst_clients_name ON gst_clients(legal_name COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS ix_assessees_name ON assessees(name COLLATE NOCASE);
 """
 
-# Columns added after v1. Safe to run every start: only missing ones are added.
+# Columns added to deductors after v1.
 _DEDUCTOR_ADDED = [
     ("file_code", "TEXT"), ("rp_father", "TEXT"),
     ("rp_addr1", "TEXT"), ("rp_addr2", "TEXT"), ("rp_addr3", "TEXT"),
@@ -130,8 +159,6 @@ def settings_file():
 
 
 def move_old_data():
-    """Early test builds kept Pro data in C:\\MUNIM\\pro and the licence in
-    C:\\MUNIM\\licence_pro.json. Move them once into C:\\MUNIM Pro."""
     new = pro_dir()
     old_dir = os.path.join(_OLD_BOOKS_ROOT, "pro")
     try:
@@ -171,7 +198,6 @@ def _cols(conn, table):
 
 def _migrate(conn):
     conn.executescript(_BASE_SCHEMA)
-    # Add any deductor columns introduced after the first release.
     have = _cols(conn, "deductors")
     for col, decl in _DEDUCTOR_ADDED:
         if col not in have:
@@ -192,8 +218,7 @@ CONSULTANT_FIELDS = [
     "membership_no", "pan", "firm_reg_no", "gstin", "tagline", "is_tax_auditor",
     "itd_cred_ref", "gstp_cred_ref",
 ]
-_UPPER = {"firm_pan", "pan", "gstin", "firm_reg_no", "tan", "file_code",
-          "rp_pan"}
+_UPPER = {"firm_pan", "pan", "gstin", "firm_reg_no", "tan", "file_code", "rp_pan"}
 
 
 def _normalise(data: dict, fields) -> dict:
@@ -211,7 +236,6 @@ def _normalise(data: dict, fields) -> dict:
 
 
 def validate_consultant(d: dict) -> dict:
-    """Return {field: error}. Empty dict = OK."""
     errors = {}
     if not (d.get("firm_name") or "").strip():
         errors["firm_name"] = "Firm name is required"
@@ -256,7 +280,7 @@ def list_consultants(conn):
     return conn.execute("SELECT * FROM consultants ORDER BY id").fetchall()
 
 
-def get_consultant(conn, cid: int):
+def get_consultant(conn, cid):
     return conn.execute("SELECT * FROM consultants WHERE id=?", (cid,)).fetchone()
 
 
@@ -265,12 +289,12 @@ def get_default_consultant(conn):
                         ).fetchone()
 
 
-def set_default_consultant(conn, cid: int):
+def set_default_consultant(conn, cid):
     conn.execute("UPDATE consultants SET is_default = (id = ?)", (cid,))
     conn.commit()
 
 
-def find_consultants(conn, text: str):
+def find_consultants(conn, text):
     like = f"%{(text or '').strip()}%"
     return conn.execute(
         "SELECT * FROM consultants WHERE firm_name LIKE ? OR contact_name LIKE ? "
@@ -278,7 +302,7 @@ def find_consultants(conn, text: str):
         (like, like, like, like)).fetchall()
 
 
-def delete_consultant(conn, cid: int):
+def delete_consultant(conn, cid):
     row = get_consultant(conn, cid)
     if not row:
         return
@@ -303,7 +327,6 @@ DEDUCTOR_FIELDS = [
 
 
 def validate_deductor(d: dict) -> dict:
-    """Return {field: error}. Empty dict = OK."""
     errors = {}
     if not (d.get("name") or "").strip():
         errors["name"] = "Deductor name is required"
@@ -332,7 +355,6 @@ def save_deductor(conn, data: dict, did: int = None) -> int:
     if errors:
         raise ValueError(errors)
     d["rp_same_addr"] = 1 if d.get("rp_same_addr") else 0
-    # Guard the unique TAN with a friendly message.
     tan = d.get("tan")
     clash = conn.execute("SELECT id, name FROM deductors WHERE tan=? AND id != ?",
                          (tan, did or -1)).fetchone()
@@ -353,7 +375,7 @@ def save_deductor(conn, data: dict, did: int = None) -> int:
     return did
 
 
-def get_deductor(conn, did: int):
+def get_deductor(conn, did):
     return conn.execute("SELECT * FROM deductors WHERE id=?", (did,)).fetchone()
 
 
@@ -365,7 +387,7 @@ def list_deductors(conn, include_inactive=False):
     return conn.execute(sql).fetchall()
 
 
-def find_deductors(conn, text: str):
+def find_deductors(conn, text):
     like = f"%{(text or '').strip()}%"
     return conn.execute(
         "SELECT * FROM deductors WHERE active = 1 AND ("
@@ -374,12 +396,116 @@ def find_deductors(conn, text: str):
         (like, like, like, like, like)).fetchall()
 
 
-def delete_deductor(conn, did: int):
+def delete_deductor(conn, did):
     row = get_deductor(conn, did)
     if not row:
         return
     vault.delete(conn, row["traces_cred_ref"])
-    conn.execute("DELETE FROM deductors WHERE id=?", (did,))
+    conn.execute("DELETE FROM deductors WHERE id=?", (did,))   # deductees cascade
+    conn.commit()
+
+
+# ---------------------------------------------------------------- deductees
+DEDUCTEE_FIELDS = [
+    "name", "pan", "pan_status", "type", "is_employee", "resident", "higher_rate",
+    "lower_cert_no", "lower_rate", "lower_valid_from", "lower_valid_to", "form16a_freq",
+    "father_name", "dob", "designation",
+    "addr1", "addr2", "addr3", "city", "state_code", "pin", "phone", "email",
+]
+_UPPER |= {"pan"}  # deductee PAN too
+
+
+def validate_deductee(d: dict) -> dict:
+    errors = {}
+    if not (d.get("name") or "").strip():
+        errors["name"] = "Deductee name is required"
+    status = d.get("pan_status") or "active"
+    # PAN required unless explicitly 'not available'
+    pan = (d.get("pan") or "").strip()
+    if status != "notavbl":
+        e = V.check("pan", pan, required=True)
+        if e:
+            errors["pan"] = e
+    elif pan:
+        e = V.check("pan", pan)
+        if e:
+            errors["pan"] = e
+    for field, kind in (("pin", "pin"), ("email", "email"), ("phone", "phone")):
+        e = V.check(kind, d.get(field))
+        if e:
+            errors[field] = e
+    typ = d.get("type")
+    if typ and typ not in DEDUCTEE_TYPE_NAME:
+        errors["type"] = "Select a type"
+    s = d.get("state_code")
+    if s and s not in STATE_NAME:
+        errors["state_code"] = "Select a state"
+    lr = (d.get("lower_rate") or "").strip()
+    if lr:
+        try:
+            v = float(lr)
+            if not 0 <= v <= 100:
+                errors["lower_rate"] = "Rate must be between 0 and 100"
+        except ValueError:
+            errors["lower_rate"] = "Rate must be a number"
+    return errors
+
+
+def save_deductee(conn, deductor_id: int, data: dict, pid: int = None) -> int:
+    if not deductor_id:
+        raise ValueError({"name": "Pick a deductor first (press F4)."})
+    d = _normalise(data, DEDUCTEE_FIELDS)
+    errors = validate_deductee(d)
+    if errors:
+        raise ValueError(errors)
+    for flag in ("is_employee", "resident", "higher_rate"):
+        d[flag] = 1 if d.get(flag) else 0
+    # PAN unique within one deductor (when a PAN is given)
+    pan = (d.get("pan") or "").strip()
+    if pan:
+        clash = conn.execute(
+            "SELECT id, name FROM deductees WHERE deductor_id=? AND pan=? AND id != ?",
+            (deductor_id, pan, pid or -1)).fetchone()
+        if clash:
+            raise ValueError({"pan": f"PAN already used by “{clash['name']}” for this deductor"})
+    now = _now()
+    if pid:
+        cols = ", ".join(f"{k}=?" for k in d)
+        conn.execute(f"UPDATE deductees SET {cols}, updated_at=? WHERE id=?",
+                     [*d.values(), now, pid])
+    else:
+        d.update(deductor_id=deductor_id, active=1, created_at=now, updated_at=now)
+        cols = ", ".join(d)
+        marks = ", ".join("?" for _ in d)
+        pid = conn.execute(f"INSERT INTO deductees({cols}) VALUES({marks})",
+                           list(d.values())).lastrowid
+    conn.commit()
+    return pid
+
+
+def get_deductee(conn, pid):
+    return conn.execute("SELECT * FROM deductees WHERE id=?", (pid,)).fetchone()
+
+
+def list_deductees(conn, deductor_id, include_inactive=False):
+    sql = "SELECT * FROM deductees WHERE deductor_id=?"
+    args = [deductor_id]
+    if not include_inactive:
+        sql += " AND active = 1"
+    sql += " ORDER BY name COLLATE NOCASE"
+    return conn.execute(sql, args).fetchall()
+
+
+def find_deductees(conn, deductor_id, text):
+    like = f"%{(text or '').strip()}%"
+    return conn.execute(
+        "SELECT * FROM deductees WHERE deductor_id=? AND active=1 AND ("
+        "name LIKE ? OR pan LIKE ? OR city LIKE ?) ORDER BY name COLLATE NOCASE",
+        (deductor_id, like, like, like)).fetchall()
+
+
+def delete_deductee(conn, pid):
+    conn.execute("DELETE FROM deductees WHERE id=?", (pid,))
     conn.commit()
 
 
@@ -393,7 +519,6 @@ _ENTITY = {
 
 def search_entities(conn, module: str, text: str = "", limit: int = 200,
                     include_inactive: bool = False):
-    """Rows of (id, name, key, city) for the module's own list."""
     table, name_col, key_col = _ENTITY[module]
     sql = f"SELECT id, {name_col} AS name, {key_col} AS key, city FROM {table} WHERE 1=1"
     args = []
