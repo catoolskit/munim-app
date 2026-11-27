@@ -1,0 +1,262 @@
+"""MUNIM Pro — master database: Consultant Master (shared) + separate entity
+lists per module (TDS: deductors, GST: gst_clients, Tax: assessees), login
+users and the password vault.
+File: <MUNIM data folder>\\pro\\munim_pro.db
+"""
+import os
+import sqlite3
+import datetime
+
+from db.setup import data_dir
+from utils import validate as V
+from utils import vault
+
+SCHEMA_VERSION = 1
+
+# GST state codes (current)
+STATES = [
+    ("01", "Jammu and Kashmir"), ("02", "Himachal Pradesh"), ("03", "Punjab"),
+    ("04", "Chandigarh"), ("05", "Uttarakhand"), ("06", "Haryana"), ("07", "Delhi"),
+    ("08", "Rajasthan"), ("09", "Uttar Pradesh"), ("10", "Bihar"), ("11", "Sikkim"),
+    ("12", "Arunachal Pradesh"), ("13", "Nagaland"), ("14", "Manipur"), ("15", "Mizoram"),
+    ("16", "Tripura"), ("17", "Meghalaya"), ("18", "Assam"), ("19", "West Bengal"),
+    ("20", "Jharkhand"), ("21", "Odisha"), ("22", "Chhattisgarh"), ("23", "Madhya Pradesh"),
+    ("24", "Gujarat"), ("26", "Dadra and Nagar Haveli and Daman and Diu"),
+    ("27", "Maharashtra"), ("29", "Karnataka"), ("30", "Goa"), ("31", "Lakshadweep"),
+    ("32", "Kerala"), ("33", "Tamil Nadu"), ("34", "Puducherry"),
+    ("35", "Andaman and Nicobar Islands"), ("36", "Telangana"), ("37", "Andhra Pradesh"),
+    ("38", "Ladakh"), ("97", "Other Territory"),
+]
+STATE_NAME = dict(STATES)
+CONTACT_ROLES = ["Proprietor", "Partner", "Director", "Employee"]
+
+_ADDR = "addr1 TEXT, addr2 TEXT, addr3 TEXT, city TEXT, state_code TEXT, pin TEXT"
+_TAIL = ("books_company TEXT, active INTEGER NOT NULL DEFAULT 1, notes TEXT, "
+         "created_at TEXT NOT NULL, updated_at TEXT NOT NULL")
+
+# Every statement is IF NOT EXISTS, so this runs safely on every start.
+_BASE_SCHEMA = f"""
+CREATE TABLE IF NOT EXISTS users(
+    id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL,
+    salt TEXT NOT NULL, pw_hash TEXT NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('admin','staff')),
+    must_change INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS consultants (
+    id INTEGER PRIMARY KEY,
+    firm_name TEXT NOT NULL, firm_pan TEXT, {_ADDR},
+    phone1 TEXT, phone2 TEXT, email TEXT,
+    contact_name TEXT, contact_role TEXT,
+    membership_no TEXT, pan TEXT, firm_reg_no TEXT, gstin TEXT, tagline TEXT,
+    is_tax_auditor INTEGER NOT NULL DEFAULT 0,
+    itd_cred_ref TEXT, gstp_cred_ref TEXT,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS deductors (
+    id INTEGER PRIMARY KEY,
+    consultant_id INTEGER REFERENCES consultants(id) ON DELETE SET NULL,
+    name TEXT NOT NULL, tan TEXT NOT NULL UNIQUE, pan TEXT, type TEXT,
+    {_ADDR}, phone TEXT, email TEXT,
+    rp_name TEXT, rp_pan TEXT, rp_designation TEXT, rp_phone TEXT, rp_email TEXT,
+    traces_cred_ref TEXT, itd_cred_ref TEXT, {_TAIL}
+);
+
+CREATE TABLE IF NOT EXISTS gst_clients (
+    id INTEGER PRIMARY KEY,
+    consultant_id INTEGER REFERENCES consultants(id) ON DELETE SET NULL,
+    legal_name TEXT NOT NULL, trade_name TEXT, gstin TEXT NOT NULL UNIQUE, pan TEXT,
+    reg_type TEXT NOT NULL DEFAULT 'regular', return_freq TEXT NOT NULL DEFAULT 'monthly',
+    {_ADDR}, phone TEXT, email TEXT,
+    gst_cred_ref TEXT, {_TAIL}
+);
+
+CREATE TABLE IF NOT EXISTS assessees (
+    id INTEGER PRIMARY KEY,
+    consultant_id INTEGER REFERENCES consultants(id) ON DELETE SET NULL,
+    name TEXT NOT NULL, pan TEXT NOT NULL UNIQUE, status TEXT,
+    father_name TEXT, dob TEXT, {_ADDR}, phone TEXT, email TEXT,
+    itd_cred_ref TEXT, {_TAIL}
+);
+
+CREATE INDEX IF NOT EXISTS ix_deductors_name ON deductors(name COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS ix_gst_clients_name ON gst_clients(legal_name COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS ix_assessees_name ON assessees(name COLLATE NOCASE);
+"""
+
+
+def _now():
+    return datetime.datetime.now().isoformat(timespec="seconds")
+
+
+# ---------------------------------------------------------------- paths
+def pro_dir():
+    d = os.path.join(data_dir(), "pro")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def db_path():
+    return os.path.join(pro_dir(), "munim_pro.db")
+
+
+def settings_file():
+    return os.path.join(pro_dir(), "settings.json")
+
+
+# ---------------------------------------------------------------- connection
+def connect(path=None) -> sqlite3.Connection:
+    path = path or db_path()
+    conn = sqlite3.connect(path, timeout=10)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    _migrate(conn)
+    return conn
+
+
+def _migrate(conn):
+    conn.executescript(_BASE_SCHEMA)
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version < 1:
+        conn.execute("PRAGMA user_version = 1")
+    # future: if version < 2: ALTER TABLE ... ; PRAGMA user_version = 2
+    vault.ensure_tables(conn)
+    conn.commit()
+
+
+def has_users(conn) -> bool:
+    return conn.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
+
+
+# ---------------------------------------------------------------- consultants
+CONSULTANT_FIELDS = [
+    "firm_name", "firm_pan", "addr1", "addr2", "addr3", "city", "state_code", "pin",
+    "phone1", "phone2", "email", "contact_name", "contact_role",
+    "membership_no", "pan", "firm_reg_no", "gstin", "tagline", "is_tax_auditor",
+    "itd_cred_ref", "gstp_cred_ref",
+]
+_UPPER = {"firm_pan", "pan", "gstin", "firm_reg_no"}
+
+
+def _normalise(data: dict, fields) -> dict:
+    out = {}
+    for f in fields:
+        if f not in data:
+            continue
+        v = data[f]
+        if isinstance(v, str):
+            v = v.strip()
+            if f in _UPPER:
+                v = v.upper()
+        out[f] = v
+    return out
+
+
+def validate_consultant(d: dict) -> dict:
+    """Return {field: error}. Empty dict = OK."""
+    errors = {}
+    if not (d.get("firm_name") or "").strip():
+        errors["firm_name"] = "Firm name is required"
+    for field, kind in (("firm_pan", "pan"), ("pan", "pan"), ("gstin", "gstin"),
+                        ("pin", "pin"), ("email", "email"), ("phone1", "phone"),
+                        ("phone2", "phone"), ("membership_no", "membership")):
+        e = V.check(kind, d.get(field))
+        if e:
+            errors[field] = e
+    state = d.get("state_code")
+    if state and state not in STATE_NAME:
+        errors["state_code"] = "Select a state"
+    if not errors.get("gstin") and d.get("gstin") and state \
+            and V.gstin_state(d["gstin"]) != state:
+        errors["gstin"] = "GSTIN state code does not match the selected state"
+    return errors
+
+
+def save_consultant(conn, data: dict, cid: int = None) -> int:
+    d = _normalise(data, CONSULTANT_FIELDS)
+    errors = validate_consultant(d)
+    if errors:
+        raise ValueError(errors)
+    d["is_tax_auditor"] = 1 if d.get("is_tax_auditor") else 0
+    now = _now()
+    if cid:
+        cols = ", ".join(f"{k}=?" for k in d)
+        conn.execute(f"UPDATE consultants SET {cols}, updated_at=? WHERE id=?",
+                     [*d.values(), now, cid])
+    else:
+        first = conn.execute("SELECT COUNT(*) FROM consultants").fetchone()[0] == 0
+        d.update(is_default=1 if first else 0, created_at=now, updated_at=now)
+        cols = ", ".join(d)
+        marks = ", ".join("?" for _ in d)
+        cid = conn.execute(f"INSERT INTO consultants({cols}) VALUES({marks})",
+                           list(d.values())).lastrowid
+    conn.commit()
+    return cid
+
+
+def list_consultants(conn):
+    return conn.execute("SELECT * FROM consultants ORDER BY id").fetchall()
+
+
+def get_consultant(conn, cid: int):
+    return conn.execute("SELECT * FROM consultants WHERE id=?", (cid,)).fetchone()
+
+
+def get_default_consultant(conn):
+    return conn.execute("SELECT * FROM consultants ORDER BY is_default DESC, id LIMIT 1"
+                        ).fetchone()
+
+
+def set_default_consultant(conn, cid: int):
+    conn.execute("UPDATE consultants SET is_default = (id = ?)", (cid,))
+    conn.commit()
+
+
+def find_consultants(conn, text: str):
+    like = f"%{(text or '').strip()}%"
+    return conn.execute(
+        "SELECT * FROM consultants WHERE firm_name LIKE ? OR contact_name LIKE ? "
+        "OR membership_no LIKE ? OR city LIKE ? ORDER BY firm_name COLLATE NOCASE",
+        (like, like, like, like)).fetchall()
+
+
+def delete_consultant(conn, cid: int):
+    row = get_consultant(conn, cid)
+    if not row:
+        return
+    for ref in (row["itd_cred_ref"], row["gstp_cred_ref"]):
+        vault.delete(conn, ref)
+    conn.execute("DELETE FROM consultants WHERE id=?", (cid,))
+    if row["is_default"]:
+        nxt = conn.execute("SELECT id FROM consultants ORDER BY id LIMIT 1").fetchone()
+        if nxt:
+            conn.execute("UPDATE consultants SET is_default=1 WHERE id=?", (nxt[0],))
+    conn.commit()
+
+
+# ---------------------------------------------------------------- F4 picker
+_ENTITY = {
+    "tds": ("deductors", "name", "tan"),
+    "gst": ("gst_clients", "legal_name", "gstin"),
+    "tax": ("assessees", "name", "pan"),
+}
+
+
+def search_entities(conn, module: str, text: str = "", limit: int = 200,
+                    include_inactive: bool = False):
+    """Rows of (id, name, key, city) for the module's own list."""
+    table, name_col, key_col = _ENTITY[module]
+    sql = f"SELECT id, {name_col} AS name, {key_col} AS key, city FROM {table} WHERE 1=1"
+    args = []
+    if not include_inactive:
+        sql += " AND active = 1"
+    t = (text or "").strip()
+    if t:
+        like = f"%{t}%"
+        sql += f" AND ({name_col} LIKE ? OR {key_col} LIKE ? OR city LIKE ?)"
+        args += [like, like, like]
+    sql += f" ORDER BY {name_col} COLLATE NOCASE LIMIT ?"
+    args.append(limit)
+    return conn.execute(sql, args).fetchall()
