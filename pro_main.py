@@ -8,6 +8,8 @@ from db import pro_db
 pro_db.move_old_data()           # one-time move from early test builds
 licence.DATA_DIR = pro_db.pro_dir()   # licence_pro.json lives in C:\MUNIM Pro
 
+import os
+import sys
 import threading
 from tkinter import messagebox
 
@@ -27,6 +29,12 @@ APP_TAGLINE = "Tax · GST · TDS for professionals"
 CURRENT_VERSION = "pro-v0.1"
 
 
+def _resource(*parts):
+    """Path to a bundled file, both in the EXE (PyInstaller) and from source."""
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, *parts)
+
+
 class ProApp(ctk.CTk):
     def __init__(self):
         ctk.set_default_color_theme("blue")
@@ -34,6 +42,7 @@ class ProApp(ctk.CTk):
         super().__init__()
         ctk.set_appearance_mode("light")
         self.title(APP_NAME)
+        self._set_window_icon()
         self.configure(fg_color=T.BG)
         self.geometry("1180x720")
         self.minsize(1000, 640)
@@ -42,6 +51,12 @@ class ProApp(ctk.CTk):
         settings.set_settings_file(pro_db.settings_file())
         self._show_wait("Checking your licence…")
         self.after(100, self._start)
+
+    def _set_window_icon(self):
+        try:
+            self.iconbitmap(_resource("assets", "munimpro.ico"))
+        except Exception:
+            pass   # title-bar icon is cosmetic; never block start-up
 
     def report_callback_exception(self, exc, val, tb):
         errlog.log_exception(exc, val, tb)
