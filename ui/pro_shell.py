@@ -1,4 +1,4 @@
-"""MUNIM Pro — main window: top bar, module tiles, module switch, F4 picker."""
+"""MUNIM Pro — main window: top bar, module tiles, TDS menu bar + toolbar, F4 picker."""
 import customtkinter as ctk
 
 from ui import theme as T
@@ -20,20 +20,23 @@ MODULES = [
 MODULE_BY_ID = {m["id"]: m for m in MODULES}
 MODULE_BY_NAME = {m["name"]: m for m in MODULES}
 
-# TDS menu: (label, built?) — built items open; others show "next update".
-MODULE_MENUS = {
-    "tds": [
-        ("Masters", [("Deductor Master", True), ("Deductee Master", False),
-                     ("Payment Codes", False)]),
-        ("Transactions", [("TDS / TCS Entry", False), ("Challans", False),
-                          ("Link Challans to Entries", False)]),
-        ("Returns", [("Prepare Statement (138 / 140 / 144 / 143)", False),
-                     ("Generate FVU", False), ("Form 27A", False),
-                     ("Correction Statements", False)]),
-        ("Certificates & Reports", [("Form 130 / 131 Import", False),
-                                    ("Form 121 (15G / 15H)", False), ("Reports", False)]),
-    ],
-}
+# TDS menu bar. Each menu: (title, [(label, action_or_None), ...]).
+# action None → "coming in the next update".
+TDS_MENUS = [
+    ("Deductors", [("Deductor Master", "deductor")]),
+    ("Deductees", [("Deductee Master", None)]),
+    ("TDS Entry", [("TDS / TCS Entry", None), ("Import 15G / 15H", None)]),
+    ("Challans", [("Challans", None), ("Link Challans to Entries", None)]),
+    ("Statements & FVU", [("Prepare Statement (138 / 140 / 144 / 143)", None),
+                          ("Generate FVU", None), ("Form 27A", None),
+                          ("Correction Statements", None)]),
+    ("Certificates", [("Form 130 / 131 Import", None), ("Form 121 (15G / 15H)", None)]),
+    ("Reports", [("TDS Reports", None), ("Payment Codes", None)]),
+    ("Utilities", [("Consultant Master", "consultant")]),
+]
+# Toolbar: (label, action_or_None)
+TDS_TOOLBAR = [("Deductors", "deductor"), ("Deductees", None),
+               ("TDS Entry", None), ("Challans", None)]
 
 SOON_FG, SOON_BG = "#8A5A00", "#FFF3D6"
 
@@ -50,26 +53,30 @@ class ProShell(ctk.CTkFrame):
         self.module = None
         self.entity = {}
         self.page, self.page_name = None, ""
+        self._open_menu = None
 
         self._build_topbar()
+        self.menubar = ctk.CTkFrame(self, fg_color="#0C3327", corner_radius=0, height=38)
+        self.toolbar = ctk.CTkFrame(self, fg_color="#113B2D", corner_radius=0, height=46)
         self.body = ctk.CTkFrame(self, fg_color="transparent")
         self.body.pack(fill="both", expand=True)
 
         top = self.winfo_toplevel()
         top.bind("<F4>", self._on_f4)
         top.bind("<Escape>", self._on_escape)
+        top.bind("<Button-1>", self._close_dropdown, add="+")
         self.show_home()
 
     def destroy(self):
         try:
             top = self.winfo_toplevel()
-            for seq in ("<F4>", "<Escape>"):
+            for seq in ("<F4>", "<Escape>", "<Button-1>"):
                 top.unbind(seq)
         except Exception:
             pass
         super().destroy()
 
-    # ── top bar ───────────────────────────────────────────────────────────────
+    # ── top bar (MUNIM green) ──────────────────────────────────────────────────
     def _build_topbar(self):
         bar = ctk.CTkFrame(self, fg_color=T.NAVY, corner_radius=0, height=54)
         bar.pack(fill="x")
@@ -114,6 +121,99 @@ class ProShell(ctk.CTkFrame):
         self.entity_lbl.configure(
             text=f"{noun}: {e['name']} ({e['key']})" if e else f"{noun}: none selected · F4")
 
+    # ── TDS menu bar + toolbar ─────────────────────────────────────────────────
+    def _show_tds_bars(self):
+        self._close_dropdown()
+        self.menubar.pack(fill="x", after=self._topbar_ref(), before=self.body) \
+            if False else None
+        # pack menubar and toolbar right under the top bar, above the body
+        self.menubar.pack(fill="x")
+        self.toolbar.pack(fill="x")
+        # re-stack body last
+        self.body.pack_forget()
+        self.body.pack(fill="both", expand=True)
+        self._build_menubar()
+        self._build_toolbar()
+
+    def _hide_tds_bars(self):
+        self._close_dropdown()
+        self.menubar.pack_forget()
+        self.toolbar.pack_forget()
+
+    def _topbar_ref(self):
+        return self.winfo_children()[0]
+
+    def _build_menubar(self):
+        for w in self.menubar.winfo_children():
+            w.destroy()
+        for title, items in TDS_MENUS:
+            b = ctk.CTkButton(self.menubar, text=title, height=30, width=1,
+                              fg_color="transparent", hover_color="#154A38",
+                              text_color="white", font=T.f(12),
+                              command=lambda t=title, it=items: self._toggle_menu(t, it))
+            b.pack(side="left", padx=2, pady=4)
+
+    def _build_toolbar(self):
+        for w in self.toolbar.winfo_children():
+            w.destroy()
+        for label, action in TDS_TOOLBAR:
+            enabled = action is not None
+            ctk.CTkButton(
+                self.toolbar, text=label, height=34, width=104,
+                fg_color=T.ACCENT if enabled else "#245244",
+                hover_color=T.ACCENT_HOVER if enabled else "#245244",
+                text_color="white" if enabled else "#8FB6A6", font=T.f(12, "bold"),
+                command=(lambda a=action: self._run_action(a)) if enabled else None
+            ).pack(side="left", padx=(8 if label == TDS_TOOLBAR[0][0] else 4), pady=6)
+        ctk.CTkLabel(self.toolbar, text="F4 = select deductor", font=T.f(11),
+                     text_color="#8FB6A6").pack(side="right", padx=14)
+
+    def _toggle_menu(self, title, items):
+        if self._open_menu and self._open_menu.winfo_exists() \
+                and getattr(self._open_menu, "_title", None) == title:
+            self._close_dropdown()
+            return
+        self._close_dropdown()
+        # find the button to anchor under
+        btn = next((w for w in self.menubar.winfo_children()
+                    if isinstance(w, ctk.CTkButton) and w.cget("text") == title), None)
+        if not btn:
+            return
+        top = self.winfo_toplevel()
+        x = btn.winfo_rootx() - top.winfo_rootx()
+        y = (self.menubar.winfo_rooty() - top.winfo_rooty()) + self.menubar.winfo_height()
+        menu = ctk.CTkFrame(top, fg_color=T.CARD, border_width=1, border_color=T.BORDER,
+                            corner_radius=6)
+        menu._title = title
+        for label, action in items:
+            enabled = action is not None
+            ctk.CTkButton(
+                menu, text=label if enabled else f"{label}  (soon)",
+                anchor="w", height=30, fg_color="transparent",
+                hover_color=T.SURFACE_SELECTED if enabled else T.CARD,
+                text_color=T.TEXT if enabled else T.MUTED, font=T.f(12),
+                command=(lambda a=action: self._run_action(a)) if enabled else None
+            ).pack(fill="x", padx=4, pady=1)
+        menu.place(x=x, y=y)
+        menu.lift()
+        self._open_menu = menu
+
+    def _close_dropdown(self, _e=None):
+        if self._open_menu is not None:
+            try:
+                if self._open_menu.winfo_exists():
+                    self._open_menu.destroy()
+            except Exception:
+                pass
+            self._open_menu = None
+
+    def _run_action(self, action):
+        self._close_dropdown()
+        if action == "deductor":
+            self.show_deductor()
+        elif action == "consultant":
+            self.show_consultant()
+
     # ── navigation ────────────────────────────────────────────────────────────
     def state_of(self, m):
         if not m["ready"]:
@@ -137,15 +237,18 @@ class ProShell(ctk.CTkFrame):
         self.module = mid if state == "open" else None
         self.switch.set(m["name"])
         self._refresh_entity()
-        if state == "open":
-            self._show(self._module_page(m), "module")
+        if state == "open" and mid == "tds":
+            self._show_tds_bars()
+            self._show(self._tds_welcome(m), "module")
         else:
+            self._hide_tds_bars()
             self._show(self._locked_page(m, state), "locked")
 
     def show_home(self):
         self.module = None
         self.switch.set("")
         self._refresh_entity()
+        self._hide_tds_bars()
         page = ctk.CTkFrame(self.body, fg_color="transparent")
         info = licence.info() or {}
         who = info.get("firm") or info.get("username", "")
@@ -173,14 +276,14 @@ class ProShell(ctk.CTkFrame):
         T.button(foot, "Consultant Master", self.show_consultant, width=180,
                  fg_color="#E7ECF5", text_color=T.TEXT,
                  hover_color="#DCE3F0").pack(side="left")
-        ctk.CTkLabel(foot, text="F4 = select client  ·  Esc = back to this screen",
-                     font=T.f(12), text_color=T.MUTED).pack(side="left", padx=16)
         self._show(page, "home")
 
     def show_consultant(self):
+        self._close_dropdown()
         self.module = None
         self.switch.set("")
         self._refresh_entity()
+        self._hide_tds_bars()
         page = ConsultantPage(self.body, self.con, self.username,
                               on_change=self._refresh_consultant_label,
                               on_back=self.show_home)
@@ -190,6 +293,7 @@ class ProShell(ctk.CTkFrame):
         self.module = "tds"
         self.switch.set("TDS Pro")
         self._refresh_entity()
+        self._show_tds_bars()
         page = DeductorPage(self.body, self.con, self.username,
                             on_back=lambda: self.open_module("tds"), start_id=start_id)
         self._show(page, "deductor")
@@ -243,47 +347,27 @@ class ProShell(ctk.CTkFrame):
                  text_color=T.TEXT, hover_color="#DCE3F0").pack(side="left")
         return page
 
-    def _open_menu_item(self, mid, label):
-        if mid == "tds" and label == "Deductor Master":
-            self.show_deductor()
-
-    def _module_page(self, m):
-        page = ctk.CTkScrollableFrame(self.body, fg_color="transparent")
-        T.title(page, m["name"], m["desc"]).pack(anchor="w", padx=28, pady=(22, 12))
-        noun, keyname = LABELS[m["id"]]
-        eb = T.card(page)
-        eb.pack(fill="x", padx=28, pady=(0, 12))
-        e = self.entity.get(m["id"])
-        ctk.CTkLabel(eb, text=(f"{noun}: {e['name']}     {keyname}: {e['key']}" if e
-                               else f"No {noun.lower()} selected."),
-                     font=T.f(14, "bold" if e else "normal")).pack(side="left", padx=18, pady=14)
-        T.button(eb, f"Select {noun}  (F4)", self._on_f4, width=200).pack(side="right",
-                                                                          padx=18, pady=10)
-        grid = ctk.CTkFrame(page, fg_color="transparent")
-        grid.pack(fill="x", padx=20)
-        for i, (head, items) in enumerate(MODULE_MENUS.get(m["id"], [])):
-            grid.grid_columnconfigure(i % 2, weight=1, uniform="g")
-            c = T.card(grid)
-            c.grid(row=i // 2, column=i % 2, padx=8, pady=8, sticky="nsew")
-            ctk.CTkLabel(c, text=head, font=T.f(15, "bold")).pack(anchor="w", padx=18,
-                                                                  pady=(14, 6))
-            any_soon = False
-            for label, built in items:
-                if built:
-                    row = ctk.CTkFrame(c, fg_color="transparent")
-                    row.pack(fill="x", padx=18, pady=1)
-                    ctk.CTkLabel(row, text=label, font=T.f(13)).pack(side="left")
-                    T.button(row, "Open", lambda mi=m["id"], la=label: self._open_menu_item(mi, la),
-                             width=70, height=28).pack(side="right")
-                else:
-                    any_soon = True
-                    ctk.CTkLabel(c, text=f"•  {label}", font=T.f(13),
-                                 text_color=T.MUTED).pack(anchor="w", padx=22, pady=1)
-            if any_soon:
-                ctk.CTkLabel(c, text="More coming in the next update", font=T.f(11),
-                             text_color=SOON_FG).pack(anchor="w", padx=22, pady=(6, 14))
-            else:
-                ctk.CTkLabel(c, text="").pack(pady=(0, 8))
+    def _tds_welcome(self, m):
+        page = ctk.CTkFrame(self.body, fg_color="transparent")
+        e = self.entity.get("tds")
+        card = T.card(page)
+        card.place(relx=0.5, rely=0.4, anchor="center")
+        ctk.CTkLabel(card, text="TDS Pro", font=T.f(26, "bold")).pack(
+            anchor="w", padx=40, pady=(34, 6))
+        if e:
+            ctk.CTkLabel(card, text=f"Working on: {e['name']}  (TAN {e['key']})",
+                         font=T.f(14), text_color=T.OK).pack(anchor="w", padx=40)
+        else:
+            ctk.CTkLabel(card, text="Pick a deductor (press F4) or open Deductors from "
+                         "the menu above to begin.", font=T.f(13), text_color=T.MUTED,
+                         wraplength=460, justify="left").pack(anchor="w", padx=40)
+        bar = ctk.CTkFrame(card, fg_color="transparent")
+        bar.pack(anchor="w", padx=40, pady=(20, 34))
+        T.button(bar, "Open Deductors", self.show_deductor, width=170).pack(side="left",
+                                                                            padx=(0, 8))
+        T.button(bar, "Select Deductor (F4)", self._on_f4, width=200,
+                 fg_color="#E7ECF5", text_color=T.TEXT,
+                 hover_color="#DCE3F0").pack(side="left")
         return page
 
     # ── keys ──────────────────────────────────────────────────────────────────
@@ -301,6 +385,9 @@ class ProShell(ctk.CTkFrame):
             self.open_module(self.module)
 
     def _on_escape(self, _e=None):
+        if self._open_menu is not None:
+            self._close_dropdown()
+            return "break"
         handler = getattr(self.page, "on_escape", None)
         if handler and handler():
             return "break"
