@@ -1,17 +1,22 @@
 """MUNIM Pro — master database: Consultant Master (shared) + separate entity
 lists per module (TDS: deductors, GST: gst_clients, Tax: assessees), login
 users and the password vault.
-File: <MUNIM data folder>\\pro\\munim_pro.db
+
+MUNIM Pro keeps ALL its data in its own folder:  C:\\MUNIM Pro\\
+(MUNIM Books stays in C:\\MUNIM\\ — the two never share files.)
 """
 import os
+import shutil
 import sqlite3
 import datetime
 
-from db.setup import data_dir
 from utils import validate as V
 from utils import vault
 
 SCHEMA_VERSION = 1
+_DRIVE = os.environ.get("SystemDrive", "C:") + os.sep
+PRO_ROOT = os.path.join(_DRIVE, "MUNIM Pro")
+_OLD_BOOKS_ROOT = os.path.join(_DRIVE, "MUNIM")     # early test builds used this
 
 # GST state codes (current)
 STATES = [
@@ -93,9 +98,8 @@ def _now():
 
 # ---------------------------------------------------------------- paths
 def pro_dir():
-    d = os.path.join(data_dir(), "pro")
-    os.makedirs(d, exist_ok=True)
-    return d
+    os.makedirs(PRO_ROOT, exist_ok=True)
+    return PRO_ROOT
 
 
 def db_path():
@@ -104,6 +108,32 @@ def db_path():
 
 def settings_file():
     return os.path.join(pro_dir(), "settings.json")
+
+
+def move_old_data():
+    """Early test builds kept Pro data in C:\\MUNIM\\pro and the licence in
+    C:\\MUNIM\\licence_pro.json. Move them once into C:\\MUNIM Pro."""
+    new = pro_dir()
+    old_dir = os.path.join(_OLD_BOOKS_ROOT, "pro")
+    try:
+        if os.path.isdir(old_dir) and not os.path.exists(os.path.join(new, "munim_pro.db")):
+            for name in os.listdir(old_dir):
+                dest = os.path.join(new, name)
+                if not os.path.exists(dest):
+                    shutil.move(os.path.join(old_dir, name), dest)
+            try:
+                os.rmdir(old_dir)
+            except OSError:
+                pass
+    except Exception:
+        pass
+    try:
+        old_lic = os.path.join(_OLD_BOOKS_ROOT, "licence_pro.json")
+        new_lic = os.path.join(new, "licence_pro.json")
+        if os.path.exists(old_lic) and not os.path.exists(new_lic):
+            shutil.move(old_lic, new_lic)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------- connection

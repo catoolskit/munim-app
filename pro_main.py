@@ -1,7 +1,12 @@
 """MUNIM Pro — entry point (TDS Pro · GST Pro · Tax Pro).
-Built as MUNIMPro.exe from the same codebase as MUNIM Books."""
+Built as MUNIMPro.exe from the same codebase as MUNIM Books.
+All MUNIM Pro data lives in C:\\MUNIM Pro (MUNIM Books uses C:\\MUNIM)."""
 from utils import licence
 licence.PRODUCT = "pro"          # must run before anything reads the licence
+
+from db import pro_db
+pro_db.move_old_data()           # one-time move from early test builds
+licence.DATA_DIR = pro_db.pro_dir()   # licence_pro.json lives in C:\MUNIM Pro
 
 import threading
 from tkinter import messagebox
@@ -14,7 +19,6 @@ pro_theme.apply()                # emerald colours before any widget exists
 from ui import theme as T
 from ui.activation import ActivationFrame
 from ui.pro_shell import ProShell
-from db import pro_db
 from db.setup import login, change_password
 from utils import settings, errlog, vault
 

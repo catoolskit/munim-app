@@ -41,11 +41,9 @@ def _chrome_path():
 
 
 def _service(cls):
-    kw = {"log_output": subprocess.DEVNULL}
-    if os.name == "nt":
-        kw["popen_kw"] = {"creationflags": subprocess.CREATE_NO_WINDOW}
+    # Selenium already starts the driver hidden on Windows; only silence its log.
     try:
-        return cls(**kw)
+        return cls(log_output=subprocess.DEVNULL)
     except TypeError:
         return cls()
 
@@ -227,7 +225,8 @@ def run(portal, user_id, password, extra=None, say=lambda _m: None):
         except PortalError:
             raise
         except Exception as e:
-            raise PortalError(f"Auto-login stopped: {str(e).splitlines()[0][:150] if str(e) else e}. "
+            first = (str(e).strip().splitlines() or [type(e).__name__])[0]
+            raise PortalError(f"Auto-login stopped: {first[:150]}. "
                               "Please finish the login in the browser window.",
                               browser_open=True)
     finally:
