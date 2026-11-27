@@ -24,7 +24,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller "selenium>=4.20"
+          pip install pyinstaller
 
       - name: Build MUNIM Books
         run: |
@@ -43,7 +43,6 @@ jobs:
           pyinstaller --onefile --windowed --name MUNIMPro `
             --icon assets/munim.ico `
             --collect-all customtkinter `
-            --collect-all selenium `
             --add-data "ui;ui" `
             --add-data "utils;utils" `
             --add-data "db;db" `
