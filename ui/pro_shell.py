@@ -3,6 +3,7 @@ import customtkinter as ctk
 
 from ui import theme as T
 from ui.pro_common import whatsapp
+from ui.pro_deductee import DeducteePage
 from ui.pro_picker import EntityPicker, LABELS
 from ui.pro_consultant import ConsultantPage
 from ui.pro_deductor import DeductorPage
@@ -24,7 +25,7 @@ MODULE_BY_NAME = {m["name"]: m for m in MODULES}
 # action None → "coming in the next update".
 TDS_MENUS = [
     ("Deductors", [("Deductor Master", "deductor")]),
-    ("Deductees", [("Deductee Master", None)]),
+    ("Deductees", [("Deductee Master", "deductee")]),
     ("TDS Entry", [("TDS / TCS Entry", None), ("Import 15G / 15H", None)]),
     ("Challans", [("Challans", None), ("Link Challans to Entries", None)]),
     ("Statements & FVU", [("Prepare Statement (138 / 140 / 144 / 143)", None),
@@ -35,7 +36,7 @@ TDS_MENUS = [
     ("Utilities", [("Consultant Master", "consultant")]),
 ]
 # Toolbar: (label, action_or_None)
-TDS_TOOLBAR = [("Deductors", "deductor"), ("Deductees", None),
+TDS_TOOLBAR = [("Deductors", "deductor"), ("Deductees", "deductee"),
                ("TDS Entry", None), ("Challans", None)]
 
 SOON_FG, SOON_BG = "#8A5A00", "#FFF3D6"
@@ -211,9 +212,11 @@ class ProShell(ctk.CTkFrame):
         self._close_dropdown()
         if action == "deductor":
             self.show_deductor()
+        elif action == "deductee":
+            self.show_deductee()
         elif action == "consultant":
             self.show_consultant()
-
+            
     # ── navigation ────────────────────────────────────────────────────────────
     def state_of(self, m):
         if not m["ready"]:
@@ -298,6 +301,23 @@ class ProShell(ctk.CTkFrame):
                             on_back=lambda: self.open_module("tds"), start_id=start_id)
         self._show(page, "deductor")
 
+    def show_deductee(self):
+        ded = self.entity.get("tds")
+        if not ded:
+            self.module = "tds"
+            self.switch.set("TDS Pro")
+            self._show_tds_bars()
+            self._on_f4()   # ask the user to pick a deductor first
+            return
+        full = pro_db.get_deductor(self.con, ded["id"])
+        self.module = "tds"
+        self.switch.set("TDS Pro")
+        self._refresh_entity()
+        self._show_tds_bars()
+        page = DeducteePage(self.body, self.con, self.username, full,
+                            on_back=lambda: self.open_module("tds"))
+        self._show(page, "deductee")
+        
     # ── pages ─────────────────────────────────────────────────────────────────
     def _tile(self, parent, m):
         state = self.state_of(m)
