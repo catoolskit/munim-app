@@ -41,7 +41,7 @@ jobs:
         if: hashFiles('pro_main.py') != ''
         run: |
           pyinstaller --onefile --windowed --name MUNIMPro `
-            --icon assets/munim.ico `
+            --icon assets/munimpro.ico `
             --collect-all customtkinter `
             --add-data "ui;ui" `
             --add-data "utils;utils" `
