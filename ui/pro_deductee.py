@@ -58,6 +58,24 @@ class DeducteePage(ctk.CTkFrame):
                                        border_color=T.BORDER, corner_radius=12)
         right.grid(row=0, column=1, sticky="nsew")
         self._build_form(right)
+        self._bind_wheel(right)
+
+    def _bind_wheel(self, scroll_frame):
+        """Make the mouse wheel scroll the form from anywhere inside it."""
+        canvas = getattr(scroll_frame, "_parent_canvas", None)
+        if canvas is None:
+            return
+
+        def on_wheel(event):
+            canvas.yview_scroll(int(-event.delta / 40), "units")
+            return "break"
+
+        def bind_all(widget):
+            widget.bind("<MouseWheel>", on_wheel, add="+")
+            for child in widget.winfo_children():
+                bind_all(child)
+
+        self.after(200, lambda: bind_all(scroll_frame))
 
         self.rows = {}
         self.refresh_list()
