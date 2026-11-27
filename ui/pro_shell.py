@@ -116,8 +116,13 @@ class ProShell(ctk.CTkFrame):
         return "open" if m["id"] in self.licensed else "locked"
 
     def _show(self, page, name):
-        if self.page is not None:
-            self.page.destroy()
+        # Remove every old page from the body. A scrollable page lives inside an
+        # outer frame (_parent_frame); destroying only the page would leave that
+        # outer frame behind as a blank gap.
+        keep = {page, getattr(page, "_parent_frame", page)}
+        for w in list(self.body.winfo_children()):
+            if w not in keep:
+                w.destroy()
         self.page, self.page_name = page, name
         page.pack(fill="both", expand=True)
 
