@@ -5,10 +5,11 @@ import customtkinter as ctk
 
 from ui import theme as T
 from ui.ux import chain_enter, focus_later
-from ui.pro_common import SecretEntry, ensure_vault, copy_for_a_while, open_portal
+from ui.pro_common import SecretEntry, ensure_vault, copy_for_a_while
+from ui.pro_common import whatsapp  # noqa: F401  (kept for other screens)
 from db import pro_db
 from utils import vault
-from utils import portal_login
+from utils.portal_login import open_portal
 
 SELECT = "— Select —"
 STATE_VALUES = [SELECT] + [f"{c} - {n}" for c, n in pro_db.STATES]
@@ -43,7 +44,6 @@ class ConsultantPage(ctk.CTkFrame):
         self.on_back = on_back or (lambda: None)
         self.rows, self.idx, self.mode = [], -1, "view"
         self.w, self.cred_w = {}, {}
-        self._login_busy = False
 
         head = ctk.CTkFrame(self, fg_color="transparent")
         head.pack(fill="x", padx=28, pady=(20, 8))
@@ -115,9 +115,9 @@ class ConsultantPage(ctk.CTkFrame):
         cc.pack(fill="x", padx=8, pady=(10, 6))
         ctk.CTkLabel(cc, text="Portal logins", font=T.f(15, "bold")).grid(
             row=0, column=0, columnspan=5, sticky="w", padx=18, pady=(14, 0))
-        ctk.CTkLabel(cc, text="Passwords are encrypted on this computer. 'Log in' opens the "
-                     "portal and fills your User ID and password. You always type the "
-                     "captcha / OTP yourself.",
+        ctk.CTkLabel(cc, text="Passwords are encrypted on this computer. 'Open portal' opens "
+                     "the login page and copies your User ID; use 'Copy password' to paste "
+                     "the password. You type the captcha / OTP yourself.",
                      font=T.f(12), text_color=T.MUTED).grid(
             row=1, column=0, columnspan=5, sticky="w", padx=18, pady=(0, 8))
         for i, (cid, label, _field, _portal) in enumerate(CREDS, start=2):
@@ -128,7 +128,7 @@ class ConsultantPage(ctk.CTkFrame):
             sec = SecretEntry(cc, "Password", width=170,
                               loader=lambda c=cid: self._saved_password(c))
             sec.grid(row=i, column=2, sticky="w", padx=8, pady=4)
-            self._btn(cc, "Log in", lambda c=cid: self._login(c), primary=True).grid(
+            self._btn(cc, "Open portal", lambda c=cid: self._open_portal(c), primary=True).grid(
                 row=i, column=3, padx=(0, 6), pady=4)
             self._btn(cc, "Copy password", lambda c=cid: self._copy_password(c)).grid(
                 row=i, column=4, padx=(0, 18), pady=4)
@@ -394,36 +394,10 @@ class ConsultantPage(ctk.CTkFrame):
             return None
         return saved[2] if saved and saved[2] else None
 
-    def _login(self, cid):
-        if self._login_busy:
-            self._say("A login is already running. Please wait.", T.MUTED)
-            return
-        user_e, sec = self.cred_w[cid]
+    def _open_portal(self, cid):
+        user_e, _sec = self.cred_w[cid]
         portal = self._cred_field(cid)[3]
-        user = user_e.get().strip()
-        if not user:
-            self._say("Enter the User ID first.", T.DANGER)
-            return
-        pw = sec.get() or self._saved_password(cid)
-        if not pw:
-            self._say("Enter or save the password first.", T.DANGER)
-            return
-        self._login_busy = True
-        self._say("Opening the browser… (the first time can take a minute)", T.MUTED)
-
-        def done(err, browser_open):
-            self._login_busy = False
-            if not err:
-                self._say("Details filled ✓  Type the OTP / captcha in the browser if asked.",
-                          T.OK)
-            elif browser_open:
-                self._say(err, T.DANGER)
-            else:
-                msg = open_portal(self, portal, user)
-                self._say(f"{err}\n{msg}", T.DANGER)
-
-        portal_login.start(self, portal, user, pw, None,
-                           on_status=lambda m: self._say(m, T.MUTED), on_done=done)
+        self._say(open_portal(self, portal, user_e.get().strip()), T.OK)
 
     def _copy_password(self, cid):
         _user_e, sec = self.cred_w[cid]
