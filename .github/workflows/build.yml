@@ -1,8 +1,8 @@
-name: Build MUNIM.exe
+name: Build MUNIM
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, pro-dev ]
   release:
     types: [ published ]
   workflow_dispatch:
@@ -26,7 +26,7 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Build executable
+      - name: Build MUNIM Books
         run: |
           pyinstaller --onefile --windowed --name MUNIM `
             --icon assets/munim.ico `
@@ -37,12 +37,33 @@ jobs:
             --add-data "assets;assets" `
             main.py
 
-      - name: Upload artifact
+      - name: Build MUNIM Pro
+        if: hashFiles('pro_main.py') != ''
+        run: |
+          pyinstaller --onefile --windowed --name MUNIMPro `
+            --icon assets/munim.ico `
+            --collect-all customtkinter `
+            --add-data "ui;ui" `
+            --add-data "utils;utils" `
+            --add-data "db;db" `
+            --add-data "assets;assets" `
+            pro_main.py
+
+      - name: Upload MUNIM Books artifact
         uses: actions/upload-artifact@v4
         with:
           name: MUNIM-exe
           path: dist/MUNIM.exe
 
+      - name: Upload MUNIM Pro artifact
+        if: hashFiles('pro_main.py') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: MUNIMPro-exe
+          path: dist/MUNIMPro.exe
+
+      # Only MUNIM Books goes to the public release for now.
+      # MUNIMPro.exe will be added here when Pro is launched.
       - name: Upload to release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
