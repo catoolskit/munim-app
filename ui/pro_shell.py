@@ -5,6 +5,7 @@ from ui import theme as T
 from ui.pro_common import whatsapp
 from ui.pro_picker import EntityPicker, LABELS
 from ui.pro_consultant import ConsultantPage
+from ui.pro_deductor import DeductorPage
 from db import pro_db
 from utils import licence
 
@@ -19,14 +20,18 @@ MODULES = [
 MODULE_BY_ID = {m["id"]: m for m in MODULES}
 MODULE_BY_NAME = {m["name"]: m for m in MODULES}
 
+# TDS menu: (label, built?) — built items open; others show "next update".
 MODULE_MENUS = {
     "tds": [
-        ("Masters", ["Deductor Master", "Deductee Master", "Payment Codes"]),
-        ("Transactions", ["TDS / TCS Entry", "Challans", "Link Challans to Entries"]),
-        ("Returns", ["Prepare Statement (138 / 140 / 144 / 143)", "Generate FVU",
-                     "Form 27A", "Correction Statements"]),
-        ("Certificates & Reports", ["Form 130 / 131 Import", "Form 121 (15G / 15H)",
-                                    "Reports"]),
+        ("Masters", [("Deductor Master", True), ("Deductee Master", False),
+                     ("Payment Codes", False)]),
+        ("Transactions", [("TDS / TCS Entry", False), ("Challans", False),
+                          ("Link Challans to Entries", False)]),
+        ("Returns", [("Prepare Statement (138 / 140 / 144 / 143)", False),
+                     ("Generate FVU", False), ("Form 27A", False),
+                     ("Correction Statements", False)]),
+        ("Certificates & Reports", [("Form 130 / 131 Import", False),
+                                    ("Form 121 (15G / 15H)", False), ("Reports", False)]),
     ],
 }
 
@@ -42,8 +47,8 @@ class ProShell(ctk.CTkFrame):
             self.licensed = set(lic.get("m") or []) if lic.get("p") in ("pro", "both") else set()
         except licence.LicenceError:
             self.licensed = set()
-        self.module = None          # currently open module id
-        self.entity = {}            # module id -> picked row
+        self.module = None
+        self.entity = {}
         self.page, self.page_name = None, ""
 
         self._build_topbar()
@@ -116,9 +121,6 @@ class ProShell(ctk.CTkFrame):
         return "open" if m["id"] in self.licensed else "locked"
 
     def _show(self, page, name):
-        # Remove every old page from the body. A scrollable page lives inside an
-        # outer frame (_parent_frame); destroying only the page would leave that
-        # outer frame behind as a blank gap.
         keep = {page, getattr(page, "_parent_frame", page)}
         for w in list(self.body.winfo_children()):
             if w not in keep:
@@ -184,6 +186,14 @@ class ProShell(ctk.CTkFrame):
                               on_back=self.show_home)
         self._show(page, "consultant")
 
+    def show_deductor(self, start_id=None):
+        self.module = "tds"
+        self.switch.set("TDS Pro")
+        self._refresh_entity()
+        page = DeductorPage(self.body, self.con, self.username,
+                            on_back=lambda: self.open_module("tds"), start_id=start_id)
+        self._show(page, "deductor")
+
     # ── pages ─────────────────────────────────────────────────────────────────
     def _tile(self, parent, m):
         state = self.state_of(m)
@@ -233,6 +243,10 @@ class ProShell(ctk.CTkFrame):
                  text_color=T.TEXT, hover_color="#DCE3F0").pack(side="left")
         return page
 
+    def _open_menu_item(self, mid, label):
+        if mid == "tds" and label == "Deductor Master":
+            self.show_deductor()
+
     def _module_page(self, m):
         page = ctk.CTkScrollableFrame(self.body, fg_color="transparent")
         T.title(page, m["name"], m["desc"]).pack(anchor="w", padx=28, pady=(22, 12))
@@ -253,11 +267,23 @@ class ProShell(ctk.CTkFrame):
             c.grid(row=i // 2, column=i % 2, padx=8, pady=8, sticky="nsew")
             ctk.CTkLabel(c, text=head, font=T.f(15, "bold")).pack(anchor="w", padx=18,
                                                                   pady=(14, 6))
-            for item in items:
-                ctk.CTkLabel(c, text=f"•  {item}", font=T.f(13),
-                             text_color=T.MUTED).pack(anchor="w", padx=22, pady=1)
-            ctk.CTkLabel(c, text="Coming in the next update", font=T.f(11),
-                         text_color=SOON_FG).pack(anchor="w", padx=22, pady=(6, 14))
+            any_soon = False
+            for label, built in items:
+                if built:
+                    row = ctk.CTkFrame(c, fg_color="transparent")
+                    row.pack(fill="x", padx=18, pady=1)
+                    ctk.CTkLabel(row, text=label, font=T.f(13)).pack(side="left")
+                    T.button(row, "Open", lambda mi=m["id"], la=label: self._open_menu_item(mi, la),
+                             width=70, height=28).pack(side="right")
+                else:
+                    any_soon = True
+                    ctk.CTkLabel(c, text=f"•  {label}", font=T.f(13),
+                                 text_color=T.MUTED).pack(anchor="w", padx=22, pady=1)
+            if any_soon:
+                ctk.CTkLabel(c, text="More coming in the next update", font=T.f(11),
+                             text_color=SOON_FG).pack(anchor="w", padx=22, pady=(6, 14))
+            else:
+                ctk.CTkLabel(c, text="").pack(pady=(0, 8))
         return page
 
     # ── keys ──────────────────────────────────────────────────────────────────

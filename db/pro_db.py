@@ -13,7 +13,7 @@ import datetime
 from utils import validate as V
 from utils import vault
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 _DRIVE = os.environ.get("SystemDrive", "C:") + os.sep
 PRO_ROOT = os.path.join(_DRIVE, "MUNIM Pro")
 _OLD_BOOKS_ROOT = os.path.join(_DRIVE, "MUNIM")     # early test builds used this
@@ -34,6 +34,14 @@ STATES = [
 ]
 STATE_NAME = dict(STATES)
 CONTACT_ROLES = ["Proprietor", "Partner", "Director", "Employee"]
+
+# Deductor types (TAN holders). 'type' stored as the short code.
+DEDUCTOR_TYPES = [
+    ("company", "Company"), ("firm", "Firm / LLP"), ("individual", "Individual / Proprietor"),
+    ("huf", "HUF"), ("aop", "AOP / BOI"), ("trust", "Trust"),
+    ("local", "Local Authority"),
+]
+DEDUCTOR_TYPE_NAME = dict(DEDUCTOR_TYPES)
 
 _ADDR = "addr1 TEXT, addr2 TEXT, addr3 TEXT, city TEXT, state_code TEXT, pin TEXT"
 _TAIL = ("books_company TEXT, active INTEGER NOT NULL DEFAULT 1, notes TEXT, "
@@ -63,9 +71,12 @@ CREATE TABLE IF NOT EXISTS consultants (
 CREATE TABLE IF NOT EXISTS deductors (
     id INTEGER PRIMARY KEY,
     consultant_id INTEGER REFERENCES consultants(id) ON DELETE SET NULL,
-    name TEXT NOT NULL, tan TEXT NOT NULL UNIQUE, pan TEXT, type TEXT,
+    name TEXT NOT NULL, file_code TEXT, tan TEXT NOT NULL UNIQUE, pan TEXT, type TEXT,
     {_ADDR}, phone TEXT, email TEXT,
-    rp_name TEXT, rp_pan TEXT, rp_designation TEXT, rp_phone TEXT, rp_email TEXT,
+    rp_name TEXT, rp_pan TEXT, rp_designation TEXT, rp_father TEXT,
+    rp_phone TEXT, rp_email TEXT,
+    rp_addr1 TEXT, rp_addr2 TEXT, rp_addr3 TEXT, rp_city TEXT, rp_state_code TEXT, rp_pin TEXT,
+    rp_same_addr INTEGER NOT NULL DEFAULT 1,
     traces_cred_ref TEXT, itd_cred_ref TEXT, {_TAIL}
 );
 
@@ -90,6 +101,14 @@ CREATE INDEX IF NOT EXISTS ix_deductors_name ON deductors(name COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS ix_gst_clients_name ON gst_clients(legal_name COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS ix_assessees_name ON assessees(name COLLATE NOCASE);
 """
+
+# Columns added after v1. Safe to run every start: only missing ones are added.
+_DEDUCTOR_ADDED = [
+    ("file_code", "TEXT"), ("rp_father", "TEXT"),
+    ("rp_addr1", "TEXT"), ("rp_addr2", "TEXT"), ("rp_addr3", "TEXT"),
+    ("rp_city", "TEXT"), ("rp_state_code", "TEXT"), ("rp_pin", "TEXT"),
+    ("rp_same_addr", "INTEGER NOT NULL DEFAULT 1"),
+]
 
 
 def _now():
@@ -146,12 +165,18 @@ def connect(path=None) -> sqlite3.Connection:
     return conn
 
 
+def _cols(conn, table):
+    return {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+
+
 def _migrate(conn):
     conn.executescript(_BASE_SCHEMA)
-    version = conn.execute("PRAGMA user_version").fetchone()[0]
-    if version < 1:
-        conn.execute("PRAGMA user_version = 1")
-    # future: if version < 2: ALTER TABLE ... ; PRAGMA user_version = 2
+    # Add any deductor columns introduced after the first release.
+    have = _cols(conn, "deductors")
+    for col, decl in _DEDUCTOR_ADDED:
+        if col not in have:
+            conn.execute(f"ALTER TABLE deductors ADD COLUMN {col} {decl}")
+    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     vault.ensure_tables(conn)
     conn.commit()
 
@@ -167,7 +192,8 @@ CONSULTANT_FIELDS = [
     "membership_no", "pan", "firm_reg_no", "gstin", "tagline", "is_tax_auditor",
     "itd_cred_ref", "gstp_cred_ref",
 ]
-_UPPER = {"firm_pan", "pan", "gstin", "firm_reg_no"}
+_UPPER = {"firm_pan", "pan", "gstin", "firm_reg_no", "tan", "file_code",
+          "rp_pan"}
 
 
 def _normalise(data: dict, fields) -> dict:
@@ -263,6 +289,97 @@ def delete_consultant(conn, cid: int):
         nxt = conn.execute("SELECT id FROM consultants ORDER BY id LIMIT 1").fetchone()
         if nxt:
             conn.execute("UPDATE consultants SET is_default=1 WHERE id=?", (nxt[0],))
+    conn.commit()
+
+
+# ---------------------------------------------------------------- deductors
+DEDUCTOR_FIELDS = [
+    "name", "file_code", "tan", "pan", "type",
+    "addr1", "addr2", "addr3", "city", "state_code", "pin", "phone", "email",
+    "rp_name", "rp_pan", "rp_designation", "rp_father", "rp_phone", "rp_email",
+    "rp_addr1", "rp_addr2", "rp_addr3", "rp_city", "rp_state_code", "rp_pin",
+    "rp_same_addr", "traces_cred_ref",
+]
+
+
+def validate_deductor(d: dict) -> dict:
+    """Return {field: error}. Empty dict = OK."""
+    errors = {}
+    if not (d.get("name") or "").strip():
+        errors["name"] = "Deductor name is required"
+    e = V.check("tan", d.get("tan"), required=True)
+    if e:
+        errors["tan"] = e
+    for field, kind in (("pan", "pan"), ("pin", "pin"), ("email", "email"),
+                        ("phone", "phone"), ("rp_pan", "pan"), ("rp_pin", "pin"),
+                        ("rp_email", "email"), ("rp_phone", "phone")):
+        e = V.check(kind, d.get(field))
+        if e:
+            errors[field] = e
+    typ = d.get("type")
+    if typ and typ not in DEDUCTOR_TYPE_NAME:
+        errors["type"] = "Select a type"
+    for sfield in ("state_code", "rp_state_code"):
+        s = d.get(sfield)
+        if s and s not in STATE_NAME:
+            errors[sfield] = "Select a state"
+    return errors
+
+
+def save_deductor(conn, data: dict, did: int = None) -> int:
+    d = _normalise(data, DEDUCTOR_FIELDS)
+    errors = validate_deductor(d)
+    if errors:
+        raise ValueError(errors)
+    d["rp_same_addr"] = 1 if d.get("rp_same_addr") else 0
+    # Guard the unique TAN with a friendly message.
+    tan = d.get("tan")
+    clash = conn.execute("SELECT id, name FROM deductors WHERE tan=? AND id != ?",
+                         (tan, did or -1)).fetchone()
+    if clash:
+        raise ValueError({"tan": f"TAN already used by “{clash['name']}”"})
+    now = _now()
+    if did:
+        cols = ", ".join(f"{k}=?" for k in d)
+        conn.execute(f"UPDATE deductors SET {cols}, updated_at=? WHERE id=?",
+                     [*d.values(), now, did])
+    else:
+        d.update(active=1, created_at=now, updated_at=now)
+        cols = ", ".join(d)
+        marks = ", ".join("?" for _ in d)
+        did = conn.execute(f"INSERT INTO deductors({cols}) VALUES({marks})",
+                           list(d.values())).lastrowid
+    conn.commit()
+    return did
+
+
+def get_deductor(conn, did: int):
+    return conn.execute("SELECT * FROM deductors WHERE id=?", (did,)).fetchone()
+
+
+def list_deductors(conn, include_inactive=False):
+    sql = "SELECT * FROM deductors"
+    if not include_inactive:
+        sql += " WHERE active = 1"
+    sql += " ORDER BY name COLLATE NOCASE"
+    return conn.execute(sql).fetchall()
+
+
+def find_deductors(conn, text: str):
+    like = f"%{(text or '').strip()}%"
+    return conn.execute(
+        "SELECT * FROM deductors WHERE active = 1 AND ("
+        "name LIKE ? OR tan LIKE ? OR pan LIKE ? OR city LIKE ? OR file_code LIKE ?) "
+        "ORDER BY name COLLATE NOCASE",
+        (like, like, like, like, like)).fetchall()
+
+
+def delete_deductor(conn, did: int):
+    row = get_deductor(conn, did)
+    if not row:
+        return
+    vault.delete(conn, row["traces_cred_ref"])
+    conn.execute("DELETE FROM deductors WHERE id=?", (did,))
     conn.commit()
 
 
