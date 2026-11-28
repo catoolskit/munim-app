@@ -1,6 +1,6 @@
 """MUNIM Pro — master database: Consultant Master (shared) + separate entity
 lists per module (TDS: deductors + deductees, GST: gst_clients, Tax: assessees),
-login users, the password vault, and the TDS payment-code table.
+login users, the password vault, the TDS payment-code table and TDS entries.
 
 MUNIM Pro keeps ALL its data in its own folder:  C:\\MUNIM Pro\\
 (MUNIM Books stays in C:\\MUNIM\\ — the two never share files.)
@@ -10,11 +10,12 @@ import re
 import shutil
 import sqlite3
 import datetime
+from decimal import Decimal, ROUND_HALF_UP
 
 from utils import validate as V
 from utils import vault
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 _DRIVE = os.environ.get("SystemDrive", "C:") + os.sep
 PRO_ROOT = os.path.join(_DRIVE, "MUNIM Pro")
 _OLD_BOOKS_ROOT = os.path.join(_DRIVE, "MUNIM")     # early test builds used this
@@ -65,6 +66,19 @@ PAY_FORMS = [
     ("141", "Form 141 — challan-cum-statement"),
 ]
 PAY_FORM_NAME = dict(PAY_FORMS)
+
+# Why tax is lower / nil / higher on an entry (MUNIM's own keys; the FVU letter
+# for each is mapped at the statement step after checking Protean's file format)
+TDS_REASONS = [
+    ("", "Normal deduction"),
+    ("lower_cert", "Lower / nil rate — certificate (section 395)"),
+    ("no_pan", "Higher rate — PAN missing or inoperative"),
+    ("form121", "No deduction — Form 121 (15G / 15H) received"),
+    ("threshold", "No deduction — below threshold"),
+    ("exempt", "No deduction — exempt under 393(4) / other"),
+]
+TDS_REASON_NAME = dict(TDS_REASONS)
+NEW_ACT_START = datetime.date(2026, 4, 1)
 
 _ADDR = "addr1 TEXT, addr2 TEXT, addr3 TEXT, city TEXT, state_code TEXT, pin TEXT"
 _TAIL = ("books_company TEXT, active INTEGER NOT NULL DEFAULT 1, notes TEXT, "
@@ -151,6 +165,28 @@ CREATE TABLE IF NOT EXISTS pay_codes (
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS tds_entries (
+    id INTEGER PRIMARY KEY,
+    deductor_id INTEGER NOT NULL REFERENCES deductors(id) ON DELETE CASCADE,
+    deductee_id INTEGER NOT NULL REFERENCES deductees(id),
+    pay_code_id INTEGER NOT NULL REFERENCES pay_codes(id),
+    tax_year TEXT NOT NULL,               -- e.g. 2026-27
+    quarter TEXT NOT NULL,                -- Q1..Q4
+    paid_on TEXT NOT NULL,                -- ISO date: earlier of payment / credit
+    deducted_on TEXT,                     -- ISO date
+    amount REAL NOT NULL,
+    rate REAL NOT NULL DEFAULT 0,
+    tds REAL NOT NULL DEFAULT 0,
+    surcharge REAL NOT NULL DEFAULT 0,
+    cess REAL NOT NULL DEFAULT 0,
+    total REAL NOT NULL DEFAULT 0,
+    reason TEXT,                          -- key from TDS_REASONS ('' = normal)
+    cert_no TEXT,                         -- lower-deduction certificate (395)
+    challan_id INTEGER,                   -- linked in the Challans step
+    notes TEXT,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS ix_deductors_name ON deductors(name COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS ix_deductees_name ON deductees(name COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS ix_deductees_ded ON deductees(deductor_id);
@@ -158,6 +194,9 @@ CREATE INDEX IF NOT EXISTS ix_gst_clients_name ON gst_clients(legal_name COLLATE
 CREATE INDEX IF NOT EXISTS ix_assessees_name ON assessees(name COLLATE NOCASE);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_pay_codes_code ON pay_codes(code) WHERE code IS NOT NULL;
 CREATE INDEX IF NOT EXISTS ix_pay_codes_form ON pay_codes(form);
+CREATE INDEX IF NOT EXISTS ix_tds_entries_q ON tds_entries(deductor_id, tax_year, quarter);
+CREATE INDEX IF NOT EXISTS ix_tds_entries_dee ON tds_entries(deductee_id);
+CREATE INDEX IF NOT EXISTS ix_tds_entries_code ON tds_entries(pay_code_id);
 """
 
 # Columns added to deductors after v1.
@@ -355,6 +394,84 @@ def has_users(conn) -> bool:
     return conn.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
 
 
+# ---------------------------------------------------------------- small helpers
+_DATE_FORMATS = ("%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y", "%Y-%m-%d", "%d-%m-%y", "%d/%m/%y")
+
+
+def to_num(v):
+    """'1,00,000' / '₹50000' / '2%' / '' → float or None. Raises ValueError if not a number."""
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).replace(",", "").replace("₹", "").replace("%", "").strip()
+    if not s:
+        return None
+    return float(s)
+
+
+def parse_date(text):
+    """DD-MM-YYYY (also / or . separators, or ISO) → date. '' → None. Bad → ValueError."""
+    if isinstance(text, datetime.date):
+        return text
+    s = (text or "").strip()
+    if not s:
+        return None
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.datetime.strptime(s, fmt).date()
+        except ValueError:
+            pass
+    raise ValueError("Date must be DD-MM-YYYY")
+
+
+def _try_date(text):
+    try:
+        return parse_date(text)
+    except ValueError:
+        return None
+
+
+def date_text(value):
+    """ISO string or date → DD-MM-YYYY for display."""
+    if not value:
+        return ""
+    if isinstance(value, datetime.date):
+        return value.strftime("%d-%m-%Y")
+    try:
+        return datetime.date.fromisoformat(str(value)).strftime("%d-%m-%Y")
+    except ValueError:
+        return str(value)
+
+
+def tax_year_of(d):
+    y = d.year if d.month >= 4 else d.year - 1
+    return f"{y}-{str(y + 1)[2:]}"
+
+
+def quarter_of(d):
+    m = d.month
+    if 4 <= m <= 6:
+        return "Q1"
+    if 7 <= m <= 9:
+        return "Q2"
+    if 10 <= m <= 12:
+        return "Q3"
+    return "Q4"
+
+
+def tax_years_available(today=None):
+    """Tax years MUNIM Pro handles (new Act only), newest first."""
+    today = today or datetime.date.today()
+    last = today.year if today.month >= 4 else today.year - 1
+    last = max(last, NEW_ACT_START.year)
+    return [f"{y}-{str(y + 1)[2:]}" for y in range(last, NEW_ACT_START.year - 1, -1)]
+
+
+def round_rupee(x):
+    return float(Decimal(str(x)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
 # ---------------------------------------------------------------- consultants
 CONSULTANT_FIELDS = [
     "firm_name", "firm_pan", "addr1", "addr2", "addr3", "city", "state_code", "pin",
@@ -545,7 +662,7 @@ def delete_deductor(conn, did):
     if not row:
         return
     vault.delete(conn, row["traces_cred_ref"])
-    conn.execute("DELETE FROM deductors WHERE id=?", (did,))   # deductees cascade
+    conn.execute("DELETE FROM deductors WHERE id=?", (did,))   # deductees + entries cascade
     conn.commit()
 
 
@@ -649,6 +766,11 @@ def find_deductees(conn, deductor_id, text):
 
 
 def delete_deductee(conn, pid):
+    n = conn.execute("SELECT COUNT(*) FROM tds_entries WHERE deductee_id=?",
+                     (pid,)).fetchone()[0]
+    if n:
+        raise ValueError(f"This deductee has {n} TDS entr{'y' if n == 1 else 'ies'}. "
+                         "Delete those entries first.")
     conn.execute("DELETE FROM deductees WHERE id=?", (pid,))
     conn.commit()
 
@@ -662,18 +784,6 @@ PAY_CODE_FIELDS = [
 _PAY_RATES = ("rate_ind", "rate_company", "rate_other", "no_pan_rate")
 _PAY_AMOUNTS = ("th_single", "th_year", "th_month")
 _CODE_RE = re.compile(r"^\d{4}$")
-
-
-def _to_num(v):
-    """'1,00,000' / '₹50000' / '2%' / '' → float or None. Raises ValueError if not a number."""
-    if v is None:
-        return None
-    if isinstance(v, (int, float)):
-        return float(v)
-    s = str(v).replace(",", "").replace("₹", "").replace("%", "").strip()
-    if not s:
-        return None
-    return float(s)
 
 
 def _clean_pay_code(data: dict):
@@ -690,7 +800,7 @@ def _clean_pay_code(data: dict):
         errors["form"] = "Select a return form"
     for f in _PAY_RATES:
         try:
-            v = _to_num(data.get(f))
+            v = to_num(data.get(f))
         except ValueError:
             errors[f] = "Must be a number"
             continue
@@ -699,7 +809,7 @@ def _clean_pay_code(data: dict):
         d[f] = v
     for f in _PAY_AMOUNTS:
         try:
-            v = _to_num(data.get(f))
+            v = to_num(data.get(f))
         except ValueError:
             errors[f] = "Must be an amount"
             continue
@@ -764,6 +874,11 @@ def delete_pay_code(conn, pid):
         return
     if row["seed_key"]:
         raise ValueError("Built-in codes can't be deleted. Untick 'Active' to hide one.")
+    n = conn.execute("SELECT COUNT(*) FROM tds_entries WHERE pay_code_id=?",
+                     (pid,)).fetchone()[0]
+    if n:
+        raise ValueError(f"This code is used in {n} TDS entr{'y' if n == 1 else 'ies'}. "
+                         "Untick 'Active' instead.")
     conn.execute("DELETE FROM pay_codes WHERE id=?", (pid,))
     conn.commit()
 
@@ -820,6 +935,179 @@ def _seed_pay_codes(conn, overwrite=False):
 
 def restore_pay_code_defaults(conn):
     _seed_pay_codes(conn, overwrite=True)
+    conn.commit()
+
+
+def contractor_code_for(conn, pay_row, deductee):
+    """For 194C: return the other contractor row (1023 ↔ 1024) if the chosen one
+    doesn't match the deductee's type; else None."""
+    key = pay_row["seed_key"]
+    if key not in ("194C-IND", "194C-OTH"):
+        return None
+    want = "194C-IND" if deductee["type"] in ("individual", "huf") else "194C-OTH"
+    if key == want:
+        return None
+    return conn.execute("SELECT * FROM pay_codes WHERE seed_key=? AND active=1",
+                        (want,)).fetchone()
+
+
+# ---------------------------------------------------------------- TDS entries
+def suggest_rate(deductee, pay_row, on_date):
+    """Returns (rate or None, reason key, certificate no, note for the user)."""
+    cert = (deductee["lower_cert_no"] or "").strip()
+    lr_text = (deductee["lower_rate"] or "").strip()
+    if cert and lr_text:
+        try:
+            lr = float(lr_text)
+        except ValueError:
+            lr = None
+        if lr is not None:
+            vf = _try_date(deductee["lower_valid_from"])
+            vt = _try_date(deductee["lower_valid_to"])
+            if (vf is None or on_date >= vf) and (vt is None or on_date <= vt):
+                return lr, "lower_cert", cert, f"Lower-deduction certificate {cert}: {lr:g}%."
+    pan_ok = deductee["pan_status"] == "active" and V.is_pan(deductee["pan"])
+    base = pay_code_rate(pay_row, deductee["type"], True)
+    if base is None:
+        return None, "", "", "No rate in Payment Codes for this payee type — type the rate."
+    if not pan_ok:
+        r = pay_code_rate(pay_row, deductee["type"], False)
+        return r, "no_pan", "", f"PAN missing or inoperative: {r:g}% (normal {base:g}%)."
+    return base, "", "", f"Normal rate {base:g}%."
+
+
+_ENTRY_NUMS = ("amount", "rate", "tds", "surcharge", "cess")
+
+
+def _clean_tds_entry(conn, deductor_id, data):
+    errors, d = {}, {}
+    dee = get_deductee(conn, data.get("deductee_id")) if data.get("deductee_id") else None
+    if not dee or dee["deductor_id"] != deductor_id:
+        errors["deductee"] = "Choose a deductee"
+    pc = get_pay_code(conn, data.get("pay_code_id")) if data.get("pay_code_id") else None
+    if not pc:
+        errors["pay_code"] = "Choose a payment code"
+    elif pc["form"] not in ("140", "144"):
+        errors["pay_code"] = "Only Form 140 / 144 codes are entered here"
+    elif dee:
+        if dee["resident"] and pc["form"] == "144":
+            errors["pay_code"] = "Form 144 codes are for non-residents"
+        elif not dee["resident"] and pc["form"] == "140":
+            errors["pay_code"] = "This deductee is a non-resident — use a Form 144 code"
+
+    paid = deducted = None
+    try:
+        paid = parse_date(data.get("paid_on"))
+        if paid is None:
+            errors["paid_on"] = "Required"
+        elif paid < NEW_ACT_START:
+            errors["paid_on"] = "MUNIM Pro covers the new Act only (from 01-04-2026)"
+    except ValueError as e:
+        errors["paid_on"] = str(e)
+    try:
+        deducted = parse_date(data.get("deducted_on")) or paid
+        if deducted and deducted < NEW_ACT_START:
+            errors["deducted_on"] = "MUNIM Pro covers the new Act only (from 01-04-2026)"
+        elif deducted and paid and deducted < paid:
+            errors["deducted_on"] = "Can't be before the payment / credit date"
+    except ValueError as e:
+        errors["deducted_on"] = str(e)
+
+    for f in _ENTRY_NUMS:
+        try:
+            v = to_num(data.get(f))
+        except ValueError:
+            errors[f] = "Must be a number"
+            continue
+        v = 0.0 if v is None else round(v, 2)
+        if v < 0:
+            errors[f] = "Cannot be negative"
+        d[f] = v
+    if "amount" in d and d["amount"] <= 0 and "amount" not in errors:
+        errors["amount"] = "Enter the amount paid / credited"
+    if "rate" in d and d["rate"] > 100:
+        errors["rate"] = "Must be between 0 and 100"
+
+    reason = data.get("reason") or ""
+    if reason not in TDS_REASON_NAME:
+        errors["reason"] = "Select a reason"
+    elif d.get("tds", 0) == 0 and d.get("amount", 0) > 0 and not reason:
+        errors["reason"] = "No tax deducted — choose a reason"
+
+    d.update(
+        deductee_id=dee["id"] if dee else None,
+        pay_code_id=pc["id"] if pc else None,
+        reason=reason,
+        cert_no=(data.get("cert_no") or "").strip().upper(),
+        notes=(data.get("notes") or "").strip(),
+    )
+    if paid:
+        d["paid_on"] = paid.isoformat()
+        d["tax_year"] = tax_year_of(paid)
+        d["quarter"] = quarter_of(paid)
+    if deducted:
+        d["deducted_on"] = deducted.isoformat()
+    d["total"] = round(d.get("tds", 0) + d.get("surcharge", 0) + d.get("cess", 0), 2)
+    return d, errors
+
+
+def save_tds_entry(conn, deductor_id, data: dict, eid: int = None) -> int:
+    d, errors = _clean_tds_entry(conn, deductor_id, data)
+    if errors:
+        raise ValueError(errors)
+    now = _now()
+    if eid:
+        cols = ", ".join(f"{k}=?" for k in d)
+        conn.execute(f"UPDATE tds_entries SET {cols}, updated_at=? WHERE id=? AND deductor_id=?",
+                     [*d.values(), now, eid, deductor_id])
+    else:
+        d.update(deductor_id=deductor_id, created_at=now, updated_at=now)
+        cols = ", ".join(d)
+        marks = ", ".join("?" for _ in d)
+        eid = conn.execute(f"INSERT INTO tds_entries({cols}) VALUES({marks})",
+                           list(d.values())).lastrowid
+    conn.commit()
+    return eid
+
+
+_ENTRY_SELECT = """
+SELECT e.*, d.name AS dee_name, d.pan AS dee_pan,
+       p.code AS pay_code, p.old_section AS old_section, p.nature AS nature
+FROM tds_entries e
+JOIN deductees d ON d.id = e.deductee_id
+JOIN pay_codes p ON p.id = e.pay_code_id
+"""
+
+
+def get_tds_entry(conn, eid):
+    return conn.execute(_ENTRY_SELECT + " WHERE e.id=?", (eid,)).fetchone()
+
+
+def list_tds_entries(conn, deductor_id, tax_year, quarter=None, text=""):
+    sql = _ENTRY_SELECT + " WHERE e.deductor_id=? AND e.tax_year=?"
+    args = [deductor_id, tax_year]
+    if quarter:
+        sql += " AND e.quarter=?"
+        args.append(quarter)
+    t = (text or "").strip()
+    if t:
+        like = f"%{t}%"
+        sql += " AND (d.name LIKE ? OR d.pan LIKE ? OR p.code LIKE ? OR p.old_section LIKE ?)"
+        args += [like] * 4
+    sql += " ORDER BY e.paid_on, e.id"
+    return conn.execute(sql, args).fetchall()
+
+
+def year_total(conn, deductor_id, deductee_id, pay_code_id, tax_year, exclude_id=None):
+    r = conn.execute(
+        "SELECT COALESCE(SUM(amount), 0) FROM tds_entries WHERE deductor_id=? AND "
+        "deductee_id=? AND pay_code_id=? AND tax_year=? AND id != ?",
+        (deductor_id, deductee_id, pay_code_id, tax_year, exclude_id or -1)).fetchone()
+    return float(r[0] or 0)
+
+
+def delete_tds_entry(conn, eid):
+    conn.execute("DELETE FROM tds_entries WHERE id=?", (eid,))
     conn.commit()
 
 

@@ -113,10 +113,6 @@ class DeducteePage(ctk.CTkFrame):
         r = self._row(p, "")
         self.w["resident"] = ctk.CTkCheckBox(r, text="Resident in India", font=T.f(12))
         self.w["resident"].pack(side="left")
-        r = self._row(p, "")
-        self.w["higher_rate"] = ctk.CTkCheckBox(
-            r, text="Higher TDS rate — non-filer (206AB / 206CCA)", font=T.f(12))
-        self.w["higher_rate"].pack(side="left")
 
         ctk.CTkLabel(p, text="Lower-deduction certificate (if any)", font=T.f(13, "bold"),
                      text_color=T.MUTED).pack(anchor="w", padx=18, pady=(10, 2))
@@ -221,7 +217,7 @@ class DeducteePage(ctk.CTkFrame):
         self.w["state_code"].set(f"{sc} - {pro_db.STATE_NAME[sc]}"
                                  if sc in pro_db.STATE_NAME else SELECT)
         self.w["form16a_freq"].set(row["form16a_freq"] or "Quarterly")
-        for flag in ("is_employee", "resident", "higher_rate"):
+        for flag in ("is_employee", "resident"):
             self.w[flag].select() if row[flag] else self.w[flag].deselect()
         self._last_pan = validate.clean(row["pan"])
         self.save_btn.configure(text="Save changes")
@@ -280,7 +276,7 @@ class DeducteePage(ctk.CTkFrame):
         if not self._confirm_pan_checks(d):
             return
         try:
-            pid = pro_db.save_deductee(self.con, self.deductor["id"], d, self.editing_id)
+            pro_db.save_deductee(self.con, self.deductor["id"], d, self.editing_id)
         except ValueError as e:
             arg = e.args[0] if e.args else {}
             if isinstance(arg, dict):
@@ -302,7 +298,11 @@ class DeducteePage(ctk.CTkFrame):
         name = row["name"] if row else "this deductee"
         if not messagebox.askyesno("Delete deductee", f"Delete “{name}”?", parent=self):
             return
-        pro_db.delete_deductee(self.con, self.editing_id)
+        try:
+            pro_db.delete_deductee(self.con, self.editing_id)
+        except ValueError as e:
+            self._say(str(e), T.DANGER)
+            return
         self.refresh_list()
         self._clear_form()
         self._say("Deleted.")

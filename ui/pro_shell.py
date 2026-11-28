@@ -8,6 +8,7 @@ from ui.pro_picker import EntityPicker, LABELS
 from ui.pro_consultant import ConsultantPage
 from ui.pro_deductor import DeductorPage
 from ui.pro_paycodes import PayCodesPage
+from ui.pro_tdsentry import TdsEntryPage
 from db import pro_db
 from utils import licence
 
@@ -27,7 +28,7 @@ MODULE_BY_NAME = {m["name"]: m for m in MODULES}
 TDS_MENUS = [
     ("Deductors", [("Deductor Master", "deductor")]),
     ("Deductees", [("Deductee Master", "deductee")]),
-    ("TDS Entry", [("TDS / TCS Entry", None), ("Import 15G / 15H", None)]),
+    ("TDS Entry", [("TDS / TCS Entry", "tdsentry"), ("Import 15G / 15H", None)]),
     ("Challans", [("Challans", None), ("Link Challans to Entries", None)]),
     ("Statements & FVU", [("Prepare Statement (138 / 140 / 144 / 143)", None),
                           ("Generate FVU", None), ("Form 27A", None),
@@ -38,7 +39,7 @@ TDS_MENUS = [
 ]
 # Toolbar: (label, action_or_None)
 TDS_TOOLBAR = [("Deductors", "deductor"), ("Deductees", "deductee"),
-               ("TDS Entry", None), ("Challans", None)]
+               ("TDS Entry", "tdsentry"), ("Challans", None)]
 
 SOON_FG, SOON_BG = "#8A5A00", "#FFF3D6"
 
@@ -56,6 +57,7 @@ class ProShell(ctk.CTkFrame):
         self.entity = {}
         self.page, self.page_name = None, ""
         self._open_menu = None
+        self._after_pick = None      # screen to open once a deductor is picked
 
         self._build_topbar()
         self.menubar = ctk.CTkFrame(self, fg_color="#0C3327", corner_radius=0, height=38)
@@ -194,14 +196,29 @@ class ProShell(ctk.CTkFrame):
         menu.lift()
         self._open_menu = menu
 
-    def _close_dropdown(self, _e=None):
-        if self._open_menu is not None:
-            try:
-                if self._open_menu.winfo_exists():
-                    self._open_menu.destroy()
-            except Exception:
-                pass
-            self._open_menu = None
+    def _close_dropdown(self, event=None):
+        """Close the open dropdown. When called from a mouse click, clicks on the
+        menu bar itself or inside the dropdown are left to their own buttons —
+        otherwise the dropdown would close in the same click that opened it."""
+        if self._open_menu is None:
+            return
+        if event is not None and self._inside(event.widget, (self.menubar, self._open_menu)):
+            return
+        try:
+            if self._open_menu.winfo_exists():
+                self._open_menu.destroy()
+        except Exception:
+            pass
+        self._open_menu = None
+
+    @staticmethod
+    def _inside(widget, parents):
+        """True if 'widget' is one of 'parents' or sits inside one of them."""
+        while widget is not None:
+            if any(widget is p for p in parents):
+                return True
+            widget = getattr(widget, "master", None)
+        return False
 
     def _run_action(self, action):
         self._close_dropdown()
@@ -209,6 +226,8 @@ class ProShell(ctk.CTkFrame):
             self.show_deductor()
         elif action == "deductee":
             self.show_deductee()
+        elif action == "tdsentry":
+            self.show_tdsentry()
         elif action == "consultant":
             self.show_consultant()
         elif action == "paycodes":
@@ -298,22 +317,35 @@ class ProShell(ctk.CTkFrame):
                             on_back=lambda: self.open_module("tds"), start_id=start_id)
         self._show(page, "deductor")
 
-    def show_deductee(self):
-        ded = self.entity.get("tds")
-        if not ded:
-            self.module = "tds"
-            self.switch.set("TDS Pro")
-            self._show_tds_bars()
-            self._on_f4()   # ask the user to pick a deductor first
-            return
-        full = pro_db.get_deductor(self.con, ded["id"])
+    def _need_deductor(self, then):
+        """Returns the full deductor row, or None after asking the user to pick one
+        (the 'then' screen opens automatically once they do)."""
         self.module = "tds"
         self.switch.set("TDS Pro")
-        self._refresh_entity()
         self._show_tds_bars()
+        self._refresh_entity()
+        ded = self.entity.get("tds")
+        if not ded:
+            self._after_pick = then
+            self._on_f4()
+            return None
+        return pro_db.get_deductor(self.con, ded["id"])
+
+    def show_deductee(self):
+        full = self._need_deductor("deductee")
+        if not full:
+            return
         page = DeducteePage(self.body, self.con, self.username, full,
                             on_back=lambda: self.open_module("tds"))
         self._show(page, "deductee")
+
+    def show_tdsentry(self):
+        full = self._need_deductor("tdsentry")
+        if not full:
+            return
+        page = TdsEntryPage(self.body, self.con, full,
+                            on_back=lambda: self.open_module("tds"))
+        self._show(page, "tdsentry")
 
     def show_paycodes(self):
         self.module = "tds"
@@ -406,7 +438,12 @@ class ProShell(ctk.CTkFrame):
             return
         self.entity[self.module] = row
         self._refresh_entity()
-        if self.page_name == "module":
+        pending, self._after_pick = self._after_pick, None
+        if pending:
+            self._run_action(pending)
+        elif self.page_name in ("deductee", "tdsentry"):
+            self._run_action(self.page_name)      # reload for the new deductor
+        elif self.page_name == "module":
             self.open_module(self.module)
 
     def _on_escape(self, _e=None):
