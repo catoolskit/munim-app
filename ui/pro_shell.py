@@ -9,6 +9,7 @@ from ui.pro_consultant import ConsultantPage
 from ui.pro_deductor import DeductorPage
 from ui.pro_paycodes import PayCodesPage
 from ui.pro_tdsentry import TdsEntryPage
+from ui.pro_challans import ChallansPage
 from db import pro_db
 from utils import licence
 
@@ -29,7 +30,7 @@ TDS_MENUS = [
     ("Deductors", [("Deductor Master", "deductor")]),
     ("Deductees", [("Deductee Master", "deductee")]),
     ("TDS Entry", [("TDS / TCS Entry", "tdsentry"), ("Import 15G / 15H", None)]),
-    ("Challans", [("Challans", None), ("Link Challans to Entries", None)]),
+    ("Challans", [("Challans (ITNS 281N)", "challans"), ("Check with CSI file", None)]),
     ("Statements & FVU", [("Prepare Statement (138 / 140 / 144 / 143)", None),
                           ("Generate FVU", None), ("Form 27A", None),
                           ("Correction Statements", None)]),
@@ -39,10 +40,11 @@ TDS_MENUS = [
 ]
 # Toolbar: (label, action_or_None)
 TDS_TOOLBAR = [("Deductors", "deductor"), ("Deductees", "deductee"),
-               ("TDS Entry", "tdsentry"), ("Challans", None)]
+               ("TDS Entry", "tdsentry"), ("Challans", "challans")]
 
 SOON_FG, SOON_BG = "#8A5A00", "#FFF3D6"
 MENU_ACTIVE = "#154A38"
+DEDUCTOR_PAGES = ("deductee", "tdsentry", "challans")   # reload these when F4 changes deductor
 
 
 class ProShell(ctk.CTkFrame):
@@ -243,6 +245,8 @@ class ProShell(ctk.CTkFrame):
             self.show_deductee()
         elif action == "tdsentry":
             self.show_tdsentry()
+        elif action == "challans":
+            self.show_challans()
         elif action == "consultant":
             self.show_consultant()
         elif action == "paycodes":
@@ -362,6 +366,14 @@ class ProShell(ctk.CTkFrame):
                             on_back=lambda: self.open_module("tds"))
         self._show(page, "tdsentry")
 
+    def show_challans(self):
+        full = self._need_deductor("challans")
+        if not full:
+            return
+        page = ChallansPage(self.body, self.con, full,
+                            on_back=lambda: self.open_module("tds"))
+        self._show(page, "challans")
+
     def show_paycodes(self):
         self.module = "tds"
         self.switch.set("TDS Pro")
@@ -456,7 +468,7 @@ class ProShell(ctk.CTkFrame):
         pending, self._after_pick = self._after_pick, None
         if pending:
             self._run_action(pending)
-        elif self.page_name in ("deductee", "tdsentry"):
+        elif self.page_name in DEDUCTOR_PAGES:
             self._run_action(self.page_name)      # reload for the new deductor
         elif self.page_name == "module":
             self.open_module(self.module)

@@ -380,6 +380,7 @@ def _cols(conn, table):
 
 def _migrate(conn):
     conn.executescript(_BASE_SCHEMA)
+    conn.executescript(_CHALLAN_SCHEMA)
     have = _cols(conn, "deductors")
     for col, decl in _DEDUCTOR_ADDED:
         if col not in have:
@@ -876,6 +877,8 @@ def delete_pay_code(conn, pid):
         raise ValueError("Built-in codes can't be deleted. Untick 'Active' to hide one.")
     n = conn.execute("SELECT COUNT(*) FROM tds_entries WHERE pay_code_id=?",
                      (pid,)).fetchone()[0]
+    n += conn.execute("SELECT COUNT(*) FROM challan_lines WHERE pay_code_id=?",
+                      (pid,)).fetchone()[0]
     if n:
         raise ValueError(f"This code is used in {n} TDS entr{'y' if n == 1 else 'ies'}. "
                          "Untick 'Active' instead.")
@@ -1055,6 +1058,17 @@ def save_tds_entry(conn, deductor_id, data: dict, eid: int = None) -> int:
     d, errors = _clean_tds_entry(conn, deductor_id, data)
     if errors:
         raise ValueError(errors)
+    if eid:
+        old = conn.execute("SELECT * FROM tds_entries WHERE id=?", (eid,)).fetchone()
+        if old and old["challan_id"]:
+            changed = (old["deductee_id"] != d["deductee_id"]
+                       or old["pay_code_id"] != d["pay_code_id"]
+                       or old["tax_year"] != d.get("tax_year")
+                       or any(round(old[k] or 0, 2) != round(d.get(k, 0), 2)
+                              for k in ("tds", "surcharge", "cess")))
+            if changed:
+                raise ValueError({"tds": "This entry is paid by a challan. Open that challan in "
+                                         "Challans, untick this entry and save, then change it."})
     now = _now()
     if eid:
         cols = ", ".join(f"{k}=?" for k in d)
@@ -1068,6 +1082,14 @@ def save_tds_entry(conn, deductor_id, data: dict, eid: int = None) -> int:
                            list(d.values())).lastrowid
     conn.commit()
     return eid
+
+
+def delete_tds_entry(conn, eid):
+    row = conn.execute("SELECT challan_id FROM tds_entries WHERE id=?", (eid,)).fetchone()
+    if row and row["challan_id"]:
+        raise ValueError("This entry is paid by a challan. Untick it in that challan first.")
+    conn.execute("DELETE FROM tds_entries WHERE id=?", (eid,))
+    conn.commit()
 
 
 _ENTRY_SELECT = """
@@ -1135,3 +1157,248 @@ def search_entities(conn, module: str, text: str = "", limit: int = 200,
     sql += f" ORDER BY {name_col} COLLATE NOCASE LIMIT ?"
     args.append(limit)
     return conn.execute(sql, args).fetchall()
+
+# ---------------------------------------------------------------- challans (ITNS 281N)
+CHALLAN_MAJOR = [("0021", "0021 — Income-tax (other than companies)"),
+                 ("0020", "0020 — Corporation tax (company deductees)")]
+CHALLAN_MAJOR_NAME = dict(CHALLAN_MAJOR)
+CHALLAN_MINOR = [("200", "200 — TDS / TCS payable by taxpayer"),
+                 ("400", "400 — Regular assessment (demand)"),
+                 ("500", "500 — Other receipts (fees)"),
+                 ("800", "800 — PAN-based TDS demand")]
+CHALLAN_MINOR_NAME = dict(CHALLAN_MINOR)
+CHALLAN_FORMS = ("140", "144")             # 138 / 143 join when those modules are built
+MAX_CHALLAN_CODES = 20
+CHALLAN_LINE_AMOUNTS = ("tax", "surcharge", "cess", "interest", "fee", "others")
+_BSR_RE = re.compile(r"^\d{7}$")
+_SERIAL_RE = re.compile(r"^\d{5}$")
+
+_CHALLAN_SCHEMA = """
+CREATE TABLE IF NOT EXISTS challans (
+    id INTEGER PRIMARY KEY,
+    deductor_id INTEGER NOT NULL REFERENCES deductors(id) ON DELETE CASCADE,
+    tax_year TEXT NOT NULL,
+    form TEXT NOT NULL DEFAULT '140',
+    major_head TEXT NOT NULL DEFAULT '0021',
+    minor_head TEXT NOT NULL DEFAULT '200',
+    deposit_date TEXT NOT NULL,            -- ISO date
+    bsr_code TEXT NOT NULL,                -- Form 137 receipt no. for book entry
+    serial_no TEXT NOT NULL,               -- DDO serial no. for book entry
+    crn TEXT,
+    book_entry INTEGER NOT NULL DEFAULT 0,
+    csi_status TEXT,                       -- filled by 'Check with CSI' (later)
+    csi_checked_at TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS challan_lines (
+    id INTEGER PRIMARY KEY,
+    challan_id INTEGER NOT NULL REFERENCES challans(id) ON DELETE CASCADE,
+    pay_code_id INTEGER NOT NULL REFERENCES pay_codes(id),
+    tax REAL NOT NULL DEFAULT 0, surcharge REAL NOT NULL DEFAULT 0,
+    cess REAL NOT NULL DEFAULT 0, interest REAL NOT NULL DEFAULT 0,
+    fee REAL NOT NULL DEFAULT 0, others REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS ix_challans_ded ON challans(deductor_id, tax_year);
+CREATE INDEX IF NOT EXISTS ix_challan_lines_ch ON challan_lines(challan_id);
+CREATE INDEX IF NOT EXISTS ix_tds_entries_challan ON tds_entries(challan_id);
+"""
+
+_CAND_SELECT = """
+SELECT e.*, d.name AS dee_name, d.pan AS dee_pan, d.pan_status AS pan_status,
+       d.type AS dee_type, p.code AS pay_code, p.old_section AS old_section,
+       p.new_section AS new_section, p.sl_no AS sl_no, p.nature AS nature, p.form AS form
+FROM tds_entries e
+JOIN deductees d ON d.id = e.deductee_id
+JOIN pay_codes p ON p.id = e.pay_code_id
+"""
+
+
+def deposit_due_date(d):
+    """Last date to deposit tax deducted on date d: 7th of next month; March → 30 April."""
+    if d is None:
+        return None
+    if d.month == 3:
+        return datetime.date(d.year, 4, 30)
+    y, m = (d.year + 1, 1) if d.month == 12 else (d.year, d.month + 1)
+    return datetime.date(y, m, 7)
+
+
+def challan_candidates(conn, deductor_id, tax_year, form, major_head, cid=None):
+    """Entries that can go on a challan: same deductor / tax year / form, unlinked
+    (or already on this challan), and company or non-company per the major head."""
+    who = "d.type = 'company'" if major_head == "0020" else "d.type != 'company'"
+    sql = (_CAND_SELECT + " WHERE e.deductor_id=? AND e.tax_year=? AND p.form=? "
+           "AND (e.challan_id IS NULL OR e.challan_id=?) AND " + who +
+           " ORDER BY COALESCE(e.deducted_on, e.paid_on), e.id")
+    return conn.execute(sql, (deductor_id, tax_year, form, cid or -1)).fetchall()
+
+
+def linked_entries(conn, cid):
+    return conn.execute(_CAND_SELECT + " WHERE e.challan_id=? ORDER BY e.paid_on, e.id",
+                        (cid,)).fetchall()
+
+
+def _clean_challan_head(conn, deductor_id, data, cid):
+    errors, d = {}, {}
+    ty = (data.get("tax_year") or "").strip()
+    if ty not in tax_years_available():
+        errors["tax_year"] = "Select a tax year"
+    form = data.get("form") or ""
+    if form not in CHALLAN_FORMS:
+        errors["form"] = "Select a return form"
+    major = data.get("major_head") or ""
+    if major not in CHALLAN_MAJOR_NAME:
+        errors["major_head"] = "Select a major head"
+    minor = data.get("minor_head") or ""
+    if minor not in CHALLAN_MINOR_NAME:
+        errors["minor_head"] = "Select a minor head"
+    dep = None
+    try:
+        dep = parse_date(data.get("deposit_date"))
+        if dep is None:
+            errors["deposit_date"] = "Required"
+        elif dep < NEW_ACT_START:
+            errors["deposit_date"] = "MUNIM Pro covers the new Act only (from 01/04/2026)"
+    except ValueError as e:
+        errors["deposit_date"] = str(e)
+    bsr = (data.get("bsr_code") or "").strip()
+    if not _BSR_RE.match(bsr):
+        errors["bsr_code"] = "Must be 7 digits"
+    serial = (data.get("serial_no") or "").strip()
+    if not _SERIAL_RE.match(serial):
+        errors["serial_no"] = "Must be 5 digits"
+    if dep and "bsr_code" not in errors and "serial_no" not in errors:
+        clash = conn.execute(
+            "SELECT id FROM challans WHERE deductor_id=? AND bsr_code=? AND deposit_date=? "
+            "AND serial_no=? AND id != ?",
+            (deductor_id, bsr, dep.isoformat(), serial, cid or -1)).fetchone()
+        if clash:
+            errors["serial_no"] = "A challan with this BSR code, date and serial already exists"
+    d.update(tax_year=ty, form=form, major_head=major, minor_head=minor,
+             deposit_date=dep.isoformat() if dep else None, bsr_code=bsr, serial_no=serial,
+             crn=(data.get("crn") or "").strip().upper(),
+             book_entry=1 if data.get("book_entry") else 0,
+             notes=(data.get("notes") or "").strip())
+    return d, errors
+
+
+def save_challan(conn, deductor_id, data, entry_ids, extras, cid=None):
+    """entry_ids: TDS entries this challan paid. extras: {pay_code_id: {interest, fee, others}}.
+    Tax / surcharge / cess per code are summed from the entries."""
+    d, errors = _clean_challan_head(conn, deductor_id, data, cid)
+    ids = sorted({int(i) for i in (entry_ids or [])})
+    cands = {}
+    if not any(k in errors for k in ("tax_year", "form", "major_head")):
+        cands = {r["id"]: r for r in challan_candidates(
+            conn, deductor_id, d["tax_year"], d["form"], d["major_head"], cid)}
+    if not ids:
+        errors.setdefault("entries", "Tick at least one TDS entry")
+    elif cands and any(i not in cands for i in ids):
+        errors.setdefault("entries", "Some ticked entries no longer fit this challan "
+                                     "(tax year, form, major head or already linked). "
+                                     "Refresh and tick again.")
+    groups = {}
+    for i in ids:
+        r = cands.get(i)
+        if not r:
+            continue
+        g = groups.setdefault(r["pay_code_id"], {"tax": 0.0, "surcharge": 0.0, "cess": 0.0,
+                                                 "label": r["pay_code"] or r["old_section"]})
+        g["tax"] += r["tds"] or 0
+        g["surcharge"] += r["surcharge"] or 0
+        g["cess"] += r["cess"] or 0
+    if len(groups) > MAX_CHALLAN_CODES:
+        errors["lines"] = f"A challan can carry at most {MAX_CHALLAN_CODES} payment codes"
+    lines = []
+    for pid, g in groups.items():
+        ex = (extras or {}).get(pid, {})
+        vals = {}
+        for f in ("interest", "fee", "others"):
+            try:
+                v = to_num(ex.get(f))
+            except ValueError:
+                errors["lines"] = f"Code {g['label']}: {f} must be a number"
+                v = 0
+            v = 0.0 if v is None else round(v, 2)
+            if v < 0:
+                errors["lines"] = f"Code {g['label']}: {f} cannot be negative"
+            vals[f] = v
+        lines.append({"pay_code_id": pid, "tax": round(g["tax"], 2),
+                      "surcharge": round(g["surcharge"], 2), "cess": round(g["cess"], 2), **vals})
+    if lines and "lines" not in errors and \
+            sum(ln[k] for ln in lines for k in CHALLAN_LINE_AMOUNTS) <= 0:
+        errors["lines"] = "The challan total is zero (nil challans come at the statement step)"
+    if errors:
+        raise ValueError(errors)
+
+    now = _now()
+    try:
+        if cid:
+            cols = ", ".join(f"{k}=?" for k in d)
+            conn.execute(f"UPDATE challans SET {cols}, updated_at=? WHERE id=? AND deductor_id=?",
+                         [*d.values(), now, cid, deductor_id])
+        else:
+            d.update(deductor_id=deductor_id, created_at=now, updated_at=now)
+            cols = ", ".join(d)
+            marks = ", ".join("?" for _ in d)
+            cid = conn.execute(f"INSERT INTO challans({cols}) VALUES({marks})",
+                               list(d.values())).lastrowid
+        conn.execute("DELETE FROM challan_lines WHERE challan_id=?", (cid,))
+        for ln in lines:
+            conn.execute("INSERT INTO challan_lines(challan_id, pay_code_id, tax, surcharge, cess, "
+                         "interest, fee, others) VALUES(?,?,?,?,?,?,?,?)",
+                         (cid, ln["pay_code_id"], ln["tax"], ln["surcharge"], ln["cess"],
+                          ln["interest"], ln["fee"], ln["others"]))
+        conn.execute("UPDATE tds_entries SET challan_id=NULL WHERE challan_id=?", (cid,))
+        marks = ", ".join("?" for _ in ids)
+        conn.execute(f"UPDATE tds_entries SET challan_id=? WHERE id IN ({marks})", [cid, *ids])
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return cid
+
+
+_CHALLAN_SELECT = """
+SELECT c.*,
+  (SELECT COALESCE(SUM(tax + surcharge + cess + interest + fee + others), 0)
+     FROM challan_lines WHERE challan_id = c.id) AS total,
+  (SELECT COALESCE(SUM(tax + surcharge + cess), 0)
+     FROM challan_lines WHERE challan_id = c.id) AS tax_total,
+  (SELECT COALESCE(SUM(total), 0) FROM tds_entries WHERE challan_id = c.id) AS linked_tax,
+  (SELECT COUNT(*) FROM tds_entries WHERE challan_id = c.id) AS linked_count,
+  (SELECT GROUP_CONCAT(COALESCE(p.code, p.old_section), ', ')
+     FROM challan_lines l JOIN pay_codes p ON p.id = l.pay_code_id
+     WHERE l.challan_id = c.id) AS codes
+FROM challans c
+"""
+
+
+def list_challans(conn, deductor_id, tax_year):
+    return conn.execute(_CHALLAN_SELECT + " WHERE c.deductor_id=? AND c.tax_year=? "
+                        "ORDER BY c.deposit_date, c.id", (deductor_id, tax_year)).fetchall()
+
+
+def get_challan(conn, cid):
+    return conn.execute(_CHALLAN_SELECT + " WHERE c.id=?", (cid,)).fetchone()
+
+
+def challan_lines(conn, cid):
+    return conn.execute(
+        "SELECT l.*, p.code AS pay_code, p.old_section, p.new_section, p.sl_no, p.nature "
+        "FROM challan_lines l JOIN pay_codes p ON p.id = l.pay_code_id "
+        "WHERE l.challan_id=? ORDER BY l.id", (cid,)).fetchall()
+
+
+def unlinked_summary(conn, deductor_id, tax_year):
+    r = conn.execute("SELECT COUNT(*), COALESCE(SUM(total), 0) FROM tds_entries "
+                     "WHERE deductor_id=? AND tax_year=? AND challan_id IS NULL",
+                     (deductor_id, tax_year)).fetchone()
+    return int(r[0]), float(r[1])
+
+
+def delete_challan(conn, cid):
+    conn.execute("UPDATE tds_entries SET challan_id=NULL WHERE challan_id=?", (cid,))
+    conn.execute("DELETE FROM challans WHERE id=?", (cid,))
+    conn.commit()

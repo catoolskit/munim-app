@@ -576,7 +576,11 @@ class TdsEntryPage(ctk.CTkFrame):
                 f"Delete this entry?\n\n{row['dee_name']} · ₹{_inr(row['amount'])} on "
                 f"{pro_db.date_text(row['paid_on'])}", parent=self):
             return
-        pro_db.delete_tds_entry(self.con, row["id"])
+        try:
+            pro_db.delete_tds_entry(self.con, row["id"])
+        except ValueError as e:
+            self._say(str(e), T.DANGER)
+            return
         self.refresh_list()
         self._clear_form()
         self._say("Deleted.")
