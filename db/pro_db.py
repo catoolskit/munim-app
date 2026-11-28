@@ -1,11 +1,12 @@
 """MUNIM Pro — master database: Consultant Master (shared) + separate entity
 lists per module (TDS: deductors + deductees, GST: gst_clients, Tax: assessees),
-login users and the password vault.
+login users, the password vault, and the TDS payment-code table.
 
 MUNIM Pro keeps ALL its data in its own folder:  C:\\MUNIM Pro\\
 (MUNIM Books stays in C:\\MUNIM\\ — the two never share files.)
 """
 import os
+import re
 import shutil
 import sqlite3
 import datetime
@@ -13,7 +14,7 @@ import datetime
 from utils import validate as V
 from utils import vault
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 _DRIVE = os.environ.get("SystemDrive", "C:") + os.sep
 PRO_ROOT = os.path.join(_DRIVE, "MUNIM Pro")
 _OLD_BOOKS_ROOT = os.path.join(_DRIVE, "MUNIM")     # early test builds used this
@@ -54,6 +55,16 @@ PAN_STATUS = [("active", "Active (valid)"), ("inactive", "Inactive / Inoperative
               ("notavbl", "PAN not available")]
 PAN_STATUS_NAME = dict(PAN_STATUS)
 FORM16A_FREQ = ["Quarterly", "On request", "Yearly"]
+
+# Return forms a payment code can belong to
+PAY_FORMS = [
+    ("140", "Form 140 — non-salary, residents"),
+    ("144", "Form 144 — non-residents"),
+    ("138", "Form 138 — salary"),
+    ("143", "Form 143 — TCS"),
+    ("141", "Form 141 — challan-cum-statement"),
+]
+PAY_FORM_NAME = dict(PAY_FORMS)
 
 _ADDR = "addr1 TEXT, addr2 TEXT, addr3 TEXT, city TEXT, state_code TEXT, pin TEXT"
 _TAIL = ("books_company TEXT, active INTEGER NOT NULL DEFAULT 1, notes TEXT, "
@@ -98,7 +109,7 @@ CREATE TABLE IF NOT EXISTS deductees (
     type TEXT NOT NULL DEFAULT 'individual',
     is_employee INTEGER NOT NULL DEFAULT 0,
     resident INTEGER NOT NULL DEFAULT 1,
-    higher_rate INTEGER NOT NULL DEFAULT 0,          -- 206AB/206CCA non-filer
+    higher_rate INTEGER NOT NULL DEFAULT 0,          -- old 206AB flag (withdrawn; unused)
     lower_cert_no TEXT, lower_rate TEXT, lower_valid_from TEXT, lower_valid_to TEXT,
     form16a_freq TEXT,
     father_name TEXT, dob TEXT, designation TEXT,
@@ -124,11 +135,29 @@ CREATE TABLE IF NOT EXISTS assessees (
     itd_cred_ref TEXT, {_TAIL}
 );
 
+CREATE TABLE IF NOT EXISTS pay_codes (
+    id INTEGER PRIMARY KEY,
+    seed_key TEXT UNIQUE,                 -- set for MUNIM's built-in rows
+    code TEXT,                            -- 4-digit payment code (NULL if none)
+    old_section TEXT, new_section TEXT, sl_no TEXT,
+    nature TEXT NOT NULL,
+    form TEXT NOT NULL DEFAULT '140',
+    rate_ind REAL, rate_company REAL, rate_other REAL,
+    no_pan_rate REAL,
+    th_single REAL, th_year REAL, th_month REAL,
+    code_checked INTEGER NOT NULL DEFAULT 0,   -- confirmed against Protean file format
+    active INTEGER NOT NULL DEFAULT 1,
+    notes TEXT,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS ix_deductors_name ON deductors(name COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS ix_deductees_name ON deductees(name COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS ix_deductees_ded ON deductees(deductor_id);
 CREATE INDEX IF NOT EXISTS ix_gst_clients_name ON gst_clients(legal_name COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS ix_assessees_name ON assessees(name COLLATE NOCASE);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_pay_codes_code ON pay_codes(code) WHERE code IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_pay_codes_form ON pay_codes(form);
 """
 
 # Columns added to deductors after v1.
@@ -137,6 +166,120 @@ _DEDUCTOR_ADDED = [
     ("rp_addr1", "TEXT"), ("rp_addr2", "TEXT"), ("rp_addr3", "TEXT"),
     ("rp_city", "TEXT"), ("rp_state_code", "TEXT"), ("rp_pin", "TEXT"),
     ("rp_same_addr", "INTEGER NOT NULL DEFAULT 1"),
+]
+
+# ---------------------------------------------------------------------------
+# Built-in payment codes, TY 2026-27 (Income-tax Act 2025).
+# Rates/thresholds: unchanged from Finance Act 2025 (verified 28-Nov-2026).
+# Codes: from published charts; every row starts code_checked = 0 until compared
+# with Protean's e-TDS/TCS file format v1.2, Annexure 2.
+# Columns: seed_key, code, old, new, sl_no, nature, form,
+#          rate_ind, rate_company, rate_other, no_pan_rate,
+#          th_single, th_year, th_month, notes
+# ---------------------------------------------------------------------------
+_SEED_COLS = ("seed_key", "code", "old_section", "new_section", "sl_no", "nature", "form",
+              "rate_ind", "rate_company", "rate_other", "no_pan_rate",
+              "th_single", "th_year", "th_month", "notes")
+
+PAY_CODE_SEED = [
+    # ── 393(1): payments to residents ──
+    ("194D", "1005", "194D", "393(1)", "1(i)", "Insurance commission", "140",
+     2, 10, 2, 20, None, 20000, None, "10% if the payee is a company; 2% for others."),
+    ("194H", "1006", "194H", "393(1)", "1(ii)", "Commission or brokerage (other than insurance)",
+     "140", 2, 2, 2, 20, None, 20000, None, ""),
+    ("194IB", None, "194-IB", "393(1)", "2(i)",
+     "Rent paid by individual / HUF not under tax audit", "141",
+     2, 2, 2, 20, None, None, 50000,
+     "Filed in Form 141 (challan-cum-statement), not Form 140. Per month or part of a month."),
+    ("194I-PM", "1008", "194-I(a)", "393(1)", "2(ii)", "Rent — plant, machinery or equipment",
+     "140", 2, 2, 2, 20, None, None, 50000, "Threshold per month or part of a month."),
+    ("194I-LB", "1009", "194-I(b)", "393(1)", "2(ii)",
+     "Rent — land, building, furniture or fittings", "140",
+     10, 10, 10, 20, None, None, 50000, "Threshold per month or part of a month."),
+    ("194IA", None, "194-IA", "393(1)", "3(i)",
+     "Purchase of immovable property (other than agricultural land)", "141",
+     1, 1, 1, 20, 5000000, None, None,
+     "On the higher of consideration and stamp-duty value. Filed in Form 141. "
+     "Code differs between sources (1010 / 1011) — left blank."),
+    ("194K", "1013", "194K", "393(1)", "4(i)", "Income from units of mutual funds", "140",
+     10, 10, 10, 20, None, 10000, None, ""),
+    ("193", "1019", "193", "393(1)", "5(i)", "Interest on securities", "140",
+     10, 10, 10, 20, None, 10000, None, ""),
+    ("194A-SR", "1020", "194A", "393(1)", "5(ii)",
+     "Interest from bank / co-op bank / post office — senior citizen", "140",
+     10, None, None, 20, None, 100000, None, ""),
+    ("194A-BANK", "1021", "194A", "393(1)", "5(ii)",
+     "Interest from bank / co-op bank / post office — others", "140",
+     10, 10, 10, 20, None, 50000, None, ""),
+    ("194A-OTH", "1022", "194A", "393(1)", "5(iii)",
+     "Interest other than on securities — other payers", "140",
+     10, 10, 10, 20, None, 10000, None, ""),
+    ("194C-IND", "1023", "194C", "393(1)", "6(i) D(a)",
+     "Contractor / sub-contractor — payee individual or HUF", "140",
+     1, None, None, 20, 30000, 100000, None, "Use when the payee PAN's 4th letter is P or H."),
+    ("194C-OTH", "1024", "194C", "393(1)", "6(i) D(b)",
+     "Contractor / sub-contractor — other payees", "140",
+     None, 2, 2, 20, 30000, 100000, None, ""),
+    ("194M", None, "194M", "393(1)", "6(ii)",
+     "Work / professional fees / commission paid by individual or HUF "
+     "(not otherwise required to deduct)", "141",
+     2, 2, 2, 20, None, 5000000, None, "Filed in Form 141."),
+    ("194J-FTS", "1026", "194J(a)", "393(1)", "6(iii)",
+     "Fees for technical services, call centre, royalty for films", "140",
+     2, 2, 2, 20, None, 50000, None, ""),
+    ("194J-PROF", "1027", "194J(b)", "393(1)", "6(iii)",
+     "Fees for professional services, other royalty, non-compete fees", "140",
+     10, 10, 10, 20, None, 50000, None, ""),
+    ("194J-DIR", "1028", "194J", "393(1)", "6(iii)",
+     "Director's fees / commission (not salary)", "140",
+     10, 10, 10, 20, None, None, None, "No threshold."),
+    ("194", "1029", "194", "393(1)", "7", "Dividend", "140",
+     10, 10, 10, 20, None, 10000, None,
+     "₹10,000 relief only for an individual paid other than in cash (393(4))."),
+    ("194DA", "1030", "194DA", "393(1)", "8(i)",
+     "Payment under a life insurance policy (income part)", "140",
+     2, 2, 2, 20, None, 100000, None, ""),
+    ("194Q", "1031", "194Q", "393(1)", "8(ii)",
+     "Purchase of goods (buyer turnover above ₹10 crore)", "140",
+     0.1, 0.1, 0.1, 5, None, 5000000, None,
+     "Deduct on the amount above ₹50 lakh per seller per year."),
+    ("194R", "1033", "194R", "393(1)", "8(iv)",
+     "Benefit or perquisite of business / profession", "140",
+     10, 10, 10, 20, None, 20000, None, ""),
+    ("194O", "1035", "194-O", "393(1)", "8(v)",
+     "E-commerce operator — sales of participants", "140",
+     0.1, 0.1, 0.1, 5, None, None, None,
+     "₹5 lakh relief for individual / HUF participants with PAN or Aadhaar (393(4))."),
+    ("194S", "1037", "194S", "393(1)", "8(vi)", "Transfer of virtual digital asset", "140",
+     1, 1, 1, 20, None, 10000, None,
+     "₹50,000 where the payer is a specified individual / HUF (393(4))."),
+    # ── 393(3): winnings, cash withdrawals, partners ──
+    ("194B", "1058", "194B", "393(3)", "1",
+     "Winnings from lottery, crossword, card games, betting", "140",
+     30, 30, 30, 20, 10000, None, None, "Threshold per transaction."),
+    ("194BA", "1060", "194BA", "393(3)", "2", "Winnings from online games", "140",
+     30, 30, 30, 20, None, None, None, ""),
+    ("194BB", "1062", "194BB", "393(3)", "3", "Winnings from horse races", "140",
+     30, 30, 30, 20, 10000, None, None, "Threshold per transaction."),
+    ("194G", "1063", "194G", "393(3)", "4", "Commission on sale of lottery tickets", "140",
+     2, 2, 2, 20, None, 20000, None, ""),
+    ("194N-COOP", "1064", "194N", "393(3)", "5",
+     "Cash withdrawal — co-operative society", "140",
+     2, 2, 2, 20, None, 30000000, None,
+     "Sources describe this code differently — confirm in the Protean file format."),
+    ("194N", "1065", "194N", "393(3)", "5", "Cash withdrawal — others", "140",
+     2, 2, 2, 20, None, 10000000, None, ""),
+    ("194T", "1067", "194T", "393(3)", "7",
+     "Salary, remuneration, commission, bonus or interest to partners", "140",
+     10, 10, 10, 20, None, 20000, None, "Paid by a firm / LLP to its partners."),
+    # ── 393(2): non-residents ──
+    ("195", "1057", "195", "393(2)", "17",
+     "Other sums to non-residents (royalty, FTS, interest, etc.)", "144",
+     None, None, None, 20, None, None, None,
+     "Rate in force or tax-treaty rate. Confirm code in the Protean file format."),
+    # ── 392: salary ──
+    ("192", None, "192", "392", "", "Salary", "138",
+     None, None, None, 20, None, None, None, "As per slab (average rate). Code to be confirmed."),
 ]
 
 
@@ -202,6 +345,7 @@ def _migrate(conn):
     for col, decl in _DEDUCTOR_ADDED:
         if col not in have:
             conn.execute(f"ALTER TABLE deductors ADD COLUMN {col} {decl}")
+    _seed_pay_codes(conn)
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     vault.ensure_tables(conn)
     conn.commit()
@@ -506,6 +650,176 @@ def find_deductees(conn, deductor_id, text):
 
 def delete_deductee(conn, pid):
     conn.execute("DELETE FROM deductees WHERE id=?", (pid,))
+    conn.commit()
+
+
+# ---------------------------------------------------------------- payment codes
+PAY_CODE_FIELDS = [
+    "code", "old_section", "new_section", "sl_no", "nature", "form",
+    "rate_ind", "rate_company", "rate_other", "no_pan_rate",
+    "th_single", "th_year", "th_month", "code_checked", "active", "notes",
+]
+_PAY_RATES = ("rate_ind", "rate_company", "rate_other", "no_pan_rate")
+_PAY_AMOUNTS = ("th_single", "th_year", "th_month")
+_CODE_RE = re.compile(r"^\d{4}$")
+
+
+def _to_num(v):
+    """'1,00,000' / '₹50000' / '2%' / '' → float or None. Raises ValueError if not a number."""
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).replace(",", "").replace("₹", "").replace("%", "").strip()
+    if not s:
+        return None
+    return float(s)
+
+
+def _clean_pay_code(data: dict):
+    """Returns (clean dict, errors dict)."""
+    d, errors = {}, {}
+    for f in ("code", "old_section", "new_section", "sl_no", "nature", "form", "notes"):
+        d[f] = (data.get(f) or "").strip()
+    d["code"] = d["code"] or None
+    if not d["nature"]:
+        errors["nature"] = "Nature of payment is required"
+    if d["code"] and not _CODE_RE.match(d["code"]):
+        errors["code"] = "Payment code must be 4 digits"
+    if d["form"] not in PAY_FORM_NAME:
+        errors["form"] = "Select a return form"
+    for f in _PAY_RATES:
+        try:
+            v = _to_num(data.get(f))
+        except ValueError:
+            errors[f] = "Must be a number"
+            continue
+        if v is not None and not 0 <= v <= 100:
+            errors[f] = "Must be between 0 and 100"
+        d[f] = v
+    for f in _PAY_AMOUNTS:
+        try:
+            v = _to_num(data.get(f))
+        except ValueError:
+            errors[f] = "Must be an amount"
+            continue
+        if v is not None and v < 0:
+            errors[f] = "Cannot be negative"
+        d[f] = v
+    d["code_checked"] = 1 if (data.get("code_checked") and d["code"]) else 0
+    d["active"] = 1 if data.get("active") else 0
+    return d, errors
+
+
+def save_pay_code(conn, data: dict, pid: int = None) -> int:
+    d, errors = _clean_pay_code(data)
+    if errors:
+        raise ValueError(errors)
+    if d["code"]:
+        clash = conn.execute("SELECT id, nature FROM pay_codes WHERE code=? AND id != ?",
+                             (d["code"], pid or -1)).fetchone()
+        if clash:
+            raise ValueError({"code": f"Code already used by “{clash['nature']}”"})
+    now = _now()
+    if pid:
+        cols = ", ".join(f"{k}=?" for k in d)
+        conn.execute(f"UPDATE pay_codes SET {cols}, updated_at=? WHERE id=?",
+                     [*d.values(), now, pid])
+    else:
+        d.update(created_at=now, updated_at=now)
+        cols = ", ".join(d)
+        marks = ", ".join("?" for _ in d)
+        pid = conn.execute(f"INSERT INTO pay_codes({cols}) VALUES({marks})",
+                           list(d.values())).lastrowid
+    conn.commit()
+    return pid
+
+
+def get_pay_code(conn, pid):
+    return conn.execute("SELECT * FROM pay_codes WHERE id=?", (pid,)).fetchone()
+
+
+def list_pay_codes(conn, form=None, text="", include_inactive=True):
+    sql = "SELECT * FROM pay_codes WHERE 1=1"
+    args = []
+    if form:
+        sql += " AND form=?"
+        args.append(form)
+    if not include_inactive:
+        sql += " AND active=1"
+    t = (text or "").strip()
+    if t:
+        like = f"%{t}%"
+        sql += (" AND (code LIKE ? OR old_section LIKE ? OR new_section LIKE ? "
+                "OR sl_no LIKE ? OR nature LIKE ?)")
+        args += [like] * 5
+    sql += (" ORDER BY CASE form WHEN '140' THEN 1 WHEN '144' THEN 2 WHEN '138' THEN 3 "
+            "WHEN '143' THEN 4 ELSE 5 END, COALESCE(code, '9999'), old_section")
+    return conn.execute(sql, args).fetchall()
+
+
+def delete_pay_code(conn, pid):
+    row = get_pay_code(conn, pid)
+    if not row:
+        return
+    if row["seed_key"]:
+        raise ValueError("Built-in codes can't be deleted. Untick 'Active' to hide one.")
+    conn.execute("DELETE FROM pay_codes WHERE id=?", (pid,))
+    conn.commit()
+
+
+def pay_code_rate(row, deductee_type, pan_ok=True):
+    """Normal rate for this payee type; with no/inoperative PAN, the higher of
+    that rate and the no-PAN rate. None if the row has no rate (e.g. salary, 195)."""
+    if deductee_type in ("individual", "huf"):
+        rate = row["rate_ind"]
+    elif deductee_type == "company":
+        rate = row["rate_company"]
+    else:
+        rate = row["rate_other"]
+    if rate is None:
+        return None
+    if not pan_ok and row["no_pan_rate"] is not None:
+        rate = max(rate, row["no_pan_rate"])
+    return rate
+
+
+def _seed_pay_codes(conn, overwrite=False):
+    """Insert built-in rows that are missing. overwrite=True resets built-in rows
+    to MUNIM's defaults (your own rows are never touched)."""
+    have = {r[0] for r in conn.execute(
+        "SELECT seed_key FROM pay_codes WHERE seed_key IS NOT NULL")}
+    now = _now()
+    for values in PAY_CODE_SEED:
+        rec = dict(zip(_SEED_COLS, values))
+        key = rec["seed_key"]
+        if key in have and not overwrite:
+            continue
+        code = rec["code"] or None
+        if code:
+            other = conn.execute(
+                "SELECT 1 FROM pay_codes WHERE code=? AND (seed_key IS NULL OR seed_key != ?)",
+                (code, key)).fetchone()
+            if other:
+                code = None          # number already used on one of your own rows
+        rec["code"] = code
+        fields = {k: rec[k] for k in _SEED_COLS if k != "seed_key"}
+        if key in have:
+            cols = ", ".join(f"{k}=?" for k in fields)
+            conn.execute(
+                f"UPDATE pay_codes SET {cols}, code_checked=0, active=1, updated_at=? "
+                "WHERE seed_key=?", [*fields.values(), now, key])
+        else:
+            fields.update(seed_key=key, code_checked=0, active=1,
+                          created_at=now, updated_at=now)
+            cols = ", ".join(fields)
+            marks = ", ".join("?" for _ in fields)
+            conn.execute(f"INSERT INTO pay_codes({cols}) VALUES({marks})",
+                         list(fields.values()))
+
+
+def restore_pay_code_defaults(conn):
+    _seed_pay_codes(conn, overwrite=True)
     conn.commit()
 
 

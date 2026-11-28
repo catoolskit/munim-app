@@ -7,6 +7,7 @@ from ui.pro_deductee import DeducteePage
 from ui.pro_picker import EntityPicker, LABELS
 from ui.pro_consultant import ConsultantPage
 from ui.pro_deductor import DeductorPage
+from ui.pro_paycodes import PayCodesPage
 from db import pro_db
 from utils import licence
 
@@ -32,8 +33,8 @@ TDS_MENUS = [
                           ("Generate FVU", None), ("Form 27A", None),
                           ("Correction Statements", None)]),
     ("Certificates", [("Form 130 / 131 Import", None), ("Form 121 (15G / 15H)", None)]),
-    ("Reports", [("TDS Reports", None), ("Payment Codes", None)]),
-    ("Utilities", [("Consultant Master", "consultant")]),
+    ("Reports", [("TDS Reports", None)]),
+    ("Utilities", [("Payment Codes", "paycodes"), ("Consultant Master", "consultant")]),
 ]
 # Toolbar: (label, action_or_None)
 TDS_TOOLBAR = [("Deductors", "deductor"), ("Deductees", "deductee"),
@@ -125,12 +126,9 @@ class ProShell(ctk.CTkFrame):
     # ── TDS menu bar + toolbar ─────────────────────────────────────────────────
     def _show_tds_bars(self):
         self._close_dropdown()
-        self.menubar.pack(fill="x", after=self._topbar_ref(), before=self.body) \
-            if False else None
-        # pack menubar and toolbar right under the top bar, above the body
+        # menubar and toolbar sit right under the top bar, above the body
         self.menubar.pack(fill="x")
         self.toolbar.pack(fill="x")
-        # re-stack body last
         self.body.pack_forget()
         self.body.pack(fill="both", expand=True)
         self._build_menubar()
@@ -140,9 +138,6 @@ class ProShell(ctk.CTkFrame):
         self._close_dropdown()
         self.menubar.pack_forget()
         self.toolbar.pack_forget()
-
-    def _topbar_ref(self):
-        return self.winfo_children()[0]
 
     def _build_menubar(self):
         for w in self.menubar.winfo_children():
@@ -216,7 +211,9 @@ class ProShell(ctk.CTkFrame):
             self.show_deductee()
         elif action == "consultant":
             self.show_consultant()
-            
+        elif action == "paycodes":
+            self.show_paycodes()
+
     # ── navigation ────────────────────────────────────────────────────────────
     def state_of(self, m):
         if not m["ready"]:
@@ -317,7 +314,15 @@ class ProShell(ctk.CTkFrame):
         page = DeducteePage(self.body, self.con, self.username, full,
                             on_back=lambda: self.open_module("tds"))
         self._show(page, "deductee")
-        
+
+    def show_paycodes(self):
+        self.module = "tds"
+        self.switch.set("TDS Pro")
+        self._refresh_entity()
+        self._show_tds_bars()
+        page = PayCodesPage(self.body, self.con, on_back=lambda: self.open_module("tds"))
+        self._show(page, "paycodes")
+
     # ── pages ─────────────────────────────────────────────────────────────────
     def _tile(self, parent, m):
         state = self.state_of(m)
