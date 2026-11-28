@@ -433,13 +433,13 @@ def _try_date(text):
 
 
 def date_text(value):
-    """ISO string or date → DD-MM-YYYY for display."""
+    """ISO string or date → DD/MM/YYYY for display."""
     if not value:
         return ""
     if isinstance(value, datetime.date):
         return value.strftime("%d/%m/%Y")
     try:
-        return datetime.date.fromisoformat(str(value)).strftime("%d-%m-%Y")
+        return datetime.date.fromisoformat(str(value)).strftime("%d/%m/%Y")
     except ValueError:
         return str(value)
 
