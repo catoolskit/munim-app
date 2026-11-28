@@ -1,6 +1,6 @@
 """MUNIM Pro — Payment Codes (TDS Pro → Utilities).
-Old section → new section (Income-tax Act 2025) → 4-digit payment code, with
-rates and thresholds. TDS Entry will use this table to suggest code and rate."""
+New section (Income-tax Act 2025) → old section → 4-digit payment code, with
+rates and thresholds. TDS Entry uses this table to suggest code and rate."""
 from tkinter import messagebox
 
 import customtkinter as ctk
@@ -26,21 +26,27 @@ LABEL_OF = {
 }
 
 
-def _num_text(v):
+def num_text(v):
     if v is None:
         return ""
     v = float(v)
     return str(int(v)) if v.is_integer() else f"{v:g}"
 
 
-def _rate_text(r):
+def rate_text(r):
+    """One rate, or 'Ind·HUF / Company / Others' when they differ."""
     vals = [r["rate_ind"], r["rate_company"], r["rate_other"]]
     present = [v for v in vals if v is not None]
     if not present:
         return "per note"
     if len(set(present)) == 1:
-        return f"{_num_text(present[0])}%"
-    return " / ".join(_num_text(v) if v is not None else "–" for v in vals) + "%"
+        return f"{num_text(present[0])}%"
+    return " / ".join(num_text(v) if v is not None else "–" for v in vals) + "%"
+
+
+def section_text(r):
+    """'393(1) 6(i) D(a)' — the new-Act reference shown first everywhere."""
+    return f"{r['new_section'] or ''} {r['sl_no'] or ''}".strip() or "—"
 
 
 class PayCodesPage(ctk.CTkFrame):
@@ -55,7 +61,7 @@ class PayCodesPage(ctk.CTkFrame):
         head = ctk.CTkFrame(self, fg_color="transparent")
         head.pack(fill="x", padx=24, pady=(16, 6))
         T.title(head, "Payment Codes",
-                "Old section → new section (Income-tax Act 2025) → 4-digit payment code, "
+                "New section (Income-tax Act 2025) → old section → 4-digit payment code, "
                 "with rates and thresholds. TDS Entry uses this table.").pack(side="left")
         self.msg = ctk.CTkLabel(head, text="", font=T.f(12), text_color=T.MUTED)
         self.msg.pack(side="right", anchor="s")
@@ -71,7 +77,7 @@ class PayCodesPage(ctk.CTkFrame):
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
         bar = ctk.CTkFrame(left, fg_color="transparent")
         bar.pack(fill="x", pady=(0, 8))
-        self.search = T.entry(bar, "Search by code, section or nature…")
+        self.search = T.entry(bar, "Search by section, old section, code or nature…")
         self.search.pack(side="left", fill="x", expand=True)
         inner(self.search).bind("<KeyRelease>", lambda _e: self.refresh_list())
         self.filter = T.option_menu(bar, FILTER_VALUES, width=250)
@@ -80,8 +86,8 @@ class PayCodesPage(ctk.CTkFrame):
         self.filter.configure(command=lambda _v: self.refresh_list())
 
         self.table = DataTable(
-            left, [("code", "Code", 60, "w"), ("old", "Old §", 80, "w"),
-                   ("new", "New § / Sl.", 130, "w"), ("nature", "Nature of payment", 320, "w"),
+            left, [("new", "New section / Sl.", 140, "w"), ("old", "Old §", 80, "w"),
+                   ("code", "Code", 60, "w"), ("nature", "Nature of payment", 320, "w"),
                    ("rate", "Rate", 90, "w"), ("ok", "Checked", 70, "center")],
             height=16, empty_text="No payment codes match.")
         self.table.pack(fill="both", expand=True)
@@ -151,19 +157,18 @@ class PayCodesPage(ctk.CTkFrame):
                      font=T.f(11), text_color=T.MUTED, wraplength=440,
                      justify="left").pack(anchor="w", padx=18, pady=(2, 8))
 
-        r = self._row(p, "Payment code")
-        self.w["code"] = T.entry(r, "e.g. 1023", width=110); self.w["code"].pack(side="left")
-        self.w["code_checked"] = ctk.CTkCheckBox(r, text="Checked", font=T.f(12))
-        self.w["code_checked"].pack(side="left", padx=(12, 0))
-
-        r = self._row(p, "Old section")
-        self.w["old_section"] = T.entry(r, "e.g. 194C", width=140)
-        self.w["old_section"].pack(side="left")
         r = self._row(p, "New section / Sl.")
         self.w["new_section"] = T.entry(r, "393(1)", width=110)
         self.w["new_section"].pack(side="left")
         self.w["sl_no"] = T.entry(r, "6(i) D(a)", width=130)
         self.w["sl_no"].pack(side="left", padx=(8, 0))
+        r = self._row(p, "Old section")
+        self.w["old_section"] = T.entry(r, "e.g. 194C", width=140)
+        self.w["old_section"].pack(side="left")
+        r = self._row(p, "Payment code")
+        self.w["code"] = T.entry(r, "e.g. 1023", width=110); self.w["code"].pack(side="left")
+        self.w["code_checked"] = ctk.CTkCheckBox(r, text="Checked", font=T.f(12))
+        self.w["code_checked"].pack(side="left", padx=(12, 0))
         r = self._row(p, "Nature of payment *")
         self.w["nature"] = T.entry(r, width=320); self.w["nature"].pack(side="left")
         r = self._row(p, "Return form")
@@ -196,7 +201,7 @@ class PayCodesPage(ctk.CTkFrame):
         self.w["active"].pack(side="left")
         ctk.CTkFrame(p, height=10, fg_color="transparent").pack(fill="x")
 
-        order = [self.w[k] for k in ("code", "old_section", "new_section", "sl_no", "nature",
+        order = [self.w[k] for k in ("new_section", "sl_no", "old_section", "code", "nature",
                                      "rate_ind", "rate_company", "rate_other", "no_pan_rate",
                                      "th_single", "th_year", "th_month", "notes")]
         chain_enter(order, self.save)
@@ -236,7 +241,7 @@ class PayCodesPage(ctk.CTkFrame):
         self._set_kind("New row", T.OK, T.SUCCESS_BG)
         self.save_btn.configure(text="Add code")
         self.del_btn.configure(state="disabled")
-        focus_later(self.w["code"])
+        focus_later(self.w["new_section"])
 
     def _fill(self, row):
         self.editing_id = row["id"]
@@ -245,7 +250,7 @@ class PayCodesPage(ctk.CTkFrame):
             self._set(self.w[key], row[key])
         for key in ("rate_ind", "rate_company", "rate_other", "no_pan_rate",
                     "th_single", "th_year", "th_month"):
-            self._set(self.w[key], _num_text(row[key]))
+            self._set(self.w[key], num_text(row[key]))
         self.w["form"].set(pro_db.PAY_FORM_NAME.get(row["form"], pro_db.PAY_FORM_NAME["140"]))
         self.w["code_checked"].select() if row["code_checked"] else self.w["code_checked"].deselect()
         self.w["active"].select() if row["active"] else self.w["active"].deselect()
@@ -270,10 +275,9 @@ class PayCodesPage(ctk.CTkFrame):
         rows = pro_db.list_pay_codes(self.con, form=form, text=self.search.get())
         self.rows = {r["id"]: dict(r) for r in rows}
         self.table.set_rows([
-            ((r["code"] or "—", r["old_section"] or "",
-              f"{r['new_section'] or ''} {r['sl_no'] or ''}".strip(),
+            ((section_text(r), r["old_section"] or "", r["code"] or "—",
               r["nature"] + ("  (off)" if not r["active"] else ""),
-              _rate_text(r), "✓" if r["code_checked"] else ""),
+              rate_text(r), "✓" if r["code_checked"] else ""),
              None, r["id"]) for r in rows])
         checked = sum(1 for r in rows if r["code_checked"])
         self._say(f"{len(rows)} code(s) · {checked} checked")

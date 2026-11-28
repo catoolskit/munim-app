@@ -422,7 +422,7 @@ def parse_date(text):
             return datetime.datetime.strptime(s, fmt).date()
         except ValueError:
             pass
-    raise ValueError("Date must be DD-MM-YYYY")
+    raise ValueError("Date must be DD/MM/YYYY")
 
 
 def _try_date(text):
@@ -437,7 +437,7 @@ def date_text(value):
     if not value:
         return ""
     if isinstance(value, datetime.date):
-        return value.strftime("%d-%m-%Y")
+        return value.strftime("%d/%m/%Y")
     try:
         return datetime.date.fromisoformat(str(value)).strftime("%d-%m-%Y")
     except ValueError:
@@ -1001,7 +1001,7 @@ def _clean_tds_entry(conn, deductor_id, data):
         if paid is None:
             errors["paid_on"] = "Required"
         elif paid < NEW_ACT_START:
-            errors["paid_on"] = "MUNIM Pro covers the new Act only (from 01-04-2026)"
+            errors["paid_on"] = "MUNIM Pro covers the new Act only (from 01/04/2026)"
     except ValueError as e:
         errors["paid_on"] = str(e)
     try:
@@ -1072,7 +1072,8 @@ def save_tds_entry(conn, deductor_id, data: dict, eid: int = None) -> int:
 
 _ENTRY_SELECT = """
 SELECT e.*, d.name AS dee_name, d.pan AS dee_pan,
-       p.code AS pay_code, p.old_section AS old_section, p.nature AS nature
+       p.code AS pay_code, p.old_section AS old_section, p.nature AS nature,
+       p.new_section AS new_section, p.sl_no AS sl_no
 FROM tds_entries e
 JOIN deductees d ON d.id = e.deductee_id
 JOIN pay_codes p ON p.id = e.pay_code_id

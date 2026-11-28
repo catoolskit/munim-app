@@ -1,5 +1,6 @@
 """MUNIM Pro — shared UI helpers: masked password box, vault prompt,
-portal links, WhatsApp, fast mouse-wheel scrolling for long forms."""
+portal links, WhatsApp, fast mouse-wheel scrolling, date typing mask."""
+import re
 import urllib.parse
 import webbrowser
 from tkinter import messagebox, simpledialog
@@ -135,6 +136,79 @@ class SecretEntry(ctk.CTkFrame):
 
     def set_placeholder(self, text):
         self.entry.configure(placeholder_text=text)
+
+
+# ---------------------------------------------------------------------------
+# Date typing mask: digits only, slashes appear by themselves
+# ---------------------------------------------------------------------------
+_MASK_SKIP = {"BackSpace", "Delete", "Left", "Right", "Up", "Down", "Home", "End",
+              "Tab", "ISO_Left_Tab", "Return", "KP_Enter", "Escape",
+              "Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R"}
+
+
+def _mask_digits(text):
+    """'5/1/2026' → '05012026'; a single digit followed by a separator is padded."""
+    segs = re.split(r"\D", text)
+    out = ""
+    for i, s in enumerate(segs):
+        if i < len(segs) - 1 and len(s) == 1 and len(out) < 4:
+            s = "0" + s
+        out += s
+    return out[:8]
+
+
+def _mask_format(d):
+    out = d[:2]
+    if len(d) >= 2:
+        out += "/" + d[2:4]
+    if len(d) >= 4:
+        out += "/" + d[4:8]
+    return out
+
+
+def attach_date_mask(entry, year_for=None):
+    """Type 22 → '22/', 2212 → '22/12/', 22122026 → '22/12/2026'.
+    On leaving the box: '22/12' gets a year from year_for(day, month) if given,
+    and a 2-digit year '26' becomes 2026."""
+    from ui.ux import inner
+    box = inner(entry)
+
+    def on_key(event):
+        if event.keysym in _MASK_SKIP:
+            return
+        text = box.get()
+        try:
+            if box.index("insert") < len(text):     # editing in the middle: leave it
+                return
+        except Exception:
+            return
+        new = _mask_format(_mask_digits(text))
+        if new != text:
+            box.delete(0, "end")
+            box.insert(0, new)
+            box.icursor("end")
+
+    def on_leave(_e):
+        text = box.get()
+        if not text or not any(ch.isdigit() for ch in text):
+            return
+        d = _mask_digits(text)
+        if len(d) == 4 and year_for:
+            try:
+                y = year_for(int(d[:2]), int(d[2:4]))
+            except Exception:
+                y = None
+            if y:
+                d += str(y)
+        elif len(d) == 6:
+            d = d[:4] + "20" + d[4:]
+        new = _mask_format(d).rstrip("/")
+        if new != text:
+            box.delete(0, "end")
+            box.insert(0, new)
+
+    box.bind("<KeyRelease>", on_key, add="+")
+    box.bind("<FocusOut>", on_leave, add="+")
 
 
 # ---------------------------------------------------------------------------

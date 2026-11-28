@@ -42,6 +42,7 @@ TDS_TOOLBAR = [("Deductors", "deductor"), ("Deductees", "deductee"),
                ("TDS Entry", "tdsentry"), ("Challans", None)]
 
 SOON_FG, SOON_BG = "#8A5A00", "#FFF3D6"
+MENU_ACTIVE = "#154A38"
 
 
 class ProShell(ctk.CTkFrame):
@@ -57,6 +58,7 @@ class ProShell(ctk.CTkFrame):
         self.entity = {}
         self.page, self.page_name = None, ""
         self._open_menu = None
+        self._open_btn = None        # menu-bar title whose dropdown is open
         self._after_pick = None      # screen to open once a deductor is picked
 
         self._build_topbar()
@@ -146,7 +148,7 @@ class ProShell(ctk.CTkFrame):
             w.destroy()
         for title, items in TDS_MENUS:
             b = ctk.CTkButton(self.menubar, text=title, height=30, width=1,
-                              fg_color="transparent", hover_color="#154A38",
+                              fg_color="transparent", hover_color=MENU_ACTIVE,
                               text_color="white", font=T.f(12),
                               command=lambda t=title, it=items: self._toggle_menu(t, it))
             b.pack(side="left", padx=2, pady=4)
@@ -167,34 +169,42 @@ class ProShell(ctk.CTkFrame):
                      text_color="#8FB6A6").pack(side="right", padx=14)
 
     def _toggle_menu(self, title, items):
-        if self._open_menu and self._open_menu.winfo_exists() \
-                and getattr(self._open_menu, "_title", None) == title:
+        if self._open_menu is not None and getattr(self._open_menu, "_title", None) == title:
             self._close_dropdown()
             return
         self._close_dropdown()
-        # find the button to anchor under
         btn = next((w for w in self.menubar.winfo_children()
                     if isinstance(w, ctk.CTkButton) and w.cget("text") == title), None)
         if not btn:
             return
         top = self.winfo_toplevel()
-        x = btn.winfo_rootx() - top.winfo_rootx()
-        y = (self.menubar.winfo_rooty() - top.winfo_rooty()) + self.menubar.winfo_height()
+        # winfo_* gives real screen pixels, but CustomTkinter scales place(x, y) by the
+        # Windows display scaling (125%, 150%…) — so divide it out first.
+        try:
+            scale = ctk.ScalingTracker.get_widget_scaling(top)
+        except Exception:
+            scale = 1.0
+        x = (btn.winfo_rootx() - top.winfo_rootx()) / scale
+        y = (self.menubar.winfo_rooty() + self.menubar.winfo_height() - top.winfo_rooty()) / scale
+
         menu = ctk.CTkFrame(top, fg_color=T.CARD, border_width=1, border_color=T.BORDER,
-                            corner_radius=6)
+                            corner_radius=0)
         menu._title = title
+        ctk.CTkFrame(menu, height=3, fg_color=T.ACCENT, corner_radius=0).pack(fill="x")
         for label, action in items:
             enabled = action is not None
             ctk.CTkButton(
                 menu, text=label if enabled else f"{label}  (soon)",
-                anchor="w", height=30, fg_color="transparent",
+                anchor="w", width=240, height=32, corner_radius=4, fg_color="transparent",
                 hover_color=T.SURFACE_SELECTED if enabled else T.CARD,
                 text_color=T.TEXT if enabled else T.MUTED, font=T.f(12),
                 command=(lambda a=action: self._run_action(a)) if enabled else None
             ).pack(fill="x", padx=4, pady=1)
+        ctk.CTkFrame(menu, height=4, fg_color="transparent").pack(fill="x")
         menu.place(x=x, y=y)
         menu.lift()
-        self._open_menu = menu
+        btn.configure(fg_color=MENU_ACTIVE)
+        self._open_menu, self._open_btn = menu, btn
 
     def _close_dropdown(self, event=None):
         """Close the open dropdown. When called from a mouse click, clicks on the
@@ -209,7 +219,12 @@ class ProShell(ctk.CTkFrame):
                 self._open_menu.destroy()
         except Exception:
             pass
-        self._open_menu = None
+        try:
+            if self._open_btn is not None and self._open_btn.winfo_exists():
+                self._open_btn.configure(fg_color="transparent")
+        except Exception:
+            pass
+        self._open_menu, self._open_btn = None, None
 
     @staticmethod
     def _inside(widget, parents):

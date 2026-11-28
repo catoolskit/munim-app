@@ -9,28 +9,21 @@ import customtkinter as ctk
 from ui import theme as T
 from ui.ux import chain_enter, focus_later, inner
 from ui.widgets import DataTable
-from ui.pro_common import bind_wheel
+from ui.pro_common import bind_wheel, attach_date_mask
+from ui.pro_paycodes import rate_text, section_text, num_text
 from db import pro_db
 
 ALL_Q = "All quarters"
 QUARTERS = [ALL_Q, "Q1 (Apr–Jun)", "Q2 (Jul–Sep)", "Q3 (Oct–Dec)", "Q4 (Jan–Mar)"]
-CHOOSE = "— Choose payment code —"
 REASON_VALUES = [n for _c, n in pro_db.TDS_REASONS]
 REASON_CODE = {n: c for c, n in pro_db.TDS_REASONS}
 LIGHT = dict(fg_color="#E7ECF5", text_color=T.TEXT, hover_color="#DCE3F0")
 
 LABEL_OF = {
-    "deductee": "Deductee", "pay_code": "Payment code", "paid_on": "Paid / credited on",
+    "deductee": "Deductee", "pay_code": "Section / code", "paid_on": "Paid / credited on",
     "deducted_on": "Deducted on", "amount": "Amount", "rate": "Rate",
     "tds": "Tax deducted", "surcharge": "Surcharge", "cess": "Cess", "reason": "Reason",
 }
-
-
-def _num_text(v):
-    if v is None:
-        return ""
-    v = float(v)
-    return str(int(v)) if v.is_integer() else f"{v:g}"
 
 
 def _inr(v):
@@ -57,25 +50,26 @@ def _inr(v):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-class DeducteePicker(ctk.CTkToplevel):
-    """Small search window to choose one deductee of the current deductor."""
+class ListPicker(ctk.CTkToplevel):
+    """Search window: type to filter, double-click (or Enter on a single match) to pick.
+    fetch(text) must return [(values_tuple, row_dict_with_id), ...]."""
 
-    def __init__(self, master, con, deductor_id, on_pick):
+    def __init__(self, master, title, columns, fetch, on_pick, hint="Search…",
+                 empty_text="Nothing found.", size="720x500"):
         super().__init__(master)
-        self.title("Choose deductee")
-        self.geometry("640x480")
+        self.title(title)
+        self.geometry(size)
         self.transient(master.winfo_toplevel())
-        self.con, self.deductor_id, self.on_pick = con, deductor_id, on_pick
+        self.fetch, self.on_pick = fetch, on_pick
         self.rows = {}
 
-        self.search = T.entry(self, "Search by name, PAN or city…")
+        self.search = T.entry(self, hint)
         self.search.pack(fill="x", padx=14, pady=(14, 8))
-        self.table = DataTable(
-            self, [("name", "Name", 260, "w"), ("pan", "PAN", 120, "w"),
-                   ("type", "Type", 110, "w"), ("res", "Resident", 80, "w")],
-            height=12, empty_text="No deductees found.\nAdd them in Deductee Master.")
-        self.table.pack(fill="both", expand=True, padx=14, pady=(0, 14))
+        self.table = DataTable(self, columns, height=14, empty_text=empty_text)
+        self.table.pack(fill="both", expand=True, padx=14, pady=(0, 6))
         self.table.on_open(self._pick)
+        ctk.CTkLabel(self, text="Double-click a row to choose it  ·  Esc to close",
+                     font=T.f(11), text_color=T.MUTED).pack(anchor="w", padx=16, pady=(0, 10))
         inner(self.search).bind("<KeyRelease>", lambda _e: self.refresh())
         inner(self.search).bind("<Return>", self._enter)
         self.bind("<Escape>", lambda _e: self.destroy())
@@ -91,21 +85,17 @@ class DeducteePicker(ctk.CTkToplevel):
             pass
 
     def refresh(self):
-        text = self.search.get()
-        rows = (pro_db.find_deductees(self.con, self.deductor_id, text) if text.strip()
-                else pro_db.list_deductees(self.con, self.deductor_id))
-        self.rows = {r["id"]: dict(r) for r in rows}
-        self.table.set_rows([
-            ((r["name"], r["pan"] or "—", pro_db.DEDUCTEE_TYPE_NAME.get(r["type"], ""),
-              "Yes" if r["resident"] else "No"), None, r["id"]) for r in rows])
+        items = self.fetch(self.search.get())
+        self.rows = {row["id"]: row for _vals, row in items}
+        self.table.set_rows([(vals, None, row["id"]) for vals, row in items])
 
     def _enter(self, _e=None):
         if len(self.rows) == 1:
             self._pick(next(iter(self.rows)))
         return "break"
 
-    def _pick(self, pid):
-        row = self.rows.get(pid)
+    def _pick(self, rid):
+        row = self.rows.get(rid)
         if not row:
             return
         try:
@@ -124,7 +114,7 @@ class TdsEntryPage(ctk.CTkFrame):
         self.on_back = on_back or (lambda: None)
         self.editing_id = None
         self.deductee = None
-        self.code_map = {}
+        self.code_row = None
         self.rows = {}
         self.w = {}
         self._paid_last = ""
@@ -163,9 +153,9 @@ class TdsEntryPage(ctk.CTkFrame):
         inner(self.search).bind("<KeyRelease>", lambda _e: self.refresh_list())
 
         self.table = DataTable(
-            left, [("date", "Paid / credited", 110, "w"), ("dee", "Deductee", 230, "w"),
-                   ("code", "Code", 70, "w"), ("amt", "Amount ₹", 120, "e"),
-                   ("rate", "Rate", 60, "e"), ("tax", "Tax ₹", 110, "e")],
+            left, [("date", "Paid / credited", 110, "w"), ("dee", "Deductee", 210, "w"),
+                   ("sec", "Section", 130, "w"), ("code", "Code", 60, "w"),
+                   ("amt", "Amount ₹", 110, "e"), ("tax", "Tax ₹", 100, "e")],
             height=16, empty_text="No entries for this period yet.\n"
                                   "Add one using the form on the right.")
         self.table.pack(fill="both", expand=True)
@@ -198,7 +188,7 @@ class TdsEntryPage(ctk.CTkFrame):
     def _note(self, parent):
         r = self._row(parent, "")
         lbl = ctk.CTkLabel(r, text="", font=T.f(11), text_color=T.MUTED, anchor="w",
-                           justify="left", wraplength=380)
+                           justify="left", wraplength=400)
         lbl.pack(side="left")
         return lbl
 
@@ -225,19 +215,20 @@ class TdsEntryPage(ctk.CTkFrame):
         self.dee_lbl.pack(side="left", padx=10)
         self.dee_info = self._note(p)
 
-        r = self._row(p, "Payment code *")
-        self.code_menu = T.option_menu(r, [CHOOSE], width=360)
-        self.code_menu.pack(side="left")
-        self.code_menu.configure(command=self._code_changed)
+        r = self._row(p, "Section / code *")
+        self.code_btn = T.button(r, "Choose…", self.choose_code, width=100, **LIGHT)
+        self.code_btn.pack(side="left")
+        self.code_lbl = ctk.CTkLabel(r, text="", font=T.f(13, "bold"), anchor="w")
+        self.code_lbl.pack(side="left", padx=10)
         self.code_info = self._note(p)
 
         r = self._row(p, "Paid / credited on *")
-        self.w["paid_on"] = T.entry(r, "DD-MM-YYYY", width=140)
+        self.w["paid_on"] = T.entry(r, "DD/MM/YYYY", width=140)
         self.w["paid_on"].pack(side="left")
         ctk.CTkLabel(r, text="earlier of payment or credit", font=T.f(11),
                      text_color=T.MUTED).pack(side="left", padx=(8, 0))
         r = self._row(p, "Deducted on")
-        self.w["deducted_on"] = T.entry(r, "DD-MM-YYYY", width=140)
+        self.w["deducted_on"] = T.entry(r, "DD/MM/YYYY", width=140)
         self.w["deducted_on"].pack(side="left")
         r = self._row(p, "Amount ₹ *")
         self.w["amount"] = T.entry(r, width=160)
@@ -249,7 +240,7 @@ class TdsEntryPage(ctk.CTkFrame):
         self.w["rate"] = T.entry(r, width=90)
         self.w["rate"].pack(side="left")
         self.rate_hint = ctk.CTkLabel(r, text="", font=T.f(11), text_color=T.MUTED,
-                                      anchor="w", justify="left", wraplength=270)
+                                      anchor="w", justify="left", wraplength=280)
         self.rate_hint.pack(side="left", padx=(8, 0))
         r = self._row(p, "Tax deducted ₹")
         self.w["tds"] = T.entry(r, width=140)
@@ -273,7 +264,9 @@ class TdsEntryPage(ctk.CTkFrame):
         self.w["notes"].pack(side="left")
         ctk.CTkFrame(p, height=10, fg_color="transparent").pack(fill="x")
 
-        # live updates
+        # date typing mask first, so the date is complete before we read it
+        attach_date_mask(self.w["paid_on"], self._year_for)
+        attach_date_mask(self.w["deducted_on"], self._year_for)
         inner(self.w["paid_on"]).bind("<FocusOut>", lambda _e: self._paid_changed(), add="+")
         for key in ("amount", "rate"):
             inner(self.w[key]).bind("<KeyRelease>", lambda _e: self._recalc(), add="+")
@@ -309,34 +302,44 @@ class TdsEntryPage(ctk.CTkFrame):
         except ValueError:
             return None
 
+    def _year_for(self, _day, month):
+        """Year for a date typed without one, from the selected tax year."""
+        start = int(self.year_menu.get()[:4])
+        return start if month >= 4 else start + 1
+
     def _reset_borders(self):
         for w in self.w.values():
             w.configure(border_color=T.BORDER)
-
-    def _code_row(self):
-        return self.code_map.get(self.code_menu.get())
-
-    def _label_for_id(self, pid):
-        if pid is None:
-            return None
-        for label, row in self.code_map.items():
-            if row["id"] == pid:
-                return label
-        return None
 
     def _quarter(self):
         q = self.q_menu.get()
         return None if q == ALL_Q else q[:2]
 
-    # ── deductee + codes ──────────────────────────────────────────────────────
+    def _form(self):
+        return "140" if (self.deductee is None or self.deductee["resident"]) else "144"
+
+    # ── deductee ──────────────────────────────────────────────────────────────
     def choose_deductee(self):
-        DeducteePicker(self, self.con, self.deductor["id"], self._picked_deductee)
+        def fetch(text):
+            rows = (pro_db.find_deductees(self.con, self.deductor["id"], text) if text.strip()
+                    else pro_db.list_deductees(self.con, self.deductor["id"]))
+            return [((r["name"], r["pan"] or "—", pro_db.DEDUCTEE_TYPE_NAME.get(r["type"], ""),
+                      "Yes" if r["resident"] else "No"), dict(r)) for r in rows]
+
+        ListPicker(self, "Choose deductee",
+                   [("name", "Name", 260, "w"), ("pan", "PAN", 120, "w"),
+                    ("type", "Type", 110, "w"), ("res", "Resident", 80, "w")],
+                   fetch, self._picked_deductee, hint="Search by name, PAN or city…",
+                   empty_text="No deductees found.\nAdd them in Deductee Master.",
+                   size="640x480")
 
     def _picked_deductee(self, row):
         self._set_deductee(row)
-        if self._code_row():
-            self._code_changed(self.code_menu.get())
-        focus_later(self.w["paid_on"])
+        if self.code_row:
+            self._set_code(self.code_row)          # re-check code + rate for this payee
+            focus_later(self.w["paid_on"])
+        else:
+            self.after(200, self.choose_code)      # straight on to the section
 
     def _set_deductee(self, row):
         self.deductee = dict(row)
@@ -348,47 +351,53 @@ class TdsEntryPage(ctk.CTkFrame):
             info.append(f"Lower-deduction cert {row['lower_cert_no']} @ "
                         f"{row['lower_rate'] or '?'}%")
         self.dee_info.configure(text="  ·  ".join(i for i in info if i))
-        prev = self._code_row()
-        self._load_codes(keep_id=prev["id"] if prev else None)
+        if self.code_row and self.code_row["form"] != self._form():
+            self._clear_code()
 
-    def _load_codes(self, keep_id=None):
-        resident = self.deductee is None or self.deductee["resident"]
-        form = "140" if resident else "144"
-        rows = pro_db.list_pay_codes(self.con, form=form, include_inactive=False)
-        self.code_map = {}
-        for r in rows:
-            self._add_code(r)
-        if keep_id and self._label_for_id(keep_id) is None:
-            old = pro_db.get_pay_code(self.con, keep_id)
-            if old and old["form"] == form:          # inactive code on an old entry
-                self._add_code(old, suffix="  (off)")
-        self.code_menu.configure(values=[CHOOSE] + list(self.code_map))
-        self.code_menu.set(self._label_for_id(keep_id) or CHOOSE)
-
-    def _add_code(self, r, suffix=""):
-        label = f"{r['code'] or '—'} · {r['old_section'] or ''} · {r['nature']}"
-        if len(label) > 64:
-            label = label[:63] + "…"
-        label += suffix
-        if label in self.code_map:
-            label += f"  #{r['id']}"
-        self.code_map[label] = dict(r)
-
-    def _code_changed(self, label):
-        row = self.code_map.get(label)
-        if not row:
-            self.code_info.configure(text="")
+    # ── section / payment code ────────────────────────────────────────────────
+    def choose_code(self):
+        if not self.deductee:
+            self._say("Choose the deductee first.", T.DANGER)
+            self.choose_deductee()
             return
-        if self.deductee:
+        form = self._form()
+
+        def fetch(text):
+            rows = pro_db.list_pay_codes(self.con, form=form, text=text, include_inactive=False)
+            return [((section_text(r), r["old_section"] or "", r["code"] or "—", r["nature"],
+                      rate_text(r)), dict(r)) for r in rows]
+
+        ListPicker(self, f"Choose section / payment code — Form {form}",
+                   [("new", "New section / Sl.", 140, "w"), ("old", "Old §", 80, "w"),
+                    ("code", "Code", 60, "w"), ("nature", "Nature of payment", 380, "w"),
+                    ("rate", "Rate", 90, "w")],
+                   fetch, self._picked_code,
+                   hint="Search by section, old section (e.g. 194C), code or nature…",
+                   empty_text="No active codes for this form.\nCheck Utilities → Payment Codes.",
+                   size="900x520")
+
+    def _picked_code(self, row):
+        self._set_code(row)
+        focus_later(self.w["paid_on"])
+
+    def _set_code(self, row, check=True):
+        row = dict(row)
+        if check and self.deductee:
             alt = pro_db.contractor_code_for(self.con, row, self.deductee)
             if alt:
-                alt_label = self._label_for_id(alt["id"])
-                if alt_label:
-                    self.code_menu.set(alt_label)
-                    self._say(f"Switched to code {alt['code']}: it matches the deductee's type.",
-                              T.OK)
-        self._suggest_rate()
+                row = dict(alt)
+                self._say(f"Switched to code {alt['code']}: it matches the deductee's type.",
+                          T.OK)
+        self.code_row = row
+        self.code_lbl.configure(text=f"{section_text(row)}   ·   Code {row['code'] or '—'}")
+        if check:
+            self._suggest_rate()
         self._update_threshold_info()
+
+    def _clear_code(self):
+        self.code_row = None
+        self.code_lbl.configure(text="")
+        self.code_info.configure(text="")
 
     # ── rate / amounts ────────────────────────────────────────────────────────
     def _paid_changed(self):
@@ -398,12 +407,12 @@ class TdsEntryPage(ctk.CTkFrame):
         self._paid_last = text
         d = self._date("paid_on")
         if d and not self.w["deducted_on"].get().strip():
-            self._set(self.w["deducted_on"], d.strftime("%d-%m-%Y"))
+            self._set(self.w["deducted_on"], d.strftime("%d/%m/%Y"))
         self._suggest_rate()
         self._update_threshold_info()
 
     def _suggest_rate(self):
-        row = self._code_row()
+        row = self.code_row
         if not (self.deductee and row):
             return
         on = self._date("paid_on") or datetime.date.today()
@@ -411,7 +420,7 @@ class TdsEntryPage(ctk.CTkFrame):
         if rate is None:
             self.rate_hint.configure(text=note, text_color=T.DANGER)
             return
-        self._set(self.w["rate"], _num_text(rate))
+        self._set(self.w["rate"], num_text(rate))
         self.reason_menu.set(pro_db.TDS_REASON_NAME.get(reason, REASON_VALUES[0]))
         self._set(self.w["cert_no"], cert)
         self.rate_hint.configure(text=note, text_color=T.MUTED)
@@ -420,7 +429,7 @@ class TdsEntryPage(ctk.CTkFrame):
     def _recalc(self):
         amt, rate = self._num("amount"), self._num("rate")
         if amt is not None and rate is not None:
-            self._set(self.w["tds"], _num_text(pro_db.round_rupee(amt * rate / 100)))
+            self._set(self.w["tds"], num_text(pro_db.round_rupee(amt * rate / 100)))
         self._update_total()
         self._update_threshold_info()
 
@@ -429,10 +438,11 @@ class TdsEntryPage(ctk.CTkFrame):
         self.total_lbl.configure(text=f"₹ {_inr(total) or '0'}")
 
     def _update_threshold_info(self):
-        row = self._code_row()
-        if not (self.deductee and row):
+        row = self.code_row
+        if not row:
             self.code_info.configure(text="")
             return
+        lines = [f"{row['nature']}  (old section {row['old_section'] or '—'})"]
         parts = []
         if row["th_single"]:
             parts.append(f"₹{_inr(row['th_single'])} per payment")
@@ -440,22 +450,23 @@ class TdsEntryPage(ctk.CTkFrame):
             parts.append(f"₹{_inr(row['th_year'])} per year")
         if row["th_month"]:
             parts.append(f"₹{_inr(row['th_month'])} per month")
-        text = ("Threshold: " + ", ".join(parts)) if parts else "No threshold"
+        th = ("Threshold: " + ", ".join(parts)) if parts else "No threshold"
         paid = self._date("paid_on")
-        if paid:
+        if paid and self.deductee:
             ty = pro_db.tax_year_of(paid)
             amt = self._num("amount") or 0
             total = pro_db.year_total(self.con, self.deductor["id"], self.deductee["id"],
                                       row["id"], ty, self.editing_id) + amt
-            text += f".  This payee, this code, TY {ty}: ₹{_inr(total) or '0'} incl. this entry."
+            th += f".  This payee, this code, TY {ty}: ₹{_inr(total) or '0'} incl. this entry."
             if row["th_year"] and total <= row["th_year"] and \
                     (not row["th_single"] or amt <= row["th_single"]):
-                text += "  Below threshold so far — check whether TDS applies."
-        self.code_info.configure(text=text)
+                th += "  Below threshold so far — check whether TDS applies."
+        lines.append(th)
+        self.code_info.configure(text="\n".join(lines))
 
     # ── form state ────────────────────────────────────────────────────────────
     def _clear_form(self, keep=False):
-        """keep=True: after adding an entry, keep deductee / code / dates / rate
+        """keep=True: after adding an entry, keep deductee / section / dates / rate
         so the next payment to the same payee is quick to enter."""
         self.editing_id = None
         self._reset_borders()
@@ -466,12 +477,11 @@ class TdsEntryPage(ctk.CTkFrame):
             self.deductee = None
             self.dee_lbl.configure(text="")
             self.dee_info.configure(text="No deductee chosen.")
+            self._clear_code()
             for w in self.w.values():
                 self._set(w, "")
-            self._load_codes()
             self.reason_menu.set(REASON_VALUES[0])
             self.rate_hint.configure(text="")
-            self.code_info.configure(text="")
             self._paid_last = ""
         self._update_total()
         self.save_btn.configure(text="Add entry")
@@ -481,16 +491,17 @@ class TdsEntryPage(ctk.CTkFrame):
     def _fill(self, row):
         self.editing_id = row["id"]
         self._reset_borders()
-        dee = pro_db.get_deductee(self.con, row["deductee_id"])
-        self._set_deductee(dee)
-        self._load_codes(keep_id=row["pay_code_id"])
+        self._set_deductee(pro_db.get_deductee(self.con, row["deductee_id"]))
+        pc = pro_db.get_pay_code(self.con, row["pay_code_id"])
+        if pc:
+            self._set_code(pc, check=False)
         self._set(self.w["paid_on"], pro_db.date_text(row["paid_on"]))
         self._set(self.w["deducted_on"], pro_db.date_text(row["deducted_on"]))
         self._paid_last = self.w["paid_on"].get().strip()
         for key in ("amount", "rate", "tds", "surcharge", "cess"):
             v = row[key]
             self._set(self.w[key], "" if (key in ("surcharge", "cess") and not v)
-                      else _num_text(v))
+                      else num_text(v))
         self._set(self.w["cert_no"], row["cert_no"])
         self._set(self.w["notes"], row["notes"])
         self.reason_menu.set(pro_db.TDS_REASON_NAME.get(row["reason"] or "", REASON_VALUES[0]))
@@ -501,10 +512,9 @@ class TdsEntryPage(ctk.CTkFrame):
         self.del_btn.configure(state="normal")
 
     def _collect(self):
-        row = self._code_row()
         d = {k: w.get() for k, w in self.w.items()}
         d.update(deductee_id=self.deductee["id"] if self.deductee else None,
-                 pay_code_id=row["id"] if row else None,
+                 pay_code_id=self.code_row["id"] if self.code_row else None,
                  reason=REASON_CODE.get(self.reason_menu.get(), ""))
         return d
 
@@ -515,9 +525,9 @@ class TdsEntryPage(ctk.CTkFrame):
         self.rows = {r["id"]: dict(r) for r in rows}
         self.table.set_rows([
             ((pro_db.date_text(r["paid_on"]), r["dee_name"],
-              r["pay_code"] or r["old_section"] or "—", _inr(r["amount"]),
-              f"{_num_text(r['rate'])}%", _inr(r["total"]) or "0"), None, r["id"])
-            for r in rows])
+              f"{r['new_section'] or ''} {r['sl_no'] or ''}".strip() or r["old_section"] or "—",
+              r["pay_code"] or "—", _inr(r["amount"]), _inr(r["total"]) or "0"),
+             None, r["id"]) for r in rows])
         amt = sum(r["amount"] for r in rows)
         tax = sum(r["total"] for r in rows)
         self.totals.configure(text=f"{len(rows)} entr{'y' if len(rows) == 1 else 'ies'}   ·   "
