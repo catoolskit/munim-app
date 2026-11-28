@@ -5,7 +5,7 @@ import customtkinter as ctk
 
 from ui import theme as T
 from ui.ux import chain_enter, focus_later
-from ui.pro_common import SecretEntry, ensure_vault, copy_for_a_while
+from ui.pro_common import SecretEntry, ensure_vault, copy_for_a_while, bind_wheel
 from ui.pro_common import whatsapp  # noqa: F401  (kept for other screens)
 from db import pro_db
 from utils import vault
@@ -74,6 +74,7 @@ class ConsultantPage(ctk.CTkFrame):
         body.pack(fill="both", expand=True, padx=20)
         self._build_form(body)
         self._build_creds(body)
+        bind_wheel(body)
 
         order = [self.w[k] for k, _ in FIELDS_LEFT + FIELDS_RIGHT
                  if isinstance(self.w[k], ctk.CTkEntry)]

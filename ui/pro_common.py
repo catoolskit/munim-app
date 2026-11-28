@@ -1,5 +1,5 @@
 """MUNIM Pro — shared UI helpers: masked password box, vault prompt,
-portal links, WhatsApp."""
+portal links, WhatsApp, fast mouse-wheel scrolling for long forms."""
 import urllib.parse
 import webbrowser
 from tkinter import messagebox, simpledialog
@@ -135,3 +135,86 @@ class SecretEntry(ctk.CTkFrame):
 
     def set_placeholder(self, text):
         self.entry.configure(placeholder_text=text)
+
+
+# ---------------------------------------------------------------------------
+# Mouse-wheel scrolling for long forms (shared by all Pro screens)
+# ---------------------------------------------------------------------------
+WHEEL_PIXELS = 60            # pixels per wheel notch; raise = faster, lower = slower
+
+_wheel_targets = []          # [(container, canvas, pixels)] for every registered form
+_wheel_root = None           # root window the single global handler is bound to
+
+
+def _wheel_inside(widget, container, canvas):
+    """True if 'widget' is the form, its canvas, or anything inside the form."""
+    while widget is not None:
+        if widget is container or widget is canvas:
+            return True
+        widget = getattr(widget, "master", None)
+    return False
+
+
+def _wheel_dispatch(event):
+    """One global wheel handler: scroll whichever registered form is under the mouse."""
+    alive = []
+    for t in _wheel_targets:            # drop forms whose page has been closed
+        try:
+            if t[0].winfo_exists():
+                alive.append(t)
+        except Exception:
+            pass
+    _wheel_targets[:] = alive
+    if not alive:
+        return
+    try:
+        under = alive[0][0].winfo_containing(event.x_root, event.y_root)
+    except Exception:
+        return
+    if under is None:
+        return
+    for container, canvas, pixels in reversed(alive):    # newest form first
+        if not _wheel_inside(under, container, canvas):
+            continue
+        try:
+            if canvas.yview() == (0.0, 1.0):              # whole form already visible
+                return
+            canvas.yview_scroll(int(-(event.delta / 120) * pixels), "units")
+        except Exception:
+            pass
+        return
+
+
+def bind_wheel(container, canvas=None, pixels=WHEEL_PIXELS):
+    """Fast mouse-wheel scrolling for a scrollable form.
+
+    container : the CTkScrollableFrame (or a frame placed inside a Canvas)
+    canvas    : the Canvas that actually scrolls; found automatically for
+                a CTkScrollableFrame.
+    Works when the pointer is over any field, label or dropdown in the form.
+    Call once, right after the form is built.
+    """
+    global _wheel_root
+    if canvas is None:
+        canvas = getattr(container, "_parent_canvas", None)
+        if canvas is None:
+            canvas = container
+    try:
+        canvas.configure(yscrollincrement=1)      # 1 unit = 1 pixel
+    except Exception:
+        pass
+    # Switch off CustomTkinter's own (slow) wheel handler for this frame,
+    # otherwise both run and scrolling is jerky.
+    if hasattr(container, "check_if_master_is_canvas"):
+        container.check_if_master_is_canvas = lambda widget: False
+
+    _wheel_targets.append((container, canvas, pixels))
+
+    root = container.nametowidget(".")
+    try:
+        installed = _wheel_root is root and bool(root.winfo_exists())
+    except Exception:
+        installed = False
+    if not installed:
+        root.bind_all("<MouseWheel>", _wheel_dispatch, add="+")
+        _wheel_root = root

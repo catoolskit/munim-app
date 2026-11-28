@@ -1,12 +1,12 @@
 """MUNIM Pro — Deductor Master (TDS Pro).
 A deductor is a TAN holder for whom TDS/TCS returns are filed."""
-from tkinter import messagebox, simpledialog
+from tkinter import messagebox, simpledialog  # noqa: F401
 
 import customtkinter as ctk
 
 from ui import theme as T
 from ui.ux import chain_enter, focus_later
-from ui.pro_common import SecretEntry, ensure_vault, copy_for_a_while
+from ui.pro_common import SecretEntry, ensure_vault, copy_for_a_while, bind_wheel
 from ui.pro_picker import EntityPicker
 from db import pro_db
 from utils import vault
@@ -74,8 +74,8 @@ class DeductorPage(ctk.CTkFrame):
         self.tabs.pack(fill="both", expand=True, padx=22, pady=(4, 2))
         self.tabs.add("Details")
         self.tabs.add("Responsible Person")
-        self._build_grid(self.tabs.tab("Details"), DETAILS)
-        self._build_rp(self.tabs.tab("Responsible Person"))
+        self._build_grid(self._tab_body("Details"), DETAILS)
+        self._build_rp(self._tab_body("Responsible Person"))
         self._build_creds()
 
         order = [self.w[f] for f, _ in DETAILS + RP if isinstance(self.w[f], ctk.CTkEntry)]
@@ -89,6 +89,14 @@ class DeductorPage(ctk.CTkFrame):
         kw = {} if primary else dict(fg_color="#E7ECF5", text_color=T.TEXT,
                                      hover_color="#DCE3F0")
         return T.button(parent, text, cmd, width=max(72, 9 * len(text) + 26), height=34, **kw)
+
+    def _tab_body(self, name):
+        """Scrollable area inside a tab, so the form fits smaller screens."""
+        sf = ctk.CTkScrollableFrame(self.tabs.tab(name), fg_color="transparent",
+                                    corner_radius=0)
+        sf.pack(fill="both", expand=True)
+        bind_wheel(sf)
+        return sf
 
     def _field(self, parent, key, row, col):
         if key == "state_code" or key == "rp_state_code":

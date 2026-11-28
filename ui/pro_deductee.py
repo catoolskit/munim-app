@@ -4,9 +4,11 @@ from tkinter import messagebox
 import customtkinter as ctk
 
 from ui import theme as T
-from ui.ux import chain_enter, focus_later
+from ui.ux import chain_enter, focus_later, inner
 from ui.widgets import DataTable
+from ui.pro_common import bind_wheel
 from db import pro_db
+from utils import validate
 
 SELECT = "— Select —"
 STATE_VALUES = [SELECT] + [f"{c} - {n}" for c, n in pro_db.STATES]
@@ -24,6 +26,8 @@ class DeducteePage(ctk.CTkFrame):
         self.on_back = on_back or (lambda: None)
         self.editing_id = None
         self.w = {}
+        self.rows = {}
+        self._last_pan = ""
 
         head = ctk.CTkFrame(self, fg_color="transparent")
         head.pack(fill="x", padx=24, pady=(16, 6))
@@ -44,7 +48,6 @@ class DeducteePage(ctk.CTkFrame):
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
         self.search = T.entry(left, "Search by name, PAN or city…")
         self.search.pack(fill="x", pady=(0, 8))
-        from ui.ux import inner
         inner(self.search).bind("<KeyRelease>", lambda _e: self.refresh_list())
         self.table = DataTable(
             left, [("name", "Name", 200, "w"), ("pan", "PAN", 120, "w"),
@@ -53,31 +56,16 @@ class DeducteePage(ctk.CTkFrame):
         self.table.pack(fill="both", expand=True)
         self.table.on_open(self._edit)
 
-        # right: form in a scrollable card
-        right = ctk.CTkScrollableFrame(split, fg_color=T.CARD, border_width=1,
-                                       border_color=T.BORDER, corner_radius=12)
-        right.grid(row=0, column=1, sticky="nsew")
-        self._build_form(right)
-        self._bind_wheel(right)
+        # right: card = scrollable form on top + button bar pinned at the bottom
+        card = ctk.CTkFrame(split, fg_color=T.CARD, border_width=1,
+                            border_color=T.BORDER, corner_radius=12)
+        card.grid(row=0, column=1, sticky="nsew")
+        self._build_buttons(card)            # packed first so it never scrolls away
+        form = ctk.CTkScrollableFrame(card, fg_color="transparent", corner_radius=0)
+        form.pack(fill="both", expand=True, padx=3, pady=(3, 0))
+        self._build_form(form)
+        bind_wheel(form)
 
-    def _bind_wheel(self, scroll_frame):
-        """Make the mouse wheel scroll the form from anywhere inside it."""
-        canvas = getattr(scroll_frame, "_parent_canvas", None)
-        if canvas is None:
-            return
-
-        def on_wheel(event):
-            canvas.yview_scroll(int(-event.delta / 40), "units")
-            return "break"
-
-        def bind_all(widget):
-            widget.bind("<MouseWheel>", on_wheel, add="+")
-            for child in widget.winfo_children():
-                bind_all(child)
-
-        self.after(200, lambda: bind_all(scroll_frame))
-
-        self.rows = {}
         self.refresh_list()
         self._clear_form()
 
@@ -88,6 +76,18 @@ class DeducteePage(ctk.CTkFrame):
         ctk.CTkLabel(r, text=label, font=T.f(12), text_color=T.MUTED, width=130,
                      anchor="e").pack(side="left", padx=(0, 10))
         return r
+
+    def _build_buttons(self, card):
+        bar = ctk.CTkFrame(card, fg_color="transparent")
+        bar.pack(side="bottom", fill="x", padx=18, pady=(8, 12))
+        ctk.CTkFrame(card, height=1, fg_color=T.BORDER).pack(side="bottom", fill="x", padx=12)
+        self.save_btn = T.button(bar, "Add deductee", self.save, width=150)
+        self.save_btn.pack(side="left", padx=(0, 8))
+        T.button(bar, "Clear", self._clear_form, width=90, fg_color="#E7ECF5",
+                 text_color=T.TEXT, hover_color="#DCE3F0").pack(side="left", padx=(0, 8))
+        self.del_btn = T.button(bar, "Delete", self.delete, width=90, fg_color=T.DANGER,
+                                hover_color="#A32F23")
+        self.del_btn.pack(side="left")
 
     def _build_form(self, p):
         ctk.CTkLabel(p, text="Deductee details", font=T.f(16, "bold")).pack(
@@ -100,6 +100,9 @@ class DeducteePage(ctk.CTkFrame):
         self.w["pan"] = T.entry(r, width=150); self.w["pan"].pack(side="left")
         self.w["pan_status"] = T.option_menu(r, PAN_STATUS_VALUES, width=150)
         self.w["pan_status"].pack(side="left", padx=(8, 0))
+        pan_inner = inner(self.w["pan"])
+        pan_inner.bind("<KeyRelease>", lambda _e: self._pan_changed(), add="+")
+        pan_inner.bind("<FocusOut>", lambda _e: self._pan_changed(), add="+")
 
         r = self._row(p, "Type")
         self.w["type"] = T.option_menu(r, TYPE_VALUES, width=180); self.w["type"].pack(side="left")
@@ -154,15 +157,8 @@ class DeducteePage(ctk.CTkFrame):
         r = self._row(p, "E-mail")
         self.w["email"] = T.entry(r, width=300); self.w["email"].pack(side="left")
 
-        bar = ctk.CTkFrame(p, fg_color="transparent")
-        bar.pack(fill="x", padx=18, pady=(14, 18))
-        self.save_btn = T.button(bar, "Add deductee", self.save, width=150)
-        self.save_btn.pack(side="left", padx=(0, 8))
-        T.button(bar, "Clear", self._clear_form, width=90, fg_color="#E7ECF5",
-                 text_color=T.TEXT, hover_color="#DCE3F0").pack(side="left", padx=(0, 8))
-        self.del_btn = T.button(bar, "Delete", self.delete, width=90, fg_color=T.DANGER,
-                                hover_color="#A32F23")
-        self.del_btn.pack(side="left")
+        # a little space under the last field so it isn't hidden behind the button bar
+        ctk.CTkFrame(p, height=10, fg_color="transparent").pack(fill="x")
 
         order = [self.w[k] for k in ("name", "pan", "lower_cert_no", "lower_rate",
                                      "father_name", "designation", "dob", "addr1",
@@ -182,6 +178,20 @@ class DeducteePage(ctk.CTkFrame):
         if value:
             entry.insert(0, str(value))
 
+    def _pan_changed(self):
+        """When a valid PAN is typed, set Type from its 4th letter."""
+        pan = validate.clean(self.w["pan"].get())
+        if pan == self._last_pan:
+            return
+        self._last_pan = pan
+        if not validate.is_pan(pan):
+            return
+        want = validate.type_for_pan(pan, TYPE_VALUES,
+                                     prefer_foreign=not self.w["resident"].get())
+        if want and want != self.w["type"].get():
+            self.w["type"].set(want)
+            self._say(f"Type set to {want} from the PAN (4th letter {pan[3]}).", T.OK)
+
     def _clear_form(self):
         self.editing_id = None
         for key, w in self.w.items():
@@ -194,6 +204,7 @@ class DeducteePage(ctk.CTkFrame):
         self.w["state_code"].set(SELECT)
         self.w["form16a_freq"].set("Quarterly")
         self.w["resident"].select()
+        self._last_pan = ""
         self.save_btn.configure(text="Add deductee")
         self.del_btn.configure(state="disabled")
         focus_later(self.w["name"])
@@ -212,6 +223,7 @@ class DeducteePage(ctk.CTkFrame):
         self.w["form16a_freq"].set(row["form16a_freq"] or "Quarterly")
         for flag in ("is_employee", "resident", "higher_rate"):
             self.w[flag].select() if row[flag] else self.w[flag].deselect()
+        self._last_pan = validate.clean(row["pan"])
         self.save_btn.configure(text="Save changes")
         self.del_btn.configure(state="normal")
 
@@ -229,6 +241,22 @@ class DeducteePage(ctk.CTkFrame):
         fv = self.w["form16a_freq"].get()
         d["form16a_freq"] = "" if fv == SELECT else fv
         return d
+
+    def _confirm_pan_checks(self, d):
+        """Warn (but allow saving) if name / Type don't match the PAN."""
+        warns = []
+        w = validate.pan_name_warning(d.get("pan", ""), d.get("name", ""))
+        if w:
+            warns.append(w)
+        w = validate.pan_type_warning(d.get("pan", ""), self.w["type"].get())
+        if w:
+            warns.append(w)
+        if not warns:
+            return True
+        return messagebox.askyesno(
+            "Please check the PAN",
+            "\n\n".join(warns) + "\n\nA wrong deductee type causes errors in the TDS "
+            "statement.\n\nSave anyway?", parent=self)
 
     # ── list ──────────────────────────────────────────────────────────────────
     def refresh_list(self):
@@ -249,6 +277,8 @@ class DeducteePage(ctk.CTkFrame):
 
     def save(self):
         d = self._collect()
+        if not self._confirm_pan_checks(d):
+            return
         try:
             pid = pro_db.save_deductee(self.con, self.deductor["id"], d, self.editing_id)
         except ValueError as e:
@@ -259,9 +289,9 @@ class DeducteePage(ctk.CTkFrame):
             else:
                 self._say(str(e), T.DANGER)
             return
-        self._say("Saved ✓", T.OK)
         self.refresh_list()
         self._clear_form()
+        self._say("Saved ✓", T.OK)
         # keep focus flowing for fast entry of the next payee
         focus_later(self.w["name"])
 
